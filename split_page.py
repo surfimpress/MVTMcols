@@ -102,13 +102,32 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
         dark_thresh = 60
         std_thresh = 45
 
-    # Collect boundaries from every strip.
-    # Include ALL confidence levels for consensus voting —
-    # a position that recurs across strips is real even if
-    # individual detections are low-confidence.
+    # ── Strip weighting ────────────────────────────────────────────
+    # Middle strips are most reliable for grid detection (body text,
+    # fewer ads). Edge strips help measure skew but are noisy.
+    STRIP_WEIGHTS = {
+        3: 0.5,   # upper — ads, mastheads
+        4: 0.8,   # upper-mid
+        5: 1.0,   # mid — best body text
+        6: 1.0,   # mid — best body text
+        7: 0.8,   # lower-mid
+        8: 0.5,   # lower — ads, footers
+        9: 0.3,   # bottom — margin noise
+    }
+
+    # Content bounds from profile
+    if page_prof:
+        x_lo = page_prof["content_x_start_frac"] * 100
+        x_hi = page_prof["content_x_end_frac"] * 100
+    else:
+        x_lo, x_hi = 5.0, 95.0
+
+    # Collect boundaries from every strip with their weights
     all_positions = []
 
     for strip_idx, grid_y in enumerate(CONSENSUS_ROWS):
+        strip_weight = STRIP_WEIGHTS.get(grid_y, 0.5)
+
         try:
             results = find_column_boundaries(
                 pdf_path, x=1, y=grid_y, w=10, h=1,
@@ -117,14 +136,6 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
             )
         except Exception:
             continue
-
-        # Keep boundaries within the content area.
-        # Use profile content bounds if available, otherwise 5%-95%.
-        if page_prof:
-            x_lo = page_prof["content_x_start_frac"] * 100
-            x_hi = page_prof["content_x_end_frac"] * 100
-        else:
-            x_lo, x_hi = 5.0, 95.0
 
         for r in results:
             if not (x_lo < r.page_pct < x_hi):
@@ -137,9 +148,9 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
                     "valley_depth": r.valley_depth,
                     "darkness": r.peak_darkness,
                     "strip": grid_y,
+                    "weight": strip_weight,
                 })
             elif r.row_std < std_thresh or r.valley_depth > 40:
-                # Low confidence but structurally promising
                 all_positions.append({
                     "pct": r.page_pct,
                     "confidence": r.confidence,
@@ -147,6 +158,7 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
                     "valley_depth": r.valley_depth,
                     "darkness": r.peak_darkness,
                     "strip": grid_y,
+                    "weight": strip_weight * 0.5,  # downweight low-conf
                 })
 
     if not all_positions:
@@ -165,38 +177,52 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
             current_cluster = [pos]
     clusters.append(current_cluster)
 
-    # Score each cluster by:
-    # 1. How many distinct strips contributed (breadth)
-    # 2. Weighted confidence score (quality)
-    # A boundary appearing in 3+ strips with any confidence is likely real.
-    # A boundary appearing in 2 strips but both high-confidence is also real.
+    # Score each cluster using position-weighted contributions.
+    # Middle strips count more than edge strips. The weighted score
+    # determines whether a boundary is real (column rule) or noise
+    # (ad border that only appears in one region of the page).
     num_strips = len(CONSENSUS_ROWS)
-    conf_weights = {"high": 3, "medium": 2, "low": 1}
+    max_possible_weight = sum(STRIP_WEIGHTS.get(r, 0.5) for r in CONSENSUS_ROWS)
 
     boundaries = []
     for cluster in clusters:
         strips_hit = len(set(p["strip"] for p in cluster))
-        weighted_score = sum(conf_weights.get(p["confidence"], 0) for p in cluster)
+        weighted_score = sum(p.get("weight", 0.5) for p in cluster)
+
         # Use the detection with lowest row_std as representative
         best = min(cluster, key=lambda p: p["row_std"])
-        mean_pct = np.mean([p["pct"] for p in cluster])
 
-        # Accept if:
-        # - appears in 3+ strips (strong spatial consensus), OR
-        # - appears in 2+ strips with decent confidence score
-        accept = (strips_hit >= 3) or (strips_hit >= 2 and weighted_score >= 4)
+        # Weighted mean position (middle strips' positions count more)
+        total_w = sum(p.get("weight", 0.5) for p in cluster)
+        if total_w > 0:
+            wmean_pct = sum(p["pct"] * p.get("weight", 0.5) for p in cluster) / total_w
+        else:
+            wmean_pct = np.mean([p["pct"] for p in cluster])
+
+        # Measure drift: how much does the position vary across strips?
+        # High drift = skew/warp. Store for downstream buffer calculation.
+        if strips_hit >= 2:
+            pct_values = [p["pct"] for p in cluster]
+            drift = float(max(pct_values) - min(pct_values))
+        else:
+            drift = 0.0
+
+        # Accept if weighted score exceeds threshold.
+        # This replaces the raw strip-count check with a position-aware one.
+        accept = (weighted_score >= 1.5) or (strips_hit >= 3)
 
         if accept:
             boundaries.append({
-                "x_pct": round(float(mean_pct), 2),
+                "x_pct": round(float(wmean_pct), 2),
                 "peak_darkness": best["darkness"],
                 "row_std": best["row_std"],
                 "valley_depth": best["valley_depth"],
                 "confidence": best["confidence"],
                 "strips_hit": strips_hit,
                 "total_strips": num_strips,
-                "consensus": round(strips_hit / num_strips, 2),
-                "weighted_score": weighted_score,
+                "consensus": round(weighted_score / max_possible_weight, 2),
+                "weighted_score": round(weighted_score, 2),
+                "drift": round(drift, 2),
             })
 
     # Sort by position
@@ -208,10 +234,12 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
     # If we have more, keep the subset that forms the most regular grid.
     MAX_BOUNDARIES = 8
 
+    # Always merge boundaries that are too close together first
+    boundaries = _remove_narrow_columns(boundaries, min_width_pct=7.0)
+
+    # Then prune to max if still too many
     if len(boundaries) > MAX_BOUNDARIES:
         boundaries = _select_best_grid(boundaries, MAX_BOUNDARIES)
-    else:
-        boundaries = _remove_narrow_columns(boundaries, min_width_pct=5.0)
 
     # ── Regularise the grid ──────────────────────────────────────────
     # The column grid is always regular within a page. Infer the pitch
@@ -223,50 +251,41 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
     return boundaries, CONSENSUS_ROWS, _validate(boundaries)
 
 
-def _remove_narrow_columns(boundaries, min_width_pct=5.0):
-    """Remove boundaries that create columns narrower than min_width_pct."""
+def _remove_narrow_columns(boundaries, min_width_pct=7.0):
+    """
+    Merge boundaries that are too close together.
+
+    Two rules within min_width_pct of each other can't form a real
+    column — one is a false detection (ad border, text edge). Keep
+    the one with higher weighted_score.
+    """
     if len(boundaries) < 2:
         return boundaries
 
-    # Build column widths from boundaries
-    edges = [0.0] + [b["x_pct"] for b in boundaries] + [100.0]
-    widths = [edges[i+1] - edges[i] for i in range(len(edges)-1)]
+    boundaries = sorted(boundaries, key=lambda b: b["x_pct"])
+    result = [boundaries[0]]
 
-    # Find narrow columns and remove the weaker of their two boundaries
-    to_remove = set()
-    for i, w in enumerate(widths):
-        if w < min_width_pct and 0 < i < len(widths) - 1:
-            # Narrow interior column: remove the boundary with lower score
-            left_b = boundaries[i - 1] if i > 0 else None
-            right_b = boundaries[i] if i < len(boundaries) else None
-            if left_b and right_b:
-                left_score = left_b.get("weighted_score", 0)
-                right_score = right_b.get("weighted_score", 0)
-                if left_score <= right_score:
-                    to_remove.add(i - 1)
-                else:
-                    to_remove.add(i)
-            elif left_b:
-                to_remove.add(i - 1)
-            elif right_b:
-                to_remove.add(i)
+    for b in boundaries[1:]:
+        if b["x_pct"] - result[-1]["x_pct"] < min_width_pct:
+            # Too close — keep the stronger one
+            if b.get("weighted_score", 0) > result[-1].get("weighted_score", 0):
+                result[-1] = b
+        else:
+            result.append(b)
 
-    return [b for i, b in enumerate(boundaries) if i not in to_remove]
+    return result
 
 
 def _regularise_grid(boundaries):
     """
-    Enforce a regular column grid.
+    Fill in missing column boundaries using the detected grid pitch.
 
     The newspaper's column grid is always evenly spaced within a page.
-    This function:
-    1. Finds the dominant pitch from the narrowest column widths
-    2. Computes how many columns should fit in the total span
-    3. Generates the ideal regular grid
-    4. Matches detected boundaries to grid positions
-    5. Interpolates missing positions (capped at 7 columns = 8 boundaries)
+    Detected boundaries stay at their detected positions — they mark
+    where the actual printed rules are. This function only ADDS missing
+    boundaries by interpolation where a gap is too wide for one column.
 
-    Returns the regularised boundary list.
+    Returns the augmented boundary list.
     """
     if len(boundaries) < 3:
         return boundaries
@@ -277,23 +296,18 @@ def _regularise_grid(boundaries):
     if not widths:
         return boundaries
 
-    # Find the dominant pitch from the narrower columns.
-    # Wide columns are the ones with missed boundaries — exclude them.
-    # Use the lower half of widths as the "true pitch" sample.
-    sorted_widths = sorted(widths)
-    narrow_half = sorted_widths[:max(1, len(sorted_widths) // 2 + 1)]
-    pitch = float(np.mean(narrow_half))
+    # Find the dominant pitch: the most common column width.
+    # Wide columns have missed boundaries — exclude them.
+    # Strategy: find the tightest cluster of widths. The minimum width
+    # is the best single-column indicator, and widths within 30% of
+    # the minimum are also single columns.
+    min_w = min(widths)
+    single_col_widths = [w for w in widths if w < min_w * 1.3]
+    if not single_col_widths:
+        single_col_widths = [min_w]
+    pitch = float(np.mean(single_col_widths))
 
     if pitch < 3.0:
-        return boundaries  # degenerate case
-
-    # How many columns should fit?
-    span = positions[-1] - positions[0]
-    expected_cols = round(span / pitch)
-
-    # Cap at 7 columns (8 boundaries)
-    expected_cols = min(expected_cols, 7)
-    if expected_cols < 2:
         return boundaries
 
     # Are the widths already regular enough? If CV < 0.15, don't touch.
@@ -301,46 +315,50 @@ def _regularise_grid(boundaries):
     if cv < 0.15:
         return boundaries
 
-    # Generate the ideal regular grid
-    regular_pitch = span / expected_cols
-    grid = [positions[0] + i * regular_pitch for i in range(expected_cols + 1)]
+    # Walk through adjacent boundary pairs. If a gap is wider than
+    # 1.5x the pitch, interpolate the missing boundaries within it.
+    # Detected boundaries NEVER move — they stay at their detected x_pct.
+    result = [boundaries[0]]
 
-    # Match each grid position to the nearest detected boundary.
-    # If a grid position has no nearby detection (> pitch * 0.3 away),
-    # interpolate it as a new boundary.
-    SNAP_TOLERANCE = regular_pitch * 0.3
-    result = []
-
-    for g_pos in grid:
-        # Find nearest detected boundary
-        best_match = None
-        best_dist = float("inf")
-        for b in boundaries:
-            dist = abs(b["x_pct"] - g_pos)
-            if dist < best_dist:
-                best_dist = dist
-                best_match = b
-
-        if best_dist <= SNAP_TOLERANCE and best_match is not None:
-            # Snap: use the detected boundary but at the grid position
-            result.append({
-                **best_match,
-                "x_pct": round(g_pos, 2),
-                "snapped_from": round(best_match["x_pct"], 2),
-            })
+    for i in range(len(boundaries) - 1):
+        gap = positions[i + 1] - positions[i]
+        # How many columns fit in this gap?
+        # A gap of 1.4x pitch or wider contains a missing boundary.
+        ratio = gap / pitch
+        if ratio < 1.4:
+            missing_count = 0
         else:
-            # Interpolate: no detected boundary near this grid position
-            result.append({
-                "x_pct": round(g_pos, 2),
-                "peak_darkness": 0,
-                "row_std": 0,
-                "valley_depth": 0,
-                "confidence": "interpolated",
-                "strips_hit": 0,
-                "total_strips": 0,
-                "consensus": 0,
-                "weighted_score": 0,
-            })
+            # round() rounds 1.5 to 2, but 1.4-1.49 rounds to 1.
+            # We want 1.4+ to always mean "at least 2 columns here".
+            cols_in_gap = max(2, round(ratio))
+            missing_count = cols_in_gap - 1
+
+        if missing_count > 0:
+            # Subdivide this gap evenly
+            step = gap / (missing_count + 1)
+            for m in range(1, missing_count + 1):
+                interp_x = positions[i] + m * step
+                result.append({
+                    "x_pct": round(interp_x, 2),
+                    "peak_darkness": 0,
+                    "row_std": 0,
+                    "valley_depth": 0,
+                    "confidence": "interpolated",
+                    "strips_hit": 0,
+                    "total_strips": 0,
+                    "consensus": 0,
+                    "weighted_score": 0,
+                })
+
+        result.append(boundaries[i + 1])
+
+    # Cap total boundaries at 8 (= 7 columns max)
+    if len(result) > 8:
+        # Keep the detected ones and trim interpolated from edges
+        detected = [b for b in result if b["confidence"] != "interpolated"]
+        interpolated = [b for b in result if b["confidence"] == "interpolated"]
+        result = detected + interpolated[:8 - len(detected)]
+        result.sort(key=lambda b: b["x_pct"])
 
     return result
 
@@ -481,9 +499,16 @@ def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
 
         col_num += 1
 
-        # Add buffer for the crop (generous to avoid clipping text)
-        crop_left = max(0, left - buffer_vw)
-        crop_right = min(100, right + buffer_vw)
+        # Adaptive buffer: use drift to widen overlap on skewed pages.
+        # Higher drift means more binding curvature, so text may
+        # extend further past the rule position.
+        left_drift = boundaries[i].get("drift", 0)
+        right_drift = boundaries[i + 1].get("drift", 0)
+        max_drift = max(left_drift, right_drift)
+        adaptive_buffer = buffer_vw + max_drift * 0.5
+
+        crop_left = max(0, left - adaptive_buffer)
+        crop_right = min(100, right + adaptive_buffer)
 
         # Convert to PDF points
         x0 = pw * crop_left / 100
@@ -577,7 +602,7 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
         return PageResult(
             pdf_path=pdf_path, page_number=page_number, dpi=dpi,
             page_width_px=page_w_px, page_height_px=page_h_px,
-            num_columns=0, columns=[], detection_row=used_row,
+            num_columns=0, columns=[], detection_row=used_rows,
             quality_flags=quality_flags,
             error="no_column_boundaries_found",
             elapsed_seconds=time.time() - t0,
