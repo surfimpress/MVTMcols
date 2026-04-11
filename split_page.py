@@ -118,11 +118,16 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
         except Exception:
             continue
 
-        # Keep inner-page boundaries that pass quality filters.
-        # Low-confidence boundaries are only included if they have
-        # low row_std (consistent vertical line) or good valley depth.
+        # Keep boundaries within the content area.
+        # Use profile content bounds if available, otherwise 5%-95%.
+        if page_prof:
+            x_lo = page_prof["content_x_start_frac"] * 100
+            x_hi = page_prof["content_x_end_frac"] * 100
+        else:
+            x_lo, x_hi = 5.0, 95.0
+
         for r in results:
-            if not (8 < r.page_pct < 92):
+            if not (x_lo < r.page_pct < x_hi):
                 continue
             if r.confidence in ("high", "medium"):
                 all_positions.append({
@@ -198,11 +203,10 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
     boundaries.sort(key=lambda b: b["x_pct"])
 
     # ── Prune to best regular grid ───────────────────────────────────
-    # The Gazette never had more than 7 columns (= 6 boundaries).
+    # The Gazette never had more than 7 columns. With the boundary-as-rules
+    # model, 7 columns = 8 boundaries (left edge + 6 interior + right edge).
     # If we have more, keep the subset that forms the most regular grid.
-    # Also filter out very narrow columns (< 5% of page width) which
-    # are almost always false positives from ad borders or binding shadow.
-    MAX_BOUNDARIES = 6
+    MAX_BOUNDARIES = 8
 
     if len(boundaries) > MAX_BOUNDARIES:
         boundaries = _select_best_grid(boundaries, MAX_BOUNDARIES)
@@ -250,18 +254,20 @@ def _select_best_grid(boundaries, max_n):
     From a set of candidate boundaries, select the subset of at most
     max_n that forms the most regular column grid.
 
-    Strategy: try all combinations of max_n boundaries and score each
-    by how evenly spaced the resulting columns are. With <=15 candidates
-    and max_n=6, this is at most C(15,6) = 5005 combinations — fast enough.
+    Boundaries are column RULES. N boundaries give N-1 columns (the
+    spaces between rules). We score by how evenly spaced the inter-
+    boundary gaps are — a perfect grid has equal gaps.
+
+    Strategy: try all combinations and pick the most regular.
+    With <=15 candidates and max_n=8, this is manageable.
     """
     from itertools import combinations
 
     if len(boundaries) <= max_n:
         return boundaries
 
-    # If too many candidates for brute force, pre-filter
+    # Pre-filter if too many for brute force
     if len(boundaries) > 15:
-        # Keep top 15 by weighted_score
         boundaries = sorted(boundaries,
                            key=lambda b: b.get("weighted_score", 0),
                            reverse=True)[:15]
@@ -272,22 +278,32 @@ def _select_best_grid(boundaries, max_n):
 
     for combo in combinations(range(len(boundaries)), max_n):
         selected = [boundaries[i] for i in combo]
-        edges = [0.0] + [b["x_pct"] for b in selected] + [100.0]
-        widths = [edges[i+1] - edges[i] for i in range(len(edges)-1)]
+        positions = [b["x_pct"] for b in selected]
+
+        # Compute column widths (gaps between adjacent boundaries)
+        widths = [positions[i+1] - positions[i] for i in range(len(positions)-1)]
+
+        if not widths:
+            continue
 
         # Skip if any column is too narrow
         if min(widths) < 5.0:
             continue
 
-        # Score: standard deviation of column widths (lower = more regular)
-        score = float(np.std(widths))
+        # Score: coefficient of variation (std/mean) of column widths
+        # Lower = more regular. Using CV instead of raw std so we don't
+        # penalise grids that are regular but have wider columns.
+        mean_w = np.mean(widths)
+        if mean_w > 0:
+            score = float(np.std(widths) / mean_w)
+        else:
+            score = float("inf")
 
         if score < best_score:
             best_score = score
             best_combo = selected
 
     if best_combo is None:
-        # Fallback: just take the top max_n by consensus score
         boundaries.sort(key=lambda b: b.get("weighted_score", 0), reverse=True)
         return sorted(boundaries[:max_n], key=lambda b: b["x_pct"])
 
@@ -297,6 +313,8 @@ def _select_best_grid(boundaries, max_n):
 def _validate(boundaries):
     """
     Check boundaries for quality issues. Returns list of flag strings.
+
+    Boundaries are column rules. N boundaries → N-1 columns.
     """
     flags = []
 
@@ -304,33 +322,29 @@ def _validate(boundaries):
         flags.append("no_boundaries_detected")
         return flags
 
-    # Filter to inner page area (10%–90%) for analysis
-    inner = [b for b in boundaries if 10 < b["x_pct"] < 90]
-
-    if not inner:
-        flags.append("no_inner_boundaries")
+    if len(boundaries) < 2:
+        flags.append("insufficient_boundaries")
         return flags
 
     # Confidence distribution
-    high = sum(1 for b in inner if b["confidence"] == "high")
-    low = sum(1 for b in inner if b["confidence"] == "low")
+    high = sum(1 for b in boundaries if b["confidence"] == "high")
+    low = sum(1 for b in boundaries if b["confidence"] == "low")
     if high == 0:
         flags.append("no_high_confidence_boundaries")
     if low > high:
         flags.append("mostly_low_confidence")
 
-    # Column count plausibility
-    num_cols = len(inner) + 1
+    # Column count (N-1 columns from N boundaries)
+    num_cols = len(boundaries) - 1
     if num_cols < 3:
         flags.append(f"few_columns_{num_cols}")
 
     # Column width regularity
-    positions = sorted(b["x_pct"] for b in inner)
-    if len(positions) >= 2:
-        widths = [positions[i+1] - positions[i] for i in range(len(positions)-1)]
-        width_std = np.std(widths)
+    positions = sorted(b["x_pct"] for b in boundaries)
+    widths = [positions[i+1] - positions[i] for i in range(len(positions)-1)]
+    if len(widths) >= 2:
         width_mean = np.mean(widths)
-        if width_mean > 0 and width_std / width_mean > 0.3:
+        if width_mean > 0 and np.std(widths) / width_mean > 0.3:
             flags.append("irregular_column_widths")
 
     return flags
@@ -341,30 +355,39 @@ def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
     """
     Extract each column as a PNG using the detected boundaries.
 
+    Boundaries are the column RULES — columns are the spaces between
+    adjacent rules. The first boundary is the left edge of column 1,
+    and the last boundary is the right edge of the last column.
+    Anything outside those is margin/binding/facing page bleed.
+
+    With N boundaries you get N-1 columns.
+
     Returns list of ColumnResult.
     """
+    if len(boundaries) < 2:
+        return []
+
     doc = _open_clean(pdf_path)
     page = doc[page_number]
     pw, ph = page.rect.width, page.rect.height
 
-    # Build column regions from boundaries
-    # Columns are the spaces BETWEEN boundaries, plus the edges
-    edges_vw = [0.0] + [b["x_pct"] for b in boundaries] + [100.0]
     columns = []
+    col_num = 0
 
-    for i in range(len(edges_vw) - 1):
-        left = edges_vw[i]
-        right = edges_vw[i + 1]
+    for i in range(len(boundaries) - 1):
+        left = boundaries[i]["x_pct"]
+        right = boundaries[i + 1]["x_pct"]
         width = right - left
 
-        # Skip very narrow columns (< 3% of page width) — likely artifacts
+        # Skip very narrow gaps (< 3% of page width)
         if width < 3.0:
             continue
 
-        # Add buffer
+        col_num += 1
+
+        # Add buffer for the crop (generous to avoid clipping text)
         crop_left = max(0, left - buffer_vw)
         crop_right = min(100, right + buffer_vw)
-        crop_width = crop_right - crop_left
 
         # Convert to PDF points
         x0 = pw * crop_left / 100
@@ -377,17 +400,17 @@ def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
 
         # Save
         stem = Path(pdf_path).stem
-        col_filename = f"{stem}_col{i + 1}.png"
+        col_filename = f"{stem}_col{col_num}.png"
         col_path = os.path.join(output_dir, col_filename)
         pix.save(col_path)
 
         columns.append(ColumnResult(
-            index=i,
+            index=col_num - 1,
             left_vw=round(left, 2),
             right_vw=round(right, 2),
             width_vw=round(width, 2),
-            peak_darkness=boundaries[i]["peak_darkness"] if i < len(boundaries) else 0,
-            confidence=boundaries[i]["confidence"] if i < len(boundaries) else "n/a",
+            peak_darkness=boundaries[i]["peak_darkness"],
+            confidence=boundaries[i]["confidence"],
             image_path=col_path,
         ))
 
