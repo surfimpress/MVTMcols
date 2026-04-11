@@ -211,9 +211,14 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
     if len(boundaries) > MAX_BOUNDARIES:
         boundaries = _select_best_grid(boundaries, MAX_BOUNDARIES)
     else:
-        # Even under the limit, remove boundaries that create
-        # implausibly narrow columns
         boundaries = _remove_narrow_columns(boundaries, min_width_pct=5.0)
+
+    # ── Regularise the grid ──────────────────────────────────────────
+    # The column grid is always regular within a page. Infer the pitch
+    # from the narrowest (most reliable) columns, then fill in any
+    # missing boundaries and snap drifted ones to the regular grid.
+    if len(boundaries) >= 3:
+        boundaries = _regularise_grid(boundaries)
 
     return boundaries, CONSENSUS_ROWS, _validate(boundaries)
 
@@ -247,6 +252,97 @@ def _remove_narrow_columns(boundaries, min_width_pct=5.0):
                 to_remove.add(i)
 
     return [b for i, b in enumerate(boundaries) if i not in to_remove]
+
+
+def _regularise_grid(boundaries):
+    """
+    Enforce a regular column grid.
+
+    The newspaper's column grid is always evenly spaced within a page.
+    This function:
+    1. Finds the dominant pitch from the narrowest column widths
+    2. Computes how many columns should fit in the total span
+    3. Generates the ideal regular grid
+    4. Matches detected boundaries to grid positions
+    5. Interpolates missing positions (capped at 7 columns = 8 boundaries)
+
+    Returns the regularised boundary list.
+    """
+    if len(boundaries) < 3:
+        return boundaries
+
+    positions = [b["x_pct"] for b in boundaries]
+    widths = [positions[i+1] - positions[i] for i in range(len(positions)-1)]
+
+    if not widths:
+        return boundaries
+
+    # Find the dominant pitch from the narrower columns.
+    # Wide columns are the ones with missed boundaries — exclude them.
+    # Use the lower half of widths as the "true pitch" sample.
+    sorted_widths = sorted(widths)
+    narrow_half = sorted_widths[:max(1, len(sorted_widths) // 2 + 1)]
+    pitch = float(np.mean(narrow_half))
+
+    if pitch < 3.0:
+        return boundaries  # degenerate case
+
+    # How many columns should fit?
+    span = positions[-1] - positions[0]
+    expected_cols = round(span / pitch)
+
+    # Cap at 7 columns (8 boundaries)
+    expected_cols = min(expected_cols, 7)
+    if expected_cols < 2:
+        return boundaries
+
+    # Are the widths already regular enough? If CV < 0.15, don't touch.
+    cv = float(np.std(widths) / np.mean(widths)) if np.mean(widths) > 0 else 0
+    if cv < 0.15:
+        return boundaries
+
+    # Generate the ideal regular grid
+    regular_pitch = span / expected_cols
+    grid = [positions[0] + i * regular_pitch for i in range(expected_cols + 1)]
+
+    # Match each grid position to the nearest detected boundary.
+    # If a grid position has no nearby detection (> pitch * 0.3 away),
+    # interpolate it as a new boundary.
+    SNAP_TOLERANCE = regular_pitch * 0.3
+    result = []
+
+    for g_pos in grid:
+        # Find nearest detected boundary
+        best_match = None
+        best_dist = float("inf")
+        for b in boundaries:
+            dist = abs(b["x_pct"] - g_pos)
+            if dist < best_dist:
+                best_dist = dist
+                best_match = b
+
+        if best_dist <= SNAP_TOLERANCE and best_match is not None:
+            # Snap: use the detected boundary but at the grid position
+            result.append({
+                **best_match,
+                "x_pct": round(g_pos, 2),
+                "snapped_from": round(best_match["x_pct"], 2),
+            })
+        else:
+            # Interpolate: no detected boundary near this grid position
+            result.append({
+                "x_pct": round(g_pos, 2),
+                "peak_darkness": 0,
+                "row_std": 0,
+                "valley_depth": 0,
+                "confidence": "interpolated",
+                "strips_hit": 0,
+                "total_strips": 0,
+                "consensus": 0,
+                "weighted_score": 0,
+            })
+
+    return result
 
 
 def _select_best_grid(boundaries, max_n):
