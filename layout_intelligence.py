@@ -64,6 +64,25 @@ class LayoutDB:
                 created_at TEXT DEFAULT (datetime('now'))
             );
 
+            CREATE TABLE IF NOT EXISTS page_geometry (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                year INTEGER NOT NULL,
+                month INTEGER,
+                day INTEGER,
+                page INTEGER,
+                r2_left REAL, r2_right REAL,
+                r3_left REAL, r3_right REAL,
+                text_left REAL, text_right REAL,
+                binding_side TEXT,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_page_geometry_year
+                ON page_geometry(year);
+
+            CREATE INDEX IF NOT EXISTS idx_page_geometry_issue
+                ON page_geometry(year, month, day);
+
             CREATE INDEX IF NOT EXISTS idx_page_layouts_year
                 ON page_layouts(year);
 
@@ -122,15 +141,47 @@ class LayoutDB:
         conn.commit()
         conn.close()
 
-    def record_from_page_result(self, page_result, year, month, day, page):
+    def record_geometry(self, year, month, day, page, profile):
         """
-        Convenience: record directly from a split_page.PageResult.
+        Store the page's bounding box geometry from the profile.
+
+        Args:
+            year, month, day, page: issue identification
+            profile: dict from profile_page() containing r2, r3, text_area
+        """
+        if not profile or "r2" not in profile:
+            return
+
+        conn = self._conn()
+        conn.execute("""
+            INSERT INTO page_geometry
+            (year, month, day, page,
+             r2_left, r2_right, r3_left, r3_right,
+             text_left, text_right, binding_side)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            year, month, day, page,
+            profile["r2"]["left"], profile["r2"]["right"],
+            profile["r3"]["left"], profile["r3"]["right"],
+            profile["text_area"]["left"], profile["text_area"]["right"],
+            profile.get("binding_side"),
+        ))
+        conn.commit()
+        conn.close()
+
+    def record_from_page_result(self, page_result, year, month, day, page,
+                                profile=None):
+        """
+        Convenience: record layout and geometry from a split_page result.
         """
         if page_result.error:
-            return  # don't record failed detections
+            return
 
-        positions = [c.left_vw for c in page_result.columns[1:]]  # skip first (always 0)
-        # Actually, boundary positions are between columns
+        # Store geometry if profile provided
+        if profile:
+            self.record_geometry(year, month, day, page, profile)
+
+        # Store layout
         boundaries = []
         for c in page_result.columns:
             if c.right_vw < 100:
