@@ -115,14 +115,23 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
         9: 0.3,   # bottom — margin noise
     }
 
-    # Content bounds from profile
-    if page_prof:
-        x_lo = page_prof["content_x_start_frac"] * 100
-        x_hi = page_prof["content_x_end_frac"] * 100
+    # Text area bounds from profile — this is where column rules live.
+    # Detection is clipped to this region so no margin/shadow/bleed
+    # pixels ever enter the analysis.
+    if page_prof and "text_area" in page_prof:
+        text_left_frac = page_prof["text_area"]["left"] / 100
+        text_right_frac = page_prof["text_area"]["right"] / 100
+    elif page_prof:
+        text_left_frac = page_prof["content_x_start_frac"]
+        text_right_frac = page_prof["content_x_end_frac"]
     else:
-        x_lo, x_hi = 5.0, 95.0
+        text_left_frac, text_right_frac = 0.05, 0.95
 
-    # Collect boundaries from every strip with their weights
+    clip_x = (text_left_frac, text_right_frac)
+
+    # Collect boundaries from every strip with their weights.
+    # find_column_boundaries is clipped to the text area — all returned
+    # page_pct values are already in PDF page percentage coordinates.
     all_positions = []
 
     for strip_idx, grid_y in enumerate(CONSENSUS_ROWS):
@@ -133,13 +142,14 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
                 pdf_path, x=1, y=grid_y, w=10, h=1,
                 page_number=page_number, dpi=dpi,
                 darkness_threshold=dark_thresh,
+                clip_x_frac=clip_x,
             )
         except Exception:
             continue
 
+        # No post-hoc filtering needed — clip_x_frac ensures all
+        # results are within the text area.
         for r in results:
-            if not (x_lo < r.page_pct < x_hi):
-                continue
             if r.confidence in ("high", "medium"):
                 all_positions.append({
                     "pct": r.page_pct,
@@ -227,6 +237,26 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
 
     # Sort by position
     boundaries.sort(key=lambda b: b["x_pct"])
+
+    # ── Inject text area edges as outermost boundaries ───────────────
+    # The text area left and right edges are where the column grid
+    # starts and ends. If no detected boundary is within 2% of these
+    # edges, insert synthetic boundaries there.
+    text_left_pct = text_left_frac * 100
+    text_right_pct = text_right_frac * 100
+
+    edge_boundary = lambda pct: {
+        "x_pct": round(pct, 2),
+        "peak_darkness": 0, "row_std": 0, "valley_depth": 0,
+        "confidence": "edge", "strips_hit": 0, "total_strips": 0,
+        "consensus": 0, "weighted_score": 0, "drift": 0,
+    }
+
+    if not boundaries or boundaries[0]["x_pct"] - text_left_pct > 2.0:
+        boundaries.insert(0, edge_boundary(text_left_pct))
+
+    if not boundaries or text_right_pct - boundaries[-1]["x_pct"] > 2.0:
+        boundaries.append(edge_boundary(text_right_pct))
 
     # ── Prune to best regular grid ───────────────────────────────────
     # The Gazette never had more than 7 columns. With the boundary-as-rules
