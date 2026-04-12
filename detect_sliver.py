@@ -76,82 +76,130 @@ def find_binding_edge(pdf_path, page_number=0, binding_side="right",
     center = heavy[int(w * 0.3):int(w * 0.7)]
     paper_baseline = float(np.percentile(center, 10))
 
-    # Margin threshold: close to paper baseline
-    margin_thresh = paper_baseline + 5.0
+    # Margin threshold: the gap between the page and sliver drops
+    # to near-paper-baseline. Use a threshold well below text level
+    # to distinguish real gaps from gradual content fading.
+    body_median = float(np.median(center))
+    margin_thresh = paper_baseline + (body_median - paper_baseline) * 0.3
+
+    # ── Search from the binding edge INWARD ────────────────────────
+    # This is more reliable than searching from the grid boundary
+    # outward, because the binding edge is a known position (R2).
+    #
+    # Pattern from edge inward:
+    #   [scan edge] → sliver content (if present) → GAP → page content
+    #
+    # The gap (print margin + gutter) is the boundary we want.
+
+    # ── Find the gap between main content and sliver ───────────────
+    # Look for the deepest dip in the binding-side region between
+    # the last grid boundary and the page edge. The gap drops to
+    # near-paper-baseline — much lower than any column gutter.
+    #
+    # The gap is the print margin of the newspaper page. Everything
+    # between the gap and the binding edge is sliver/shadow.
 
     if binding_side == "right":
-        # Search from the last grid boundary rightward for the margin
+        # Search the region from the last grid boundary to the edge
         if last_grid_boundary:
-            search_start = int(last_grid_boundary / 100 * w)
+            search_start_px = max(int(w * 0.5),
+                                  int((last_grid_boundary - (pitch or 10)) / 100 * w))
         else:
-            search_start = int(w * 0.70)
+            search_start_px = int(w * 0.65)
+        search_end_px = w
 
-        # Walk leftward from search_start to find where content ends
-        # (the right edge of the last real column)
-        content_end_px = search_start
-        for x in range(search_start, int(w * 0.60), -1):
-            if heavy[x] > margin_thresh + 10:
-                content_end_px = x
-                break
+        region = heavy[search_start_px:search_end_px]
+        if len(region) > 10:
+            # Find the deepest point in this region
+            min_idx = search_start_px + int(np.argmin(region))
+            min_val = float(heavy[min_idx])
 
-        # Walk rightward from content_end to find the margin
-        # (darkness drops below margin threshold)
-        margin_start_px = content_end_px
-        for x in range(content_end_px, w):
-            if heavy[x] < margin_thresh:
-                margin_start_px = x
-                break
+            # Is it a real gap? Must be significantly below body level
+            if min_val < margin_thresh:
+                # Walk outward from minimum to find the gap boundaries
+                # Left side of gap (toward content)
+                margin_start_px = min_idx
+                for x in range(min_idx, search_start_px, -1):
+                    if heavy[x] > body_median * 0.6:
+                        margin_start_px = x
+                        break
 
-        # Find the end of the margin (where darkness rises again = sliver)
-        margin_end_px = margin_start_px
-        sliver_start_px = None
-        for x in range(margin_start_px, w):
-            if heavy[x] > margin_thresh + 10:
-                margin_end_px = x
-                sliver_start_px = x
-                break
-        if sliver_start_px is None:
-            margin_end_px = w  # margin extends to page edge, no sliver
+                # Right side of gap (toward sliver/edge)
+                margin_end_px = min_idx
+                for x in range(min_idx, search_end_px):
+                    if heavy[x] > body_median * 0.6:
+                        margin_end_px = x
+                        break
 
-        # Check for binding darkness between margin and sliver
-        if margin_end_px > margin_start_px + 5:
-            gap_darkness = float(heavy[margin_start_px:margin_end_px].min())
+                content_end_px = margin_start_px
+                gap_darkness = min_val
+
+                # Is there content beyond the gap? (sliver)
+                beyond = heavy[margin_end_px:search_end_px]
+                if len(beyond) > 5 and float(np.max(beyond)) > margin_thresh:
+                    sliver_start_px = margin_end_px
+                else:
+                    sliver_start_px = None
+            else:
+                # No significant gap — no sliver
+                content_end_px = search_end_px
+                margin_start_px = search_end_px
+                margin_end_px = search_end_px
+                gap_darkness = 0
+                sliver_start_px = None
         else:
+            content_end_px = w
+            margin_start_px = w
+            margin_end_px = w
             gap_darkness = 0
+            sliver_start_px = None
 
     else:  # binding_side == "left"
-        # Mirror: search from the first grid boundary leftward
         if last_grid_boundary:
-            search_start = int(last_grid_boundary / 100 * w)
+            search_end_px = min(int(w * 0.5),
+                                int((last_grid_boundary + (pitch or 10)) / 100 * w))
         else:
-            search_start = int(w * 0.30)
+            search_end_px = int(w * 0.35)
+        search_start_px = 0
 
-        content_end_px = search_start
-        for x in range(search_start, int(w * 0.40)):
-            if heavy[x] > margin_thresh + 10:
-                content_end_px = x
-                break
+        region = heavy[search_start_px:search_end_px]
+        if len(region) > 10:
+            min_idx = search_start_px + int(np.argmin(region))
+            min_val = float(heavy[min_idx])
 
-        margin_start_px = content_end_px
-        for x in range(content_end_px, 0, -1):
-            if heavy[x] < margin_thresh:
-                margin_start_px = x
-                break
+            if min_val < margin_thresh:
+                margin_end_px = min_idx
+                for x in range(min_idx, search_end_px):
+                    if heavy[x] > body_median * 0.6:
+                        margin_end_px = x
+                        break
 
-        margin_end_px = margin_start_px
-        sliver_start_px = None
-        for x in range(margin_start_px, 0, -1):
-            if heavy[x] > margin_thresh + 10:
-                margin_end_px = x
-                sliver_start_px = x
-                break
-        if sliver_start_px is None:
+                margin_start_px = min_idx
+                for x in range(min_idx, search_start_px, -1):
+                    if heavy[x] > body_median * 0.6:
+                        margin_start_px = x
+                        break
+
+                content_end_px = margin_end_px
+                gap_darkness = min_val
+
+                beyond = heavy[search_start_px:margin_start_px]
+                if len(beyond) > 5 and float(np.max(beyond)) > margin_thresh:
+                    sliver_start_px = margin_start_px
+                else:
+                    sliver_start_px = None
+            else:
+                content_end_px = search_start_px
+                margin_start_px = search_start_px
+                margin_end_px = search_start_px
+                gap_darkness = 0
+                sliver_start_px = None
+        else:
+            content_end_px = 0
+            margin_start_px = 0
             margin_end_px = 0
-
-        if margin_start_px > margin_end_px + 5:
-            gap_darkness = float(heavy[margin_end_px:margin_start_px].min())
-        else:
             gap_darkness = 0
+            sliver_start_px = None
 
     # Convert to percentages
     margin_start_pct = round(margin_start_px / w * 100, 1)
