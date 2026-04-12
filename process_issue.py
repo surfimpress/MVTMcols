@@ -232,28 +232,61 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     print(f"\nPitch: {pitch:.1f}% from {num_columns} columns "
           f"(grounding pages: {grounding_pages})")
 
-    # ── Pass 2: Re-process weak pages with prior ─────────────────────
-    # Get boundaries from the best grounding page
-    grounding_page_num = grounding_pages[0]
-    grounding_result = None
-    grounding_prof = None
-    for pn, r, p in pass1_results:
-        if pn == grounding_page_num:
-            grounding_result = r
-            grounding_prof = p
-            break
+    # ── Establish recto and verso templates separately ──────────────
+    # Recto and verso pages have different binding offsets and photo
+    # placement. Never mirror positions between types. Find the best
+    # page of each type and use its positions as the template.
+    def _get_bounds(result):
+        return ([c.left_vw for c in result.columns]
+                + [result.columns[-1].right_vw])
 
-    prior_bounds = ([c.left_vw for c in grounding_result.columns]
-                    + [grounding_result.columns[-1].right_vw])
-    prior_page_type = grounding_prof["page_type"]
+    recto_template = None
+    verso_template = None
+    recto_best_cv = 999
+    verso_best_cv = 999
 
-    # Determine which pages need re-processing
-    REGULARITY_THRESHOLD = 0.10  # CV below this = good enough
+    for page_num, result, prof in pass1_results:
+        cv, _, nc = _score_regularity(result)
+        page_type = prof.get("page_type")
+        if nc != num_columns:
+            continue
+        if page_type == "recto" and cv < recto_best_cv:
+            recto_best_cv = cv
+            recto_template = {
+                "bounds": _get_bounds(result),
+                "page": page_num,
+                "cv": cv,
+                "page_type": "recto",
+            }
+        elif page_type == "verso" and cv < verso_best_cv:
+            verso_best_cv = cv
+            verso_template = {
+                "bounds": _get_bounds(result),
+                "page": page_num,
+                "cv": cv,
+                "page_type": "verso",
+            }
+
+    if recto_template:
+        print(f"  Recto template: P{recto_template['page']} CV={recto_template['cv']:.3f}")
+    else:
+        print(f"  Recto template: none found")
+    if verso_template:
+        print(f"  Verso template: P{verso_template['page']} CV={verso_template['cv']:.3f}")
+    else:
+        print(f"  Verso template: none found")
+
+    # ── Pass 2: Re-process weak pages with matching template ─────────
+    REGULARITY_THRESHOLD = 0.10
     pages_to_reprocess = []
     for page_num, result, prof in pass1_results:
-        if page_num in grounding_pages:
-            continue  # grounding pages are already good
         cv, _, nc = _score_regularity(result)
+        # Re-process if: irregular, wrong column count, or not a grounding page
+        page_type = prof.get("page_type")
+        is_template = ((recto_template and page_num == recto_template["page"]) or
+                       (verso_template and page_num == verso_template["page"]))
+        if is_template:
+            continue
         if cv > REGULARITY_THRESHOLD or nc != num_columns:
             pages_to_reprocess.append((page_num, result, prof))
 
@@ -268,6 +301,19 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
                     pdf_path = pp
                     break
 
+            # Select the template matching this page's type
+            page_type = prof.get("page_type")
+            if page_type == "recto" and recto_template:
+                template = recto_template
+            elif page_type == "verso" and verso_template:
+                template = verso_template
+            elif recto_template:
+                template = recto_template  # fallback
+            elif verso_template:
+                template = verso_template
+            else:
+                continue  # no template available
+
             page_out = os.path.join(output_dir, f"p{page_num}")
             shutil.rmtree(page_out, ignore_errors=True)
             os.makedirs(page_out)
@@ -276,8 +322,8 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
             new_result = split_page(
                 pdf_path, output_dir=page_out, dpi=dpi,
                 expected_columns=num_columns,
-                prior_boundaries=prior_bounds,
-                prior_page_type=prior_page_type,
+                prior_boundaries=template["bounds"],
+                prior_page_type=template["page_type"],
                 ad_exclusion_zones=zones,
             )
 

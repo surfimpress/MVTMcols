@@ -776,7 +776,7 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
         prior_boundaries: List of boundary x_pct values from a known-good page
                          in the same issue. Used as fallback when detection is poor.
         prior_page_type:  "recto" or "verso" — the page type of the prior.
-                         If different from this page, boundaries are mirrored.
+                         Should match this page's type (use separate templates).
 
     Returns:
         PageResult with all columns and quality flags.
