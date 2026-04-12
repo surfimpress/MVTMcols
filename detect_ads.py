@@ -36,7 +36,8 @@ def _open_clean(pdf_path):
 
 def detect_ads(pdf_path, page_number=0, render_dpi=150,
                min_width_pct=15, min_height_pct=5,
-               min_rect_ratio=0.85, column_pitch=None):
+               min_rect_ratio=0.85, column_pitch=None,
+               page_profile=None):
     """
     Detect bordered display advertisements on a PDF page.
 
@@ -108,8 +109,12 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
         # Size filters
         if bw < min_w or bh < min_h:
             continue
-        # Not the whole page
+        # Not the whole page, and not a page border
         if bw > w * 0.85 and bh > h * 0.85:
+            continue
+        # A contour covering > 50% of the page is a page border or
+        # photograph edge, not a display ad
+        if (bw * bh) > (w * h * 0.50):
             continue
 
         rect_ratio = area / rect_area
@@ -155,6 +160,20 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
             confidence = "medium"
         else:
             confidence = "low"
+
+        # Reject contours that match the photograph boundary (R2).
+        # The scanned image edge forms a large rectangular contour
+        # that is NOT an ad — it's the edge of the photograph.
+        if page_profile and "r2" in page_profile:
+            r2 = page_profile["r2"]
+            # Check if this contour closely matches R2 on 2+ sides
+            matches_r2 = 0
+            if abs(x_pct - r2["left"]) < 3: matches_r2 += 1
+            if abs(x_end_pct - r2["right"]) < 3: matches_r2 += 1
+            if abs(y_pct - r2["top"]) < 5: matches_r2 += 1
+            if abs(y_end_pct - r2["bottom"]) < 5: matches_r2 += 1
+            if matches_r2 >= 2:
+                continue  # this is the photograph edge, not an ad
 
         # Downgrade confidence if touching any page edge
         if at_left_edge or at_right_edge or at_top_edge or at_bottom_edge:

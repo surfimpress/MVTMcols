@@ -184,7 +184,8 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     os.makedirs(ads_dir, exist_ok=True)
 
     for page_num, pdf_path in pages:
-        ads = detect_ads(pdf_path, column_pitch=None)
+        prof = profile_page(pdf_path)
+        ads = detect_ads(pdf_path, column_pitch=None, page_profile=prof)
         if ads:
             ad_out = os.path.join(ads_dir, f"p{page_num}")
             ads_with_images = extract_ad_images(pdf_path, ads, ad_out, dpi=dpi)
