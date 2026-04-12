@@ -855,19 +855,22 @@ def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
 
 
 def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
-               db_path=None, expected_columns=None):
+               db_path=None, expected_columns=None, prior_boundaries=None,
+               prior_page_type=None):
     """
     Full page-splitting pipeline.
 
     Args:
-        pdf_path:        Path to single-page PDF.
-        page_number:     Zero-indexed page within the PDF.
-        dpi:             Render resolution for column images.
-        output_dir:      Where to save column PNGs. Defaults to <stem>_columns/.
-        db_path:         SQLite database to log results. Optional.
-        expected_columns: If known (from issue prior or intelligence layer),
-                         the expected number of columns. Constrains projection
-                         to produce this many columns.
+        pdf_path:         Path to single-page PDF.
+        page_number:      Zero-indexed page within the PDF.
+        dpi:              Render resolution for column images.
+        output_dir:       Where to save column PNGs. Defaults to <stem>_columns/.
+        db_path:          SQLite database to log results. Optional.
+        expected_columns: If known (from issue prior), the expected column count.
+        prior_boundaries: List of boundary x_pct values from a known-good page
+                         in the same issue. Used as fallback when detection is poor.
+        prior_page_type:  "recto" or "verso" — the page type of the prior.
+                         If different from this page, boundaries are mirrored.
 
     Returns:
         PageResult with all columns and quality flags.
@@ -926,6 +929,48 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
             error="no_column_boundaries_found",
             elapsed_seconds=time.time() - t0,
         )
+
+    # ── Prior fallback ────────────────────────────────────────────
+    # If detection produced an irregular grid and we have a prior
+    # with known-good boundary positions, fall back to the prior.
+    # Mirror the positions if the prior is from a different page type
+    # (recto vs verso).
+    if prior_boundaries and len(best_boundaries) >= 2:
+        positions = [b["x_pct"] for b in best_boundaries]
+        this_page_type = page_prof.get("page_type") if page_prof else None
+
+        # Prepare the prior positions for this page type
+        if prior_page_type and this_page_type and prior_page_type != this_page_type:
+            expected_positions = sorted([round(100 - p, 2) for p in prior_boundaries])
+        else:
+            expected_positions = list(prior_boundaries)
+
+        # Compare detected boundaries against the prior.
+        # For each expected position, find the nearest detected boundary.
+        # If the average deviation exceeds 2% of page width, detection
+        # is unreliable and we should use the prior.
+        deviations = []
+        for exp in expected_positions:
+            if positions:
+                nearest = min(positions, key=lambda p: abs(p - exp))
+                deviations.append(abs(nearest - exp))
+            else:
+                deviations.append(100)
+
+        avg_deviation = float(np.mean(deviations))
+        use_prior = avg_deviation > 2.0
+
+        if use_prior:
+                # Build boundary dicts from the prior positions
+                best_boundaries = [{
+                    "x_pct": p,
+                    "peak_darkness": 0, "row_std": 0, "valley_depth": 0,
+                    "confidence": "prior",
+                    "strips_hit": 0, "total_strips": 0,
+                    "consensus": 0, "weighted_score": 0, "drift": 0,
+                } for p in expected_positions]
+
+                quality_flags.append(f"used_prior_grid(avg_dev={avg_deviation:.1f}%)")
 
     # Extract columns
     columns = extract_columns(
