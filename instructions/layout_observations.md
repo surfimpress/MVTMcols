@@ -117,6 +117,18 @@ First issue from the 1970s. Much denser advertising than earlier decades.
 
 ## Key Patterns
 
+### Page 2 editorial layout evolution
+
+A recurring layout pattern on page 2:
+- **1937-1952 (pure form):** Two wide editorial columns (each 1.5× standard pitch) on the left, followed by 4 regular columns. Total = 7 grid widths.
+- **1965 (modified form):** Same wide editorial columns at the TOP of the page. Below that, the layout shifts to pairs of standard-width ads with a single text column tucked to the right. The underlying grid pitch remains the same throughout.
+- **Not present in 1929** — the transition to this layout happened between 1929 and 1937.
+- **Post-1965:** "Jigsaw" layouts emerge where different vertical zones use different column arrangements, all on the same underlying grid. The editorial wide-column tradition persists at the top of page 2 but the lower portion becomes increasingly ad-driven.
+
+This signals the broader transition from rigid column grids to zone-based layouts, which accelerates through the 1970s-2000s.
+
+## Key Patterns
+
 1. **Interior column rules are always reliable** — the valley-spike-valley detection with row consistency works across all eras
 2. **Outer edges are always problematic** — no vertical rules exist at the outer edges of the first and last columns
 3. **The grid is always regular within a page** — even when detection finds irregular widths, the physical printing grid was uniform
