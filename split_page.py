@@ -279,15 +279,19 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
         min_acceptable = median_width * 0.65
         boundaries = _remove_narrow_columns(boundaries, min_width_pct=min_acceptable)
 
-        # After narrow removal, check for interior gaps that are ~2x the pitch.
-        # These were created by the narrow merge and need re-interpolation.
+    # ── Split any remaining wide columns ───────────────────────────
+    # A column wider than 1.4x the median is a double-width element
+    # (spanning headline or display ad). Split at the midpoint.
+    # Column-spanning elements are only ever double-width, never triple.
+    # This runs last to catch outliers from any source.
+    if len(boundaries) >= 3:
         positions = [b["x_pct"] for b in boundaries]
         widths = [positions[i+1] - positions[i] for i in range(len(positions)-1)]
         median_width = float(np.median(widths))
         insertions = []
         for i in range(len(positions) - 1):
             gap = positions[i+1] - positions[i]
-            if gap > median_width * 1.6:
+            if gap > median_width * 1.3:
                 mid = (positions[i] + positions[i+1]) / 2
                 insertions.append({
                     "x_pct": round(mid, 2),
@@ -299,6 +303,14 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
         if insertions:
             boundaries.extend(insertions)
             boundaries.sort(key=lambda b: b["x_pct"])
+
+    # Final cap: never exceed 9 boundaries (8 columns)
+    if len(boundaries) > 9:
+        scored = sorted(boundaries,
+                       key=lambda b: b.get("weighted_score", 0)
+                                   + (10 if b["confidence"] in ("high", "medium") else 0),
+                       reverse=True)[:9]
+        boundaries = sorted(scored, key=lambda b: b["x_pct"])
 
     return boundaries, CONSENSUS_ROWS, _validate(boundaries)
 
