@@ -437,6 +437,85 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     else:
         print("\nPass 2: All pages regular — no re-processing needed")
 
+    # ── Store in database ──────────────────────────────────────────
+    from layout_intelligence import LayoutDB
+
+    db = LayoutDB(db_path)
+
+    # Clean any previous data for this issue
+    conn = __import__("sqlite3").connect(db_path)
+    conn.execute("DELETE FROM page_layouts WHERE year=? AND month=? AND day=?",
+                 (year, month, day))
+    conn.execute("DELETE FROM page_geometry WHERE year=? AND month=? AND day=?",
+                 (year, month, day))
+    conn.commit()
+    conn.close()
+
+    for page_num, result, prof in pass1_results:
+        meta_path = os.path.join(output_dir, f"p{page_num}", "page_meta.json")
+        if os.path.exists(meta_path):
+            with open(meta_path) as f:
+                meta = json.load(f)
+            boundaries = [col["right_vw"] for col in meta["columns"]
+                         if col["right_vw"] < 100]
+            cv, _, _ = _score_regularity(result)
+            db.record_layout(year, month, day, page_num,
+                            result.num_columns, boundaries,
+                            result.quality_flags,
+                            round(1.0 / (1.0 + cv), 3))
+        db.record_geometry(year, month, day, page_num, prof)
+
+    db.compute_era_patterns()
+
+    # ── Generate overlays ────────────────────────────────────────────
+    print("\nGenerating overlays...")
+    from PIL import Image, ImageDraw
+    import fitz as _fitz
+
+    for page_num, result, prof in pass1_results:
+        pdf_path = None
+        for pn, pp in pages:
+            if pn == page_num:
+                pdf_path = pp
+                break
+        if not pdf_path:
+            continue
+
+        page_out = os.path.join(output_dir, f"p{page_num}")
+        doc = _fitz.open(pdf_path)
+        pg = doc[0]
+        pix = pg.get_pixmap(dpi=150)
+        img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+            pix.h, pix.w, pix.n)
+        doc.close()
+
+        pil = Image.fromarray(img[:, :, :3]).convert("RGBA")
+        ol = Image.new("RGBA", pil.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(ol)
+        ih, iw = pil.size[1], pil.size[0]
+
+        def _vl(x_pct, color, width=2):
+            x = int(x_pct / 100 * iw)
+            draw.line([(x, 0), (x, ih)], fill=color, width=width)
+
+        ta = prof.get("text_area", {})
+        if ta:
+            _vl(ta.get("left", 0), (255, 140, 0, 255), 3)
+            _vl(ta.get("right", 100), (255, 140, 0, 255), 3)
+
+        meta_path = os.path.join(page_out, "page_meta.json")
+        if os.path.exists(meta_path):
+            with open(meta_path) as f:
+                meta = json.load(f)
+            for col in meta["columns"]:
+                _vl(col["left_vw"], (0, 100, 255, 200), 2)
+                _vl(col["right_vw"], (0, 100, 255, 200), 2)
+
+        overlay_path = os.path.join(page_out, "overlay.png")
+        Image.alpha_composite(pil, ol).convert("RGB").save(overlay_path)
+
+    print("  Done")
+
     # ── Summary ──────────────────────────────────────────────────────
     elapsed = time.time() - t0
     print(f"\nCompleted in {elapsed:.1f}s")
