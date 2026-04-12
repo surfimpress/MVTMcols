@@ -939,38 +939,99 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
         positions = [b["x_pct"] for b in best_boundaries]
         this_page_type = page_prof.get("page_type") if page_prof else None
 
-        # Prepare the prior positions for this page type
-        if prior_page_type and this_page_type and prior_page_type != this_page_type:
-            expected_positions = sorted([round(100 - p, 2) for p in prior_boundaries])
-        else:
-            expected_positions = list(prior_boundaries)
+        # Get the prior's pitch (median column width)
+        prior_widths = [prior_boundaries[i+1] - prior_boundaries[i]
+                       for i in range(len(prior_boundaries) - 1)]
+        prior_pitch = float(np.median(prior_widths))
+        prior_num_cols = len(prior_boundaries) - 1
 
-        # Compare detected boundaries against the prior.
-        # For each expected position, find the nearest detected boundary.
-        # If the average deviation exceeds 2% of page width, detection
-        # is unreliable and we should use the prior.
-        deviations = []
-        for exp in expected_positions:
-            if positions:
-                nearest = min(positions, key=lambda p: abs(p - exp))
-                deviations.append(abs(nearest - exp))
-            else:
-                deviations.append(100)
+        # Anchored transposition: use the prior's pitch with this page's
+        # best-detected boundaries as anchor points.
+        #
+        # For each detected boundary (preferring high confidence), generate
+        # a full grid at the prior pitch anchored at that position. Score
+        # by how many OTHER detected boundaries the grid hits. The best-
+        # scoring anchor gives us the grid that reconciles the prior pitch
+        # with this page's actual content positions.
 
-        avg_deviation = float(np.mean(deviations))
-        use_prior = avg_deviation > 2.0
+        # Sort detected boundaries by confidence quality
+        conf_order = {"high": 0, "medium": 1, "low": 2, "projected": 3,
+                      "interpolated": 4, "edge": 5, "prior": 6}
+        anchors = sorted(best_boundaries,
+                        key=lambda b: conf_order.get(b["confidence"], 9))
 
-        if use_prior:
-                # Build boundary dicts from the prior positions
+        best_grid = None
+        best_score = -1
+
+        for anchor_b in anchors:
+            anchor = anchor_b["x_pct"]
+
+            # Generate grid: extend left and right from anchor at prior_pitch
+            grid = [anchor]
+            x = anchor - prior_pitch
+            while x > 0:
+                grid.append(round(x, 2))
+                x -= prior_pitch
+            x = anchor + prior_pitch
+            while x < 100:
+                grid.append(round(x, 2))
+                x += prior_pitch
+            grid.sort()
+
+            # Trim to prior_num_cols + 1 boundaries, centred on the anchor
+            if len(grid) > prior_num_cols + 1:
+                # Find where anchor sits in the grid
+                anchor_idx = min(range(len(grid)),
+                               key=lambda i: abs(grid[i] - anchor))
+                # Take prior_num_cols+1 boundaries centred on anchor
+                start = max(0, anchor_idx - prior_num_cols // 2)
+                end = start + prior_num_cols + 1
+                if end > len(grid):
+                    end = len(grid)
+                    start = max(0, end - prior_num_cols - 1)
+                grid = grid[start:end]
+
+            # Score: how many detected boundaries fall within 2% of a grid line?
+            hits = 0
+            total_dev = 0
+            for det in positions:
+                nearest = min(grid, key=lambda g: abs(g - det))
+                dev = abs(nearest - det)
+                if dev < 2.0:
+                    hits += 1
+                    total_dev += dev
+
+            score = hits - (total_dev * 0.1)  # prefer more hits, penalise deviation
+
+            if score > best_score:
+                best_score = score
+                best_grid = grid
+
+        # Use the anchored grid if it's better than the raw detection.
+        # "Better" = more regular (lower CV) or more matching boundaries.
+        if best_grid and len(best_grid) >= 3:
+            grid_widths = [best_grid[i+1] - best_grid[i]
+                          for i in range(len(best_grid) - 1)]
+            grid_cv = float(np.std(grid_widths) / np.mean(grid_widths))
+
+            det_widths = [positions[i+1] - positions[i]
+                         for i in range(len(positions) - 1)]
+            det_cv = float(np.std(det_widths) / np.mean(det_widths)) if det_widths else 1.0
+
+            # Use anchored grid if it's significantly more regular
+            if grid_cv < det_cv * 0.7 or det_cv > 0.15:
                 best_boundaries = [{
                     "x_pct": p,
                     "peak_darkness": 0, "row_std": 0, "valley_depth": 0,
-                    "confidence": "prior",
+                    "confidence": "anchored_prior",
                     "strips_hit": 0, "total_strips": 0,
                     "consensus": 0, "weighted_score": 0, "drift": 0,
-                } for p in expected_positions]
+                } for p in best_grid]
 
-                quality_flags.append(f"used_prior_grid(avg_dev={avg_deviation:.1f}%)")
+                quality_flags.append(
+                    f"anchored_prior(hits={best_score:.1f},grid_cv={grid_cv:.3f},"
+                    f"det_cv={det_cv:.3f})"
+                )
 
     # Extract columns
     columns = extract_columns(
