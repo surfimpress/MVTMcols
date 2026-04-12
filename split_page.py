@@ -1035,15 +1035,17 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
             )
 
             if sliver_info["confidence"] != "low":
-                margin_start = sliver_info["margin_start_pct"]
+                # Use margin_end (where OUR margin ends and sliver begins)
+                # not margin_start (where column content ends).
+                # The print margin belongs to this page — keep it.
+                sliver_boundary = sliver_info["margin_end_pct"]
 
                 if binding == "right":
-                    # Remove boundaries beyond the margin start
                     best_boundaries = [b for b in best_boundaries
-                                      if b["x_pct"] <= margin_start + 2]
+                                      if b["x_pct"] <= sliver_boundary]
                 elif binding == "left":
                     best_boundaries = [b for b in best_boundaries
-                                      if b["x_pct"] >= margin_start - 2]
+                                      if b["x_pct"] >= sliver_boundary]
 
                 if sliver_info["sliver_present"]:
                     quality_flags.append(
