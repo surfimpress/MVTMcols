@@ -340,7 +340,7 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         page_type = prof.get("page_type")
         if page_type == "recto" and cv < recto_best_cv:
             # Accept if column count is close to expected
-            if abs(nc - recto_num_cols) <= 1:
+            if nc == recto_num_cols:
                 recto_best_cv = cv
                 recto_template = {
                     "bounds": _get_bounds(result),
@@ -351,7 +351,7 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
                     "pitch": pitch_info.get("recto_pitch") or pitch,
                 }
         elif page_type == "verso" and cv < verso_best_cv:
-            if abs(nc - verso_num_cols) <= 1:
+            if nc == verso_num_cols:
                 verso_best_cv = cv
                 verso_template = {
                     "bounds": _get_bounds(result),
