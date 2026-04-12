@@ -99,49 +99,81 @@ def _score_regularity(result):
 
 def _establish_pitch(pass1_results):
     """
-    Determine the column pitch from the most regular pages.
+    Determine column pitch separately for recto and verso pages.
 
-    Scores all pages by CV, picks the two most regular that agree
-    on column count, and averages their median widths.
+    Recto and verso may have different column counts (e.g., 1897
+    has 7 recto columns and 8 verso columns). Each type gets its
+    own pitch from the most regular pages of that type.
 
-    Returns (pitch, num_columns, grounding_pages) or (None, None, []).
+    Falls back to a single pitch if only one type has good data.
+
+    Returns dict with keys:
+        recto_pitch, recto_cols, recto_grounding,
+        verso_pitch, verso_cols, verso_grounding,
+        pitch (dominant), num_columns (dominant), grounding_pages
     """
-    # Score all pages
-    scored = []
+    recto_scored = []
+    verso_scored = []
+
     for page_num, result, profile in pass1_results:
         cv, median_w, num_cols = _score_regularity(result)
-        if num_cols >= 3:
-            scored.append({
-                "page": page_num,
-                "cv": cv,
-                "median_width": median_w,
-                "num_columns": num_cols,
-                "result": result,
-                "profile": profile,
-            })
+        if num_cols < 3:
+            continue
+        entry = {
+            "page": page_num,
+            "cv": cv,
+            "median_width": median_w,
+            "num_columns": num_cols,
+            "result": result,
+            "profile": profile,
+        }
+        page_type = profile.get("page_type")
+        if page_type == "recto":
+            recto_scored.append(entry)
+        elif page_type == "verso":
+            verso_scored.append(entry)
 
-    if not scored:
-        return None, None, []
+    def _best_pair(scored):
+        if not scored:
+            return None, None, []
+        scored.sort(key=lambda s: s["cv"])
+        best = scored[0]
+        partner = None
+        for s in scored[1:]:
+            if s["num_columns"] == best["num_columns"]:
+                partner = s
+                break
+        if partner:
+            pitch = (best["median_width"] + partner["median_width"]) / 2
+            grounding = [best["page"], partner["page"]]
+        else:
+            pitch = best["median_width"]
+            grounding = [best["page"]]
+        return round(pitch, 2), best["num_columns"], grounding
 
-    # Sort by regularity (lowest CV first)
-    scored.sort(key=lambda s: s["cv"])
+    recto_pitch, recto_cols, recto_grounding = _best_pair(recto_scored)
+    verso_pitch, verso_cols, verso_grounding = _best_pair(verso_scored)
 
-    # Find two pages that agree on column count
-    best = scored[0]
-    partner = None
-    for s in scored[1:]:
-        if s["num_columns"] == best["num_columns"]:
-            partner = s
-            break
-
-    if partner:
-        pitch = (best["median_width"] + partner["median_width"]) / 2
-        grounding = [best["page"], partner["page"]]
+    # Dominant: use whichever has more grounding pages, or recto as default
+    if recto_grounding and verso_grounding:
+        if len(recto_grounding) >= len(verso_grounding):
+            pitch, num_columns, grounding = recto_pitch, recto_cols, recto_grounding
+        else:
+            pitch, num_columns, grounding = verso_pitch, verso_cols, verso_grounding
+    elif recto_grounding:
+        pitch, num_columns, grounding = recto_pitch, recto_cols, recto_grounding
+    elif verso_grounding:
+        pitch, num_columns, grounding = verso_pitch, verso_cols, verso_grounding
     else:
-        pitch = best["median_width"]
-        grounding = [best["page"]]
+        return None
 
-    return round(pitch, 2), best["num_columns"], grounding
+    return {
+        "pitch": pitch, "num_columns": num_columns, "grounding_pages": grounding,
+        "recto_pitch": recto_pitch, "recto_cols": recto_cols,
+        "recto_grounding": recto_grounding or [],
+        "verso_pitch": verso_pitch, "verso_cols": verso_cols,
+        "verso_grounding": verso_grounding or [],
+    }
 
 
 def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
@@ -224,10 +256,22 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         pass1_results.append((page_num, result, prof))
 
     # ── Establish pitch ──────────────────────────────────────────────
-    pitch, num_columns, grounding_pages = _establish_pitch(pass1_results)
-    if pitch is None:
+    pitch_info = _establish_pitch(pass1_results)
+    if pitch_info is None:
         print("  Could not establish pitch — all pages failed")
         return {"error": "no_pitch"}
+
+    # Use the recto pitch as the primary — verso "extra columns" are
+    # facing page slivers, not real columns. The column count is the
+    # same across recto and verso within an issue.
+    if pitch_info.get("recto_pitch"):
+        pitch = pitch_info["recto_pitch"]
+        num_columns = pitch_info["recto_cols"]
+        grounding_pages = pitch_info["recto_grounding"]
+    else:
+        pitch = pitch_info["pitch"]
+        num_columns = pitch_info["num_columns"]
+        grounding_pages = pitch_info["grounding_pages"]
 
     print(f"\nPitch: {pitch:.1f}% from {num_columns} columns "
           f"(grounding pages: {grounding_pages})")
@@ -248,23 +292,25 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     for page_num, result, prof in pass1_results:
         cv, _, nc = _score_regularity(result)
         page_type = prof.get("page_type")
-        if nc != num_columns:
-            continue
-        if page_type == "recto" and cv < recto_best_cv:
+        if page_type == "recto" and nc == num_columns and cv < recto_best_cv:
             recto_best_cv = cv
             recto_template = {
                 "bounds": _get_bounds(result),
                 "page": page_num,
                 "cv": cv,
                 "page_type": "recto",
+                "num_cols": num_columns,
+                "pitch": pitch,
             }
-        elif page_type == "verso" and cv < verso_best_cv:
+        elif page_type == "verso" and nc == num_columns and cv < verso_best_cv:
             verso_best_cv = cv
             verso_template = {
                 "bounds": _get_bounds(result),
                 "page": page_num,
                 "cv": cv,
                 "page_type": "verso",
+                "num_cols": num_columns,
+                "pitch": pitch,
             }
 
     if recto_template:
@@ -281,7 +327,6 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     pages_to_reprocess = []
     for page_num, result, prof in pass1_results:
         cv, _, nc = _score_regularity(result)
-        # Re-process if: irregular, wrong column count, or not a grounding page
         page_type = prof.get("page_type")
         is_template = ((recto_template and page_num == recto_template["page"]) or
                        (verso_template and page_num == verso_template["page"]))
@@ -321,7 +366,7 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
             zones = get_ad_exclusion_zones(page_ads.get(page_num, []))
             new_result = split_page(
                 pdf_path, output_dir=page_out, dpi=dpi,
-                expected_columns=num_columns,
+                expected_columns=template.get("num_cols", num_columns),
                 prior_boundaries=template["bounds"],
                 prior_page_type=template["page_type"],
                 ad_exclusion_zones=zones,

@@ -852,28 +852,48 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
         prior_pitch = float(np.median(prior_widths))
         prior_num_cols = len(prior_boundaries) - 1
 
-        # Anchored transposition: use the prior's pitch with this page's
-        # best-detected boundaries as anchor points.
+        # Anchored transposition: build the grid from the clean-side
+        # text_area boundary, placing columns in the appropriate direction.
+        # Then also try each detected boundary as an anchor. Pick the
+        # grid that best matches detected boundaries.
         #
-        # For each detected boundary (preferring high confidence), generate
-        # a full grid at the prior pitch anchored at that position. Score
-        # by how many OTHER detected boundaries the grid hits. The best-
-        # scoring anchor gives us the grid that reconciles the prior pitch
-        # with this page's actual content positions.
+        # Clean side approach: the text_area boundary on the non-binding
+        # side is the most reliable position on the page. For verso pages
+        # (binding right, clean left), start from text_area left and place
+        # columns rightward. For recto (binding left, clean right), start
+        # from text_area right and place columns leftward.
 
-        # Sort detected boundaries by confidence quality
+        clean_side = page_prof.get("clean_side") if page_prof else None
+        ta = page_prof.get("text_area", {}) if page_prof else {}
+
+        # Build candidate grids from multiple anchor strategies
+        candidate_grids = []
+
+        # Strategy 1: Start from clean-side text_area boundary
+        if clean_side and ta:
+            if clean_side == "left":
+                # Verso: clean side is left, build rightward
+                start = ta.get("left", 0)
+                grid = [round(start + i * prior_pitch, 2)
+                        for i in range(prior_num_cols + 1)]
+                grid = [g for g in grid if 0 < g < 100]
+                candidate_grids.append(("clean_edge", grid))
+            else:
+                # Recto: clean side is right, build leftward
+                start = ta.get("right", 100)
+                grid = [round(start - i * prior_pitch, 2)
+                        for i in range(prior_num_cols + 1)]
+                grid = sorted([g for g in grid if 0 < g < 100])
+                candidate_grids.append(("clean_edge", grid))
+
+        # Strategy 2: Anchor at each detected boundary (existing approach)
         conf_order = {"high": 0, "medium": 1, "low": 2, "projected": 3,
                       "interpolated": 4, "edge": 5, "prior": 6}
         anchors = sorted(best_boundaries,
                         key=lambda b: conf_order.get(b["confidence"], 9))
 
-        best_grid = None
-        best_score = -1
-
-        for anchor_b in anchors:
+        for anchor_b in anchors[:5]:  # top 5 by confidence
             anchor = anchor_b["x_pct"]
-
-            # Generate grid: extend left and right from anchor at prior_pitch
             grid = [anchor]
             x = anchor - prior_pitch
             while x > 0:
@@ -885,12 +905,10 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
                 x += prior_pitch
             grid.sort()
 
-            # Trim to prior_num_cols + 1 boundaries, centred on the anchor
+            # Trim to prior_num_cols + 1 boundaries
             if len(grid) > prior_num_cols + 1:
-                # Find where anchor sits in the grid
                 anchor_idx = min(range(len(grid)),
                                key=lambda i: abs(grid[i] - anchor))
-                # Take prior_num_cols+1 boundaries centred on anchor
                 start = max(0, anchor_idx - prior_num_cols // 2)
                 end = start + prior_num_cols + 1
                 if end > len(grid):
@@ -898,7 +916,16 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
                     start = max(0, end - prior_num_cols - 1)
                 grid = grid[start:end]
 
-            # Score: how many detected boundaries fall within 2% of a grid line?
+            candidate_grids.append(("anchor", grid))
+
+        # Score each candidate grid by how many detected boundaries it hits
+        best_grid = None
+        best_score = -1
+        best_source = ""
+
+        for source, grid in candidate_grids:
+            if len(grid) < 3:
+                continue
             hits = 0
             total_dev = 0
             for det in positions:
@@ -908,11 +935,12 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
                     hits += 1
                     total_dev += dev
 
-            score = hits - (total_dev * 0.1)  # prefer more hits, penalise deviation
+            score = hits - (total_dev * 0.1)
 
             if score > best_score:
                 best_score = score
                 best_grid = grid
+                best_source = source
 
         # Use the anchored grid if it's better than the raw detection.
         # "Better" = more regular (lower CV) or more matching boundaries.
@@ -936,8 +964,8 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
                 } for p in best_grid]
 
                 quality_flags.append(
-                    f"anchored_prior(hits={best_score:.1f},grid_cv={grid_cv:.3f},"
-                    f"det_cv={det_cv:.3f})"
+                    f"anchored_prior({best_source},hits={best_score:.1f},"
+                    f"grid_cv={grid_cv:.3f},det_cv={det_cv:.3f})"
                 )
 
     # Extract columns
