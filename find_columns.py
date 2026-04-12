@@ -48,9 +48,10 @@ def find_column_boundaries(
     strip_width=5,
     valley_width=15,
     max_row_std=35,
+    clip_x_frac=None,
 ):
     """
-    Detect column boundaries in a grid rectangle.
+    Detect column boundaries in a grid rectangle or clipped region.
 
     Args:
         pdf_path:            Path to the PDF.
@@ -61,6 +62,9 @@ def find_column_boundaries(
         strip_width:         Pixel width of the strip for pass 2 analysis.
         valley_width:        Pixels either side to check for whitespace valleys.
         max_row_std:         Maximum row std to consider a candidate consistent.
+        clip_x_frac:         Optional (start, end) as fractions of page width
+                             (0.0-1.0). Overrides x/w for the horizontal clip.
+                             page_pct output maps back to PDF page percentages.
 
     Returns:
         List of ColumnBoundary objects, sorted by confidence then position.
@@ -70,12 +74,23 @@ def find_column_boundaries(
     page = doc[page_number]
     pw, ph = page.rect.width, page.rect.height
 
-    clip = fitz.Rect(
-        pw * (x - 1) / 10,
-        ph * (y - 1) / 10,
-        pw * (x - 1 + w) / 10,
-        ph * (y - 1 + h) / 10,
-    )
+    if clip_x_frac:
+        clip_x0_frac, clip_x1_frac = clip_x_frac
+        clip = fitz.Rect(
+            pw * clip_x0_frac,
+            ph * (y - 1) / 10,
+            pw * clip_x1_frac,
+            ph * (y - 1 + h) / 10,
+        )
+    else:
+        clip_x0_frac = (x - 1) / 10
+        clip_x1_frac = (x - 1 + w) / 10
+        clip = fitz.Rect(
+            pw * clip_x0_frac,
+            ph * (y - 1) / 10,
+            pw * clip_x1_frac,
+            ph * (y - 1 + h) / 10,
+        )
     pix = page.get_pixmap(clip=clip, dpi=dpi)
     doc.close()
 
@@ -157,8 +172,10 @@ def find_column_boundaries(
         else:
             confidence = "low"
 
-        # Map to page coordinates
-        page_pct = ((x - 1) + cx / img_w * w) * 10
+        # Map local pixel position back to PDF page percentage.
+        # clip_x0_frac and clip_x1_frac define the clip region as
+        # fractions of page width. cx/img_w gives position within clip.
+        page_pct = (clip_x0_frac + cx / img_w * (clip_x1_frac - clip_x0_frac)) * 100
 
         results.append(ColumnBoundary(
             local_x=cx,
