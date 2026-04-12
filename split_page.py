@@ -80,7 +80,8 @@ class PageResult:
 
 # ── Core functions ───────────────────────────────────────────────────────────
 
-def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
+def _detect_consensus(pdf_path, page_number, dpi, page_prof=None,
+                      expected_columns=None):
     """
     Multi-strip consensus column detection.
 
@@ -278,6 +279,7 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
             clean_side=clean_side,
             spine_pct=spine_pct,
             binding_side=binding_side,
+            expected_columns=expected_columns,
         )
 
     # Cap at 9 boundaries (8 columns max)
@@ -329,7 +331,8 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
 
 def _project_grid_edges(boundaries, tolerance=2.0, text_left_pct=0,
                         text_right_pct=100, clean_side="right",
-                        spine_pct=None, binding_side="left"):
+                        spine_pct=None, binding_side="left",
+                        expected_columns=None):
     """
     Predict outer edges by projecting interior column widths outward.
 
@@ -494,8 +497,7 @@ def _project_grid_edges(boundaries, tolerance=2.0, text_left_pct=0,
     result = list(boundaries)
 
     # Spine constraint: on the binding side, projected edges must not
-    # extend past the R3 boundary (the spine). This prevents projection
-    # from reaching into binding shadow or facing page sliver.
+    # extend past the R3 boundary (the spine).
     left_limit = 0
     right_limit = 100
     if spine_pct is not None:
@@ -504,15 +506,58 @@ def _project_grid_edges(boundaries, tolerance=2.0, text_left_pct=0,
         else:
             right_limit = min(100, spine_pct)
 
-    # Add all projected left edges (sorted rightmost first for insert)
-    for pct, conf in sorted(left_edges, reverse=True):
-        if left_limit < pct < positions[0]:
-            result.insert(0, make_edge_boundary(pct, conf))
+    # When expected_columns is known (from issue prior), calculate
+    # exactly how many boundaries to add on each side.
+    # N columns = N+1 boundaries. We have len(boundaries) detected.
+    # Need to add (expected_columns + 1 - len(boundaries)) total.
+    if expected_columns is not None:
+        target_boundaries = expected_columns + 1
+        needed = target_boundaries - len(result)
+        if needed <= 0:
+            # Already have enough or too many — don't add more
+            pass
+        else:
+            # Distribute needed boundaries: add from the side with
+            # more room (further from the page edge)
+            left_room = positions[0] - left_limit
+            right_room = right_limit - positions[-1]
 
-    # Add all projected right edges
-    for pct, conf in sorted(right_edges):
-        if positions[-1] < pct < right_limit:
-            result.append(make_edge_boundary(pct, conf))
+            # Add from the side with more room first
+            added = 0
+            left_sorted = sorted(left_edges, reverse=True)
+            right_sorted = sorted(right_edges)
+            li, ri = 0, 0
+
+            while added < needed:
+                can_left = li < len(left_sorted) and left_limit < left_sorted[li][0] < positions[0]
+                can_right = ri < len(right_sorted) and positions[-1] < right_sorted[ri][0] < right_limit
+
+                if can_left and can_right:
+                    # Add from whichever side has more room
+                    if left_room >= right_room:
+                        result.insert(0, make_edge_boundary(*left_sorted[li]))
+                        li += 1
+                    else:
+                        result.append(make_edge_boundary(*right_sorted[ri]))
+                        ri += 1
+                elif can_left:
+                    result.insert(0, make_edge_boundary(*left_sorted[li]))
+                    li += 1
+                elif can_right:
+                    result.append(make_edge_boundary(*right_sorted[ri]))
+                    ri += 1
+                else:
+                    break
+                added += 1
+    else:
+        # No expected count — add all valid projected edges
+        for pct, conf in sorted(left_edges, reverse=True):
+            if left_limit < pct < positions[0]:
+                result.insert(0, make_edge_boundary(pct, conf))
+
+        for pct, conf in sorted(right_edges):
+            if positions[-1] < pct < right_limit:
+                result.append(make_edge_boundary(pct, conf))
 
     # Store projection stats for diagnostics
     if result:
@@ -810,16 +855,19 @@ def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
 
 
 def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
-               db_path=None):
+               db_path=None, expected_columns=None):
     """
     Full page-splitting pipeline.
 
     Args:
-        pdf_path:     Path to single-page PDF.
-        page_number:  Zero-indexed page within the PDF.
-        dpi:          Render resolution for column images.
-        output_dir:   Where to save column PNGs. Defaults to <stem>_columns/.
-        db_path:      SQLite database to log results. Optional.
+        pdf_path:        Path to single-page PDF.
+        page_number:     Zero-indexed page within the PDF.
+        dpi:             Render resolution for column images.
+        output_dir:      Where to save column PNGs. Defaults to <stem>_columns/.
+        db_path:         SQLite database to log results. Optional.
+        expected_columns: If known (from issue prior or intelligence layer),
+                         the expected number of columns. Constrains projection
+                         to produce this many columns.
 
     Returns:
         PageResult with all columns and quality flags.
@@ -861,7 +909,8 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
 
     # Multi-strip consensus detection with adaptive thresholds
     best_boundaries, used_rows, quality_flags = _detect_consensus(
-        pdf_path, page_number, dpi, page_prof
+        pdf_path, page_number, dpi, page_prof,
+        expected_columns=expected_columns,
     )
 
     # Add profile quality flags
