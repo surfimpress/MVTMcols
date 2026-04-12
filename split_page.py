@@ -238,47 +238,268 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
     # Sort by position
     boundaries.sort(key=lambda b: b["x_pct"])
 
-    # ── Inject text area edges as outermost boundaries ───────────────
-    # The text area left and right edges are where the column grid
-    # starts and ends. If no detected boundary is within 2% of these
-    # edges, insert synthetic boundaries there.
-    text_left_pct = text_left_frac * 100
-    text_right_pct = text_right_frac * 100
-
-    edge_boundary = lambda pct: {
-        "x_pct": round(pct, 2),
-        "peak_darkness": 0, "row_std": 0, "valley_depth": 0,
-        "confidence": "edge", "strips_hit": 0, "total_strips": 0,
-        "consensus": 0, "weighted_score": 0, "drift": 0,
-    }
-
-    if not boundaries or boundaries[0]["x_pct"] - text_left_pct > 2.0:
-        boundaries.insert(0, edge_boundary(text_left_pct))
-
-    if not boundaries or text_right_pct - boundaries[-1]["x_pct"] > 2.0:
-        boundaries.append(edge_boundary(text_right_pct))
-
-    # ── Prune to best regular grid ───────────────────────────────────
-    # The Gazette never had more than 7 columns. With the boundary-as-rules
-    # model, 7 columns = 8 boundaries (left edge + 6 interior + right edge).
-    # If we have more, keep the subset that forms the most regular grid.
-    MAX_BOUNDARIES = 8
-
-    # Always merge boundaries that are too close together first
+    # Always merge boundaries that are too close together
     boundaries = _remove_narrow_columns(boundaries, min_width_pct=7.0)
 
-    # Then prune to max if still too many
+    # Cap at max boundaries
+    MAX_BOUNDARIES = 8
     if len(boundaries) > MAX_BOUNDARIES:
         boundaries = _select_best_grid(boundaries, MAX_BOUNDARIES)
 
-    # ── Regularise the grid ──────────────────────────────────────────
-    # The column grid is always regular within a page. Infer the pitch
-    # from the narrowest (most reliable) columns, then fill in any
-    # missing boundaries and snap drifted ones to the regular grid.
-    if len(boundaries) >= 3:
-        boundaries = _regularise_grid(boundaries)
+    # ── Grid projection from interior columns ────────────────────────
+    # Use detected interior boundaries as ground truth. Project each
+    # interior column's width across the page to predict where the
+    # outer edges should be. Aggregate predictions weighted by how
+    # well they match the other detected boundaries.
+    if len(boundaries) >= 4:
+        clean_side = page_prof.get("clean_side", "right") if page_prof else "right"
+        boundaries = _project_grid_edges(
+            boundaries,
+            text_left_pct=text_left_frac * 100,
+            text_right_pct=text_right_frac * 100,
+            clean_side=clean_side,
+        )
 
     return boundaries, CONSENSUS_ROWS, _validate(boundaries)
+
+
+def _project_grid_edges(boundaries, tolerance=2.0, text_left_pct=0,
+                        text_right_pct=100, clean_side="right"):
+    """
+    Predict outer edge positions by projecting interior columns outward.
+
+    For each interior column (2nd through 2nd-to-last), replicate its
+    exact width across the page to predict where all boundaries would
+    fall. Compare predicted interior positions with detected ones to
+    build a confidence score. Use the best predictions to determine
+    the left edge of column 1 and right edge of the last column.
+
+    Detected interior boundaries are never moved — only the outermost
+    boundaries are adjusted or added.
+
+    Args:
+        boundaries: list of boundary dicts, sorted by x_pct
+        tolerance: max distance (% page width) for a predicted boundary
+                   to match a detected one
+
+    Returns:
+        Updated boundary list with projected outer edges.
+    """
+    if len(boundaries) < 4:
+        return boundaries
+
+    positions = [b["x_pct"] for b in boundaries]
+    n = len(positions)
+
+    # Interior boundaries: indices 1 through n-2 (skip first and last)
+    interior = positions[1:-1]
+
+    # For each interior column (pair of adjacent interior boundaries),
+    # project its width to predict all boundary positions.
+    predictions = []
+
+    for i in range(len(interior) - 1):
+        col_left = interior[i]
+        col_right = interior[i + 1]
+        col_width = col_right - col_left
+        col_num = i + 2  # 1-indexed, starting from col 2
+
+        if col_width < 3.0:
+            continue
+
+        # Project leftward and rightward from this column
+        predicted = []
+        x = col_left
+        while x > -10:
+            predicted.append(x)
+            x -= col_width
+        x = col_right
+        while x < 110:
+            predicted.append(x)
+            x += col_width
+        predicted.sort()
+
+        # Score: how many interior boundaries match a predicted position?
+        matches = 0
+        total_error = 0
+        for actual in interior:
+            nearest = min(predicted, key=lambda p: abs(p - actual))
+            err = abs(nearest - actual)
+            if err < tolerance:
+                matches += 1
+                total_error += err
+
+        if matches < 2:
+            continue
+
+        avg_error = total_error / matches
+        # Confidence: high matches + low error = high confidence
+        confidence = matches / len(interior) * (1.0 / (1.0 + avg_error))
+
+        # Predicted outer edges: nearest predicted position that is
+        # a meaningful distance beyond the outermost detected boundaries.
+        # Must be at least half a column width outside to count —
+        # predictions that land on existing boundaries are noise.
+        half_width = col_width * 0.5
+        pred_left_candidates = [p for p in predicted
+                                if p < positions[0] - half_width and p > 0]
+        pred_right_candidates = [p for p in predicted
+                                 if p > positions[-1] + half_width and p < 100]
+
+        pred_left = max(pred_left_candidates) if pred_left_candidates else None
+        pred_right = min(pred_right_candidates) if pred_right_candidates else None
+
+        predictions.append({
+            "source_col": col_num,
+            "col_width": round(col_width, 2),
+            "matches": matches,
+            "total_interior": len(interior),
+            "avg_error": round(avg_error, 3),
+            "confidence": round(confidence, 3),
+            "pred_left": round(pred_left, 2) if pred_left else None,
+            "pred_right": round(pred_right, 2) if pred_right else None,
+        })
+
+    if not predictions:
+        return boundaries
+
+    # Aggregate predictions for left and right edges, weighted by confidence
+    left_preds = [(p["pred_left"], p["confidence"]) for p in predictions
+                  if p["pred_left"] is not None]
+    right_preds = [(p["pred_right"], p["confidence"]) for p in predictions
+                   if p["pred_right"] is not None]
+
+    def weighted_mean(preds_with_conf):
+        if not preds_with_conf:
+            return None, 0
+        total_w = sum(c for _, c in preds_with_conf)
+        if total_w == 0:
+            return None, 0
+        wmean = sum(v * c for v, c in preds_with_conf) / total_w
+        return round(wmean, 2), round(total_w / len(preds_with_conf), 3)
+
+    projected_left, left_conf = weighted_mean(left_preds)
+    projected_right, right_conf = weighted_mean(right_preds)
+
+    # Also score the current outermost boundaries
+    current_left = positions[0]
+    current_right = positions[-1]
+    current_left_conf = boundaries[0].get("consensus", 0)
+    current_right_conf = boundaries[-1].get("consensus", 0)
+
+    def make_edge_boundary(pct, conf, source="projected"):
+        return {
+            "x_pct": pct,
+            "peak_darkness": 0, "row_std": 0, "valley_depth": 0,
+            "confidence": source,
+            "strips_hit": 0, "total_strips": 0,
+            "consensus": conf, "weighted_score": 0, "drift": 0,
+            "projection_confidence": conf,
+        }
+
+    # ADD projected outer edges outside the current boundary range.
+    # Detected boundaries are never replaced — projection only extends
+    # the grid outward to find where the first and last columns begin/end.
+    result = list(boundaries)
+
+    # The projected position is where the column grid predicts the
+    # outer edge. Compare with text_area bound from the profile:
+    # - If projection is INSIDE the text_area, use the projection
+    #   (the grid is more precise than the profile's margin detection)
+    # - If projection is OUTSIDE the text_area, use the projection
+    #   but cap at projection + small buffer (the profile may have
+    #   been too conservative, but don't extend wildly)
+    # In both cases, add a modest 1% buffer to avoid clipping.
+    EDGE_BUFFER_PCT = 1.0
+
+    # Alert if a strong projection lies outside the text_area clip.
+    # This means the text_area detection may have been compromised by
+    # noise (binding shadow, damage, ad borders).
+    alerts = []
+    if projected_left is not None and projected_left < text_left_pct and left_conf > 0.3:
+        alerts.append({
+            "type": "projected_edge_outside_text_clip",
+            "side": "left",
+            "projected_pct": projected_left,
+            "text_clip_pct": text_left_pct,
+            "projection_confidence": left_conf,
+            "message": f"Left projection ({projected_left:.1f}%) extends beyond "
+                       f"text clip ({text_left_pct:.1f}%) — text clip may be "
+                       f"compromised by noise. Using projection."
+        })
+
+    if projected_right is not None and projected_right > text_right_pct and right_conf > 0.3:
+        alerts.append({
+            "type": "projected_edge_outside_text_clip",
+            "side": "right",
+            "projected_pct": projected_right,
+            "text_clip_pct": text_right_pct,
+            "projection_confidence": right_conf,
+            "message": f"Right projection ({projected_right:.1f}%) extends beyond "
+                       f"text clip ({text_right_pct:.1f}%) — text clip may be "
+                       f"compromised by noise. Using projection."
+        })
+
+    # ── Asymmetric edge placement ──────────────────────────────────
+    # Clean side: high confidence, small buffer (1%).
+    # Binding side: lower confidence, larger buffer (2%).
+    # Both clamped to within 3% of text_area as safety bound.
+    CLEAN_BUFFER = 1.0
+    BINDING_BUFFER = 2.0
+    CLAMP_MARGIN = 3.0
+
+    left_is_clean = (clean_side == "left")
+    right_is_clean = (clean_side == "right")
+
+    if projected_left is not None and 0 < projected_left < positions[0]:
+        buffer = CLEAN_BUFFER if left_is_clean else BINDING_BUFFER
+        edge_left = max(0, projected_left - buffer)
+        edge_left = max(edge_left, text_left_pct - CLAMP_MARGIN)
+        conf = left_conf * (1.0 if left_is_clean else 0.7)
+        if left_conf > 0.2:
+            result.insert(0, make_edge_boundary(edge_left, round(conf, 3)))
+
+    if projected_right is not None and positions[-1] < projected_right < 100:
+        buffer = CLEAN_BUFFER if right_is_clean else BINDING_BUFFER
+        edge_right = min(100, projected_right + buffer)
+        edge_right = min(edge_right, text_right_pct + CLAMP_MARGIN)
+        conf = right_conf * (1.0 if right_is_clean else 0.7)
+        if right_conf > 0.2:
+            result.append(make_edge_boundary(edge_right, round(conf, 3)))
+
+    # Attach alerts to result for logging
+    if alerts:
+        result[0]["_alerts"] = alerts
+
+    # NOTE: Interior gap interpolation disabled for now.
+    # The grid projection handles outer edges; interior gaps are
+    # a separate concern to be addressed after outer edges are stable.
+    # Keeping the code for later use.
+    #
+    # interior_widths = [positions[i+1] - positions[i] for i in range(1, n-2)]
+    # if interior_widths:
+    #     median_width = float(np.median(interior_widths))
+    #     final_positions = [b["x_pct"] for b in result]
+    #     insertions = []
+    #     for i in range(len(final_positions) - 1):
+    #         gap = final_positions[i+1] - final_positions[i]
+    #         if gap > median_width * 1.4:
+    #             cols_in_gap = max(2, round(gap / median_width))
+    #             step = gap / cols_in_gap
+    #             for m in range(1, cols_in_gap):
+    #                 interp_x = final_positions[i] + m * step
+    #                 insertions.append(make_edge_boundary(
+    #                     round(interp_x, 2), 0, "interpolated"
+    #                 ))
+    #     if insertions:
+    #         result.extend(insertions)
+    #         result.sort(key=lambda b: b["x_pct"])
+
+    # Store projection stats for diagnostics
+    if result:
+        result[0]["_projection_stats"] = predictions
+
+    return result
 
 
 def _remove_narrow_columns(boundaries, min_width_pct=7.0):

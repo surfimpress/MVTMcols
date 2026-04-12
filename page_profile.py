@@ -34,7 +34,7 @@ def _open_clean(pdf_path):
     return doc
 
 
-def find_rectangles(inv, h, w):
+def find_rectangles(inv, h, w, gazette_page=None):
     """
     Detect the three nested rectangles in a scanned newspaper PDF page.
 
@@ -46,10 +46,13 @@ def find_rectangles(inv, h, w):
     Args:
         inv:  Inverted greyscale array (dark ink = high values), shape (h, w)
         h, w: Image dimensions at profile DPI
+        gazette_page: Page number from the gazette filename (1-indexed).
+                      Odd = recto (binding left), even = verso (binding right).
+                      If None, falls back to darkness comparison.
 
     Returns:
         dict with bounding boxes r2, r3, text_area (all in % of page dimensions),
-        plus binding_side.
+        plus binding_side, clean_side, and page_type.
     """
     # Column-wise mean darkness, middle 60% of rows (avoid masthead/footer)
     row_lo = int(h * 0.2)
@@ -75,13 +78,27 @@ def find_rectangles(inv, h, w):
             r2_right_px = x
             break
 
-    # ── Binding side detection ───────────────────────────────────────
-    # Within R2, the binding side has much higher darkness (shadow).
+    # ── Binding side from page number (recto/verso) ────────────────
+    # Odd pages = recto (right-hand page) → binding on LEFT
+    # Even pages = verso (left-hand page) → binding on RIGHT
+    # This is deterministic and always correct. If no page number
+    # is provided, fall back to darkness comparison.
     edge_w = max(5, int((r2_right_px - r2_left_px) * 0.05))
-
     left_dark = float(smooth[r2_left_px:r2_left_px + edge_w].mean())
     right_dark = float(smooth[r2_right_px - edge_w:r2_right_px].mean())
-    binding_side = "left" if left_dark > right_dark else "right"
+
+    if gazette_page is not None:
+        page_type = "recto" if gazette_page % 2 == 1 else "verso"
+        binding_side = "left" if page_type == "recto" else "right"
+        clean_side = "right" if page_type == "recto" else "left"
+        # Confirm with darkness (log if they disagree but trust page number)
+        darkness_says = "left" if left_dark > right_dark else "right"
+        binding_confirmed = (binding_side == darkness_says)
+    else:
+        page_type = None
+        binding_side = "left" if left_dark > right_dark else "right"
+        clean_side = "right" if binding_side == "left" else "left"
+        binding_confirmed = True  # no contradiction possible
 
     # ── Paper baseline from interior of R2 ───────────────────────────
     # Sample from the central 40% of R2 — guaranteed to be newspaper
@@ -212,87 +229,172 @@ def find_rectangles(inv, h, w):
     # then find where the profile rises from that minimum into column text.
     margin_search_end = r3_left_px + int((r3_right_px - r3_left_px) * 0.2)
 
-    left_region = heavy[r3_left_px:margin_search_end]
-    if len(left_region) > 5:
-        # Find shadow peak (or page-edge rise)
-        left_peak_idx = r3_left_px + int(np.argmax(left_region))
+    def _find_text_edge(heavy, search_start, search_end, body_median, direction="right"):
+        """
+        Find a text area edge and compute its confidence.
 
-        # Find the FIRST local minimum after the peak — this is the
-        # print margin. Not the global minimum (which would be a gutter
-        # between columns, further in and possibly lower).
-        left_min_idx = left_peak_idx
-        for x in range(left_peak_idx + 1, margin_search_end - 1):
-            if heavy[x] <= heavy[x - 1] and heavy[x] <= heavy[x + 1]:
-                left_min_idx = x
-                break
+        Looks for shadow_peak → margin_minimum → column_rise pattern.
+        Confidence is based on:
+        - How deep the margin minimum is relative to body (deeper = clearer signal)
+        - How sharp the rise from margin to content is (sharper = more confident)
 
-        left_min_val = float(heavy[left_min_idx])
-        left_thresh = left_min_val + 0.2 * (body_median - left_min_val)
+        direction: "right" = searching left-to-right, "left" = right-to-left
 
-        # Walk from minimum toward center: first point above threshold
-        text_left_px = left_min_idx
-        for x in range(left_min_idx, margin_search_end):
-            if heavy[x] > left_thresh:
-                text_left_px = x
-                break
-    else:
-        text_left_px = r3_left_px
+        Returns (edge_px, confidence 0-1)
+        """
+        if direction == "right":
+            region = heavy[search_start:search_end]
+            if len(region) < 5:
+                return search_start, 0.0
 
-    # Right edge: same pattern in reverse — shadow_peak → margin_min → column
+            peak_idx = search_start + int(np.argmax(region))
+            peak_val = float(heavy[peak_idx])
+
+            # First local minimum after peak
+            min_idx = peak_idx
+            for x in range(peak_idx + 1, search_end - 1):
+                if heavy[x] <= heavy[x - 1] and heavy[x] <= heavy[x + 1]:
+                    min_idx = x
+                    break
+            min_val = float(heavy[min_idx])
+
+            thresh = min_val + 0.2 * (body_median - min_val)
+            edge_px = min_idx
+            for x in range(min_idx, search_end):
+                if heavy[x] > thresh:
+                    edge_px = x
+                    break
+        else:
+            region = heavy[search_start:search_end]
+            if len(region) < 5:
+                return search_end, 0.0
+
+            peak_idx = search_start + int(np.argmax(region))
+            peak_val = float(heavy[peak_idx])
+
+            min_idx = peak_idx
+            for x in range(peak_idx - 1, search_start, -1):
+                if heavy[x] <= heavy[x - 1] and heavy[x] <= heavy[x + 1]:
+                    min_idx = x
+                    break
+            min_val = float(heavy[min_idx])
+
+            thresh = min_val + 0.2 * (body_median - min_val)
+            edge_px = min_idx
+            for x in range(min_idx, search_start, -1):
+                if heavy[x] > thresh:
+                    edge_px = x
+                    break
+
+        # Confidence scoring:
+        # 1. Margin depth: how much lower is the minimum than body_median?
+        #    Full body_median drop = 1.0, no drop = 0.0
+        depth_ratio = (body_median - min_val) / max(1, body_median) if body_median > 0 else 0
+        depth_score = min(1.0, depth_ratio)
+
+        # 2. Peak clarity: how much higher is the shadow peak than the margin?
+        #    Strong shadow = clear separation. No shadow = we're guessing.
+        if peak_val > min_val + 5:
+            peak_score = min(1.0, (peak_val - min_val) / max(1, body_median))
+        else:
+            peak_score = 0.2  # weak: no clear shadow/margin separation
+
+        # 3. Transition sharpness: how quickly does the profile rise from
+        #    minimum to threshold? Sharp = confident, gradual = uncertain.
+        rise_distance = abs(edge_px - min_idx)
+        if rise_distance < 3:
+            rise_score = 1.0   # very sharp
+        elif rise_distance < 10:
+            rise_score = 0.7
+        elif rise_distance < 20:
+            rise_score = 0.4
+        else:
+            rise_score = 0.2   # very gradual — low confidence
+
+        confidence = (depth_score * 0.4 + peak_score * 0.3 + rise_score * 0.3)
+        return edge_px, round(confidence, 3)
+
+    # Left edge
+    margin_search_end = r3_left_px + int((r3_right_px - r3_left_px) * 0.2)
+    text_left_px, text_left_conf = _find_text_edge(
+        heavy, r3_left_px, margin_search_end, body_median, direction="right"
+    )
+
+    # Right edge
     margin_search_start = r3_right_px - int((r3_right_px - r3_left_px) * 0.2)
-
-    right_region = heavy[margin_search_start:r3_right_px]
-    if len(right_region) > 5:
-        # Find shadow peak from right
-        right_peak_idx = margin_search_start + int(np.argmax(right_region))
-
-        # Find the FIRST local minimum before the peak (walking leftward)
-        # — this is the print margin, not a gutter further in.
-        right_min_idx = right_peak_idx
-        for x in range(right_peak_idx - 1, margin_search_start, -1):
-            if heavy[x] <= heavy[x - 1] and heavy[x] <= heavy[x + 1]:
-                right_min_idx = x
-                break
-
-        right_min_val = float(heavy[right_min_idx])
-        right_thresh = right_min_val + 0.2 * (body_median - right_min_val)
-
-        # Walk from minimum toward center: first point above threshold
-        text_right_px = right_min_idx
-        for x in range(right_min_idx, margin_search_start, -1):
-            if heavy[x] > right_thresh:
-                text_right_px = x
-                break
-    else:
-        text_right_px = r3_right_px
+    text_right_px, text_right_conf = _find_text_edge(
+        heavy, margin_search_start, r3_right_px, body_median, direction="left"
+    )
 
     # ── Build bounding boxes as % of page dimensions ─────────────────
     def bbox(left_px, right_px):
         return {
             "left": round(left_px / w * 100, 2),
             "right": round(right_px / w * 100, 2),
-            "top": round(row_lo / h * 100, 2),      # approximate — using body rows
+            "top": round(row_lo / h * 100, 2),
             "bottom": round(row_hi / h * 100, 2),
         }
+
+    text_area = bbox(text_left_px, text_right_px)
+    text_area["left_confidence"] = text_left_conf
+    text_area["right_confidence"] = text_right_conf
+
+    # Label confidence by side role
+    if clean_side == "left":
+        text_area["clean_side_confidence"] = text_left_conf
+        text_area["binding_side_confidence"] = text_right_conf
+    else:
+        text_area["clean_side_confidence"] = text_right_conf
+        text_area["binding_side_confidence"] = text_left_conf
 
     return {
         "r2": bbox(r2_left_px, r2_right_px),
         "r3": bbox(r3_left_px, r3_right_px),
-        "text_area": bbox(text_left_px, text_right_px),
+        "text_area": text_area,
         "binding_side": binding_side,
+        "clean_side": clean_side,
+        "page_type": page_type,
+        "binding_confirmed": binding_confirmed,
         "paper_baseline": round(paper_baseline, 1),
         "paper_std": round(paper_std, 1),
         "shadow_thresh": round(shadow_thresh, 1),
     }
 
 
-def profile_page(pdf_path, page_number=0, profile_dpi=150):
+def _extract_gazette_page(pdf_path):
+    """Extract the gazette page number from the filename.
+
+    Filenames follow the pattern: YYYY-MM-DD-PP.pdf
+    Returns the page number (integer) or None if not parseable.
+    """
+    import re
+    basename = pdf_path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+    # Match patterns like 1920-01-02-03 or 1920_p3
+    m = re.search(r'-(\d{2})$', basename)
+    if m:
+        return int(m.group(1))
+    m = re.search(r'_p(\d+)$', basename)
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def profile_page(pdf_path, page_number=0, profile_dpi=150, gazette_page=None):
     """
     Analyse a page and return a calibration profile with bounding boxes.
+
+    Args:
+        pdf_path:      Path to the PDF.
+        page_number:   Zero-indexed page within the PDF (usually 0).
+        profile_dpi:   DPI for profiling render (150 default).
+        gazette_page:  Gazette page number (1-indexed). If None,
+                       extracted from the filename.
 
     Returns:
         dict with rectangle bounds, calibration data, and thresholds.
     """
+    if gazette_page is None:
+        gazette_page = _extract_gazette_page(pdf_path)
     doc = _open_clean(pdf_path)
     page = doc[page_number]
     pw, ph = page.rect.width, page.rect.height
@@ -310,7 +412,7 @@ def profile_page(pdf_path, page_number=0, profile_dpi=150):
     doc.close()
 
     # ── Detect nested rectangles ─────────────────────────────────────
-    rects = find_rectangles(inv, h, w)
+    rects = find_rectangles(inv, h, w, gazette_page=gazette_page)
 
     # ── Body region statistics (within text area) ────────────────────
     ta = rects["text_area"]
@@ -389,6 +491,10 @@ def profile_page(pdf_path, page_number=0, profile_dpi=150):
         "r3": rects["r3"],
         "text_area": rects["text_area"],
         "binding_side": rects["binding_side"],
+        "clean_side": rects["clean_side"],
+        "page_type": rects["page_type"],
+        "gazette_page": gazette_page,
+        "binding_confirmed": rects["binding_confirmed"],
 
         # Backward compatible (maps to text area)
         "content_x_start_frac": ta["left"] / 100,
