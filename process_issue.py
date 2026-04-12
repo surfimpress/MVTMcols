@@ -208,7 +208,10 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         os.makedirs(page_out, exist_ok=True)
 
         prof = profile_page(pdf_path)
-        result = split_page(pdf_path, output_dir=page_out, dpi=dpi)
+        # Get ad exclusion zones for this page
+        zones = get_ad_exclusion_zones(page_ads.get(page_num, []))
+        result = split_page(pdf_path, output_dir=page_out, dpi=dpi,
+                           ad_exclusion_zones=zones)
 
         cv, median_w, num_cols = _score_regularity(result)
         widths = " ".join(f"{c.width_vw:.0f}%" for c in result.columns)
@@ -268,11 +271,13 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
             shutil.rmtree(page_out, ignore_errors=True)
             os.makedirs(page_out)
 
+            zones = get_ad_exclusion_zones(page_ads.get(page_num, []))
             new_result = split_page(
                 pdf_path, output_dir=page_out, dpi=dpi,
                 expected_columns=num_columns,
                 prior_boundaries=prior_bounds,
                 prior_page_type=prior_page_type,
+                ad_exclusion_zones=zones,
             )
 
             cv_old, _, _ = _score_regularity(old_result)

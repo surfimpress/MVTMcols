@@ -81,7 +81,7 @@ class PageResult:
 # ── Core functions ───────────────────────────────────────────────────────────
 
 def _detect_consensus(pdf_path, page_number, dpi, page_prof=None,
-                      expected_columns=None):
+                      expected_columns=None, ad_exclusion_zones=None):
     """
     Multi-strip consensus column detection.
 
@@ -148,9 +148,26 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None,
         except Exception:
             continue
 
-        # No post-hoc filtering needed — clip_x_frac ensures all
-        # results are within the text area.
+        # Filter out boundaries that fall within ad exclusion zones.
+        # Each strip covers a 10% vertical band: grid_y means y=(grid_y-1)*10% to grid_y*10%.
+        strip_y_start = (grid_y - 1) * 10
+        strip_y_end = grid_y * 10
+
         for r in results:
+            # Check if this boundary's x position falls within an ad zone
+            # that overlaps this strip's y range
+            if ad_exclusion_zones:
+                in_ad = False
+                for ax1, ax2, ay1, ay2 in ad_exclusion_zones:
+                    # Does the ad's y range overlap this strip?
+                    y_overlap = (ay1 < strip_y_end and ay2 > strip_y_start)
+                    # Does the boundary's x position fall within the ad?
+                    x_inside = ax1 < r.page_pct < ax2
+                    if y_overlap and x_inside:
+                        in_ad = True
+                        break
+                if in_ad:
+                    continue
             if r.confidence in ("high", "medium"):
                 all_positions.append({
                     "pct": r.page_pct,
@@ -745,7 +762,7 @@ def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
 
 def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
                db_path=None, expected_columns=None, prior_boundaries=None,
-               prior_page_type=None):
+               prior_page_type=None, ad_exclusion_zones=None):
     """
     Full page-splitting pipeline.
 
@@ -803,6 +820,7 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
     best_boundaries, used_rows, quality_flags = _detect_consensus(
         pdf_path, page_number, dpi, page_prof,
         expected_columns=expected_columns,
+        ad_exclusion_zones=ad_exclusion_zones,
     )
 
     # Add profile quality flags

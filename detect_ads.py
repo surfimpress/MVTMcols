@@ -122,6 +122,32 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
         if aspect > 10.0 or aspect < 0.1:
             continue
 
+        # ── Edge filter: reject if any edge aligns with page boundary ──
+        # Real ads are interior to the page. If an edge is within 3%
+        # of the page/image boundary, it's likely shadow, photo edge,
+        # or scan artifact — not a boxed ad.
+        EDGE_MARGIN = 3.0  # percent of page dimension
+        x_pct = x / w * 100
+        y_pct = y / h * 100
+        x_end_pct = (x + bw) / w * 100
+        y_end_pct = (y + bh) / h * 100
+
+        at_left_edge = x_pct < EDGE_MARGIN
+        at_right_edge = x_end_pct > (100 - EDGE_MARGIN)
+        at_top_edge = y_pct < EDGE_MARGIN
+        at_bottom_edge = y_end_pct > (100 - EDGE_MARGIN)
+
+        # If touching two opposing edges (left+right or top+bottom),
+        # it's a full-width/height element, not a boxed ad
+        if (at_left_edge and at_right_edge) or (at_top_edge and at_bottom_edge):
+            continue
+
+        # If touching any edge AND low rectangularity, it's shadow/artifact
+        if (at_left_edge or at_right_edge) and rect_ratio < 0.80:
+            continue
+        if (at_top_edge or at_bottom_edge) and rect_ratio < 0.80:
+            continue
+
         # Confidence scoring
         if rect_ratio > min_rect_ratio and 0.3 < aspect < 5.0:
             confidence = "high"
@@ -130,6 +156,13 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
         else:
             confidence = "low"
 
+        # Downgrade confidence if touching any page edge
+        if at_left_edge or at_right_edge or at_top_edge or at_bottom_edge:
+            if confidence == "high":
+                confidence = "medium"
+            elif confidence == "medium":
+                confidence = "low"
+
         # Check for children (content inside the box)
         has_children = (hierarchy[0][i][2] != -1) if hierarchy is not None else False
 
@@ -137,12 +170,12 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
         cols = max(1, round(bw / w * 100 / pitch))
 
         ads.append({
-            "x_pct": round(x / w * 100, 1),
-            "y_pct": round(y / h * 100, 1),
+            "x_pct": round(x_pct, 1),
+            "y_pct": round(y_pct, 1),
             "w_pct": round(bw / w * 100, 1),
             "h_pct": round(bh / h * 100, 1),
-            "x_end_pct": round((x + bw) / w * 100, 1),
-            "y_end_pct": round((y + bh) / h * 100, 1),
+            "x_end_pct": round(x_end_pct, 1),
+            "y_end_pct": round(y_end_pct, 1),
             "rect_ratio": round(rect_ratio, 3),
             "aspect": round(aspect, 2),
             "cols": cols,
@@ -213,9 +246,14 @@ def print_ads(ads):
               f"aspect={ad['aspect']:.1f}  {ad['confidence']}")
 
 
-def extract_ad_images(pdf_path, ads, output_dir, page_number=0, dpi=450):
+def extract_ad_images(pdf_path, ads, output_dir, page_number=0, dpi=450,
+                      margin_pct=2.0):
     """
-    Extract each detected ad as a separate PNG image.
+    Extract each detected ad as a separate PNG image with margin.
+
+    Adds a margin around each ad to capture the full border and
+    handle page skew. The margin is a percentage of the ad's own
+    dimensions, not the page.
 
     Args:
         pdf_path:    Path to the PDF.
@@ -223,6 +261,7 @@ def extract_ad_images(pdf_path, ads, output_dir, page_number=0, dpi=450):
         output_dir:  Where to save ad images.
         page_number: Zero-indexed page within the PDF.
         dpi:         Render resolution for extraction.
+        margin_pct:  Margin as % of ad dimensions (default 2%).
 
     Returns:
         List of dicts with ad metadata + image_path.
@@ -238,11 +277,21 @@ def extract_ad_images(pdf_path, ads, output_dir, page_number=0, dpi=450):
 
     results = []
     for i, ad in enumerate(ads):
+        # Compute margin in page percentage based on ad size
+        margin_x = ad["w_pct"] * margin_pct / 100
+        margin_y = ad["h_pct"] * margin_pct / 100
+
+        # Apply margin, clamped to page bounds
+        x0_pct = max(0, ad["x_pct"] - margin_x)
+        y0_pct = max(0, ad["y_pct"] - margin_y)
+        x1_pct = min(100, ad["x_end_pct"] + margin_x)
+        y1_pct = min(100, ad["y_end_pct"] + margin_y)
+
         # Convert percentages to PDF points
-        x0 = pw * ad["x_pct"] / 100
-        y0 = ph * ad["y_pct"] / 100
-        x1 = pw * ad["x_end_pct"] / 100
-        y1 = ph * ad["y_end_pct"] / 100
+        x0 = pw * x0_pct / 100
+        y0 = ph * y0_pct / 100
+        x1 = pw * x1_pct / 100
+        y1 = ph * y1_pct / 100
 
         clip = fitz.Rect(x0, y0, x1, y1)
         pix = page.get_pixmap(clip=clip, dpi=dpi)
