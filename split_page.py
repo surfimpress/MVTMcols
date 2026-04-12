@@ -253,11 +253,20 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
     # well they match the other detected boundaries.
     if len(boundaries) >= 4:
         clean_side = page_prof.get("clean_side", "right") if page_prof else "right"
+        binding_side = page_prof.get("binding_side", "left") if page_prof else "left"
+        # R3 boundary on the binding side is the spine — hard limit
+        r3 = page_prof.get("r3", {}) if page_prof else {}
+        if binding_side == "left":
+            spine_pct = r3.get("left", 0)
+        else:
+            spine_pct = r3.get("right", 100)
         boundaries = _project_grid_edges(
             boundaries,
             text_left_pct=text_left_frac * 100,
             text_right_pct=text_right_frac * 100,
             clean_side=clean_side,
+            spine_pct=spine_pct,
+            binding_side=binding_side,
         )
 
     # Cap at 9 boundaries (8 columns max)
@@ -291,7 +300,7 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
         insertions = []
         for i in range(len(positions) - 1):
             gap = positions[i+1] - positions[i]
-            if gap > median_width * 1.3:
+            if gap > median_width * 1.6:
                 mid = (positions[i] + positions[i+1]) / 2
                 insertions.append({
                     "x_pct": round(mid, 2),
@@ -316,7 +325,8 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
 
 
 def _project_grid_edges(boundaries, tolerance=2.0, text_left_pct=0,
-                        text_right_pct=100, clean_side="right"):
+                        text_right_pct=100, clean_side="right",
+                        spine_pct=None, binding_side="left"):
     """
     Predict outer edges by projecting interior column widths outward.
 
@@ -480,14 +490,25 @@ def _project_grid_edges(boundaries, tolerance=2.0, text_left_pct=0,
 
     result = list(boundaries)
 
+    # Spine constraint: on the binding side, projected edges must not
+    # extend past the R3 boundary (the spine). This prevents projection
+    # from reaching into binding shadow or facing page sliver.
+    left_limit = 0
+    right_limit = 100
+    if spine_pct is not None:
+        if binding_side == "left":
+            left_limit = max(0, spine_pct)
+        else:
+            right_limit = min(100, spine_pct)
+
     # Add all projected left edges (sorted rightmost first for insert)
     for pct, conf in sorted(left_edges, reverse=True):
-        if 0 < pct < positions[0]:
+        if left_limit < pct < positions[0]:
             result.insert(0, make_edge_boundary(pct, conf))
 
     # Add all projected right edges
     for pct, conf in sorted(right_edges):
-        if positions[-1] < pct < 100:
+        if positions[-1] < pct < right_limit:
             result.append(make_edge_boundary(pct, conf))
 
     # Store projection stats for diagnostics
