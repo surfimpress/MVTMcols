@@ -371,6 +371,42 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     else:
         print(f"  Verso template: none found")
 
+    # ── Page 2 wide-column detection ────────────────────────────────
+    # Page 2 often uses a special editorial layout: 2 wide columns
+    # (each ~1.5× standard pitch) followed by regular columns.
+    # Detect this pattern and accept it rather than re-processing.
+    #
+    # The check: does page 2 have columns where the first 1-2 are
+    # wider than the rest, and the rest match the standard pitch?
+    # This works regardless of the detected column count.
+    page2_editorial = False
+    for page_num, result, prof in pass1_results:
+        if page_num != 2 or not result.columns or len(result.columns) < 4:
+            continue
+
+        widths = [c.width_vw for c in result.columns]
+
+        # Split into the first 2 and the rest
+        first_two = widths[:2]
+        remaining = widths[2:]
+
+        # Check: are the remaining columns close to the standard pitch?
+        regular = [w for w in remaining if abs(w - pitch) < pitch * 0.25]
+        if len(regular) < 3:
+            break  # not enough regular columns to confirm pattern
+
+        regular_pitch = float(np.median(regular))
+
+        # Check: are the first 1-2 columns significantly wider?
+        wide = [w for w in first_two if w > regular_pitch * 1.2]
+        if wide:
+            wide_ratio = np.mean(wide) / regular_pitch
+            page2_editorial = True
+            print(f"\n  Page 2 editorial layout detected: "
+                  f"{len(wide)} wide col(s) ({wide_ratio:.1f}x pitch) "
+                  f"+ {len(regular)} regular col(s)")
+        break
+
     # ── Pass 2: Re-process weak pages with matching template ─────────
     REGULARITY_THRESHOLD = 0.10
     pages_to_reprocess = []
@@ -380,6 +416,9 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         is_template = ((recto_template and page_num == recto_template["page"]) or
                        (verso_template and page_num == verso_template["page"]))
         if is_template:
+            continue
+        # Skip page 2 if we detected the editorial wide-column layout
+        if page_num == 2 and page2_editorial:
             continue
         if cv > REGULARITY_THRESHOLD or nc != num_columns:
             pages_to_reprocess.append((page_num, result, prof))
