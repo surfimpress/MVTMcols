@@ -213,6 +213,118 @@ def print_ads(ads):
               f"aspect={ad['aspect']:.1f}  {ad['confidence']}")
 
 
+def extract_ad_images(pdf_path, ads, output_dir, page_number=0, dpi=450):
+    """
+    Extract each detected ad as a separate PNG image.
+
+    Args:
+        pdf_path:    Path to the PDF.
+        ads:         List of ad dicts from detect_ads().
+        output_dir:  Where to save ad images.
+        page_number: Zero-indexed page within the PDF.
+        dpi:         Render resolution for extraction.
+
+    Returns:
+        List of dicts with ad metadata + image_path.
+    """
+    import os
+
+    doc = _open_clean(pdf_path)
+    page = doc[page_number]
+    pw, ph = page.rect.width, page.rect.height
+
+    os.makedirs(output_dir, exist_ok=True)
+    stem = pdf_path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+
+    results = []
+    for i, ad in enumerate(ads):
+        # Convert percentages to PDF points
+        x0 = pw * ad["x_pct"] / 100
+        y0 = ph * ad["y_pct"] / 100
+        x1 = pw * ad["x_end_pct"] / 100
+        y1 = ph * ad["y_end_pct"] / 100
+
+        clip = fitz.Rect(x0, y0, x1, y1)
+        pix = page.get_pixmap(clip=clip, dpi=dpi)
+
+        filename = f"{stem}_ad{i + 1}.png"
+        filepath = os.path.join(output_dir, filename)
+        pix.save(filepath)
+
+        results.append({
+            **ad,
+            "image_path": filepath,
+            "image_filename": filename,
+        })
+
+    doc.close()
+    return results
+
+
+def init_ads_table(db_path):
+    """Create the ads table in SQLite if it doesn't exist."""
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS detected_ads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            year INTEGER NOT NULL,
+            month INTEGER NOT NULL,
+            day INTEGER NOT NULL,
+            page INTEGER NOT NULL,
+            x_pct REAL NOT NULL,
+            y_pct REAL NOT NULL,
+            w_pct REAL NOT NULL,
+            h_pct REAL NOT NULL,
+            x_end_pct REAL NOT NULL,
+            y_end_pct REAL NOT NULL,
+            rect_ratio REAL,
+            aspect REAL,
+            cols INTEGER,
+            confidence TEXT,
+            image_filename TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_detected_ads_issue
+            ON detected_ads(year, month, day)
+    """)
+    conn.commit()
+    conn.close()
+
+
+def store_ads(db_path, year, month, day, page, ads_with_images):
+    """
+    Store detected ads in SQLite.
+
+    Args:
+        db_path:          Path to the SQLite database.
+        year, month, day: Issue date.
+        page:             Page number.
+        ads_with_images:  List of ad dicts (from extract_ad_images).
+    """
+    import sqlite3
+    init_ads_table(db_path)
+    conn = sqlite3.connect(db_path)
+    for ad in ads_with_images:
+        conn.execute("""
+            INSERT INTO detected_ads
+            (year, month, day, page, x_pct, y_pct, w_pct, h_pct,
+             x_end_pct, y_end_pct, rect_ratio, aspect, cols,
+             confidence, image_filename)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            year, month, day, page,
+            ad["x_pct"], ad["y_pct"], ad["w_pct"], ad["h_pct"],
+            ad["x_end_pct"], ad["y_end_pct"],
+            ad.get("rect_ratio"), ad.get("aspect"), ad.get("cols"),
+            ad.get("confidence"), ad.get("image_filename"),
+        ))
+    conn.commit()
+    conn.close()
+
+
 if __name__ == "__main__":
     import sys
     if len(sys.argv) < 2:

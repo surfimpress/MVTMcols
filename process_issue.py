@@ -26,6 +26,7 @@ import numpy as np
 
 from split_page import split_page, PageResult
 from page_profile import profile_page
+from detect_ads import detect_ads, extract_ad_images, store_ads, get_ad_exclusion_zones
 
 
 def download_issue(year, month, day, db_path="data/mvtm.db",
@@ -174,7 +175,31 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
 
     print(f"  {len(pages)} pages downloaded")
 
-    # ── Pass 1: Independent detection ────────────────────────────────
+    # ── Ad detection (before column detection) ─────────────────────
+    print("Detecting display ads...")
+    page_ads = {}  # page_num → list of ad dicts
+    total_ads = 0
+
+    ads_dir = os.path.join(output_dir, "ads")
+    os.makedirs(ads_dir, exist_ok=True)
+
+    for page_num, pdf_path in pages:
+        ads = detect_ads(pdf_path, column_pitch=None)
+        if ads:
+            ad_out = os.path.join(ads_dir, f"p{page_num}")
+            ads_with_images = extract_ad_images(pdf_path, ads, ad_out, dpi=dpi)
+            store_ads(db_path, year, month, day, page_num, ads_with_images)
+            page_ads[page_num] = ads
+            total_ads += len(ads)
+            ad_desc = ", ".join(str(a["cols"]) + "col" for a in ads)
+            print(f"  P{page_num}: {len(ads)} ads ({ad_desc})")
+
+    if total_ads:
+        print(f"  Total: {total_ads} ads catalogued")
+    else:
+        print("  No display ads found")
+
+    # ── Pass 1: Independent column detection ─────────────────────────
     print("Pass 1: Independent detection...")
     pass1_results = []
 
@@ -187,7 +212,10 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
 
         cv, median_w, num_cols = _score_regularity(result)
         widths = " ".join(f"{c.width_vw:.0f}%" for c in result.columns)
-        print(f"  P{page_num} ({prof['page_type']}): {num_cols}c [{widths}] CV={cv:.3f}")
+        n_ads = len(page_ads.get(page_num, []))
+        ad_note = f" [{n_ads} ads]" if n_ads else ""
+        print(f"  P{page_num} ({prof['page_type']}): {num_cols}c [{widths}] "
+              f"CV={cv:.3f}{ad_note}")
 
         pass1_results.append((page_num, result, prof))
 
