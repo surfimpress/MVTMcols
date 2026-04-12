@@ -83,6 +83,18 @@ class LayoutDB:
             CREATE INDEX IF NOT EXISTS idx_page_geometry_issue
                 ON page_geometry(year, month, day);
 
+            CREATE TABLE IF NOT EXISTS layout_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                template_name TEXT NOT NULL,
+                page_number INTEGER,
+                year_start INTEGER NOT NULL,
+                year_end INTEGER NOT NULL,
+                pattern TEXT NOT NULL,
+                description TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(template_name, page_number, year_start, year_end)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_page_layouts_year
                 ON page_layouts(year);
 
@@ -139,6 +151,102 @@ class LayoutDB:
             json.dumps(profile) if profile else None,
         ))
         conn.commit()
+        conn.close()
+
+    def record_template(self, template_name, page_number, year_start,
+                        year_end, pattern, description=None):
+        """
+        Store a recurring layout template.
+
+        Args:
+            template_name:  e.g. "page2_editorial_wide"
+            page_number:    Which page this applies to (e.g. 2)
+            year_start:     First year the pattern was observed
+            year_end:       Last year the pattern was observed
+            pattern:        JSON-serialisable dict describing the pattern
+            description:    Human-readable description
+        """
+        conn = self._conn()
+        conn.execute("""
+            INSERT OR REPLACE INTO layout_templates
+            (template_name, page_number, year_start, year_end,
+             pattern, description)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            template_name, page_number, year_start, year_end,
+            json.dumps(pattern), description,
+        ))
+        conn.commit()
+        conn.close()
+
+    def get_template(self, template_name, page_number, year, window=10):
+        """
+        Get a layout template for a specific page and year.
+
+        First checks for an exact year match, then looks within
+        ±window years for a nearby template (layout patterns persist
+        for spans of years).
+
+        Returns the pattern dict if found, None otherwise.
+        """
+        conn = self._conn()
+
+        # Exact match first
+        row = conn.execute("""
+            SELECT pattern, year_start, year_end, description
+            FROM layout_templates
+            WHERE template_name = ? AND page_number = ?
+              AND year_start <= ? AND year_end >= ?
+        """, (template_name, page_number, year, year)).fetchone()
+
+        if not row:
+            # Look for nearest template within window
+            row = conn.execute("""
+                SELECT pattern, year_start, year_end, description
+                FROM layout_templates
+                WHERE template_name = ? AND page_number = ?
+                  AND year_start <= ? + ? AND year_end >= ? - ?
+                ORDER BY ABS(year_start + year_end - ? * 2)
+                LIMIT 1
+            """, (template_name, page_number, year, window,
+                  year, window, year)).fetchone()
+
+        conn.close()
+
+        if row:
+            return {
+                "pattern": json.loads(row[0]),
+                "year_start": row[1],
+                "year_end": row[2],
+                "description": row[3],
+            }
+        return None
+
+    def update_template_range(self, template_name, page_number, year):
+        """
+        Extend an existing template's year range to include a new year.
+
+        Finds the nearest template and extends its range to cover
+        the new year, bridging any gap.
+        """
+        conn = self._conn()
+        # Find the nearest template
+        row = conn.execute("""
+            SELECT id, year_start, year_end FROM layout_templates
+            WHERE template_name = ? AND page_number = ?
+            ORDER BY ABS(year_start + year_end - ? * 2)
+            LIMIT 1
+        """, (template_name, page_number, year)).fetchone()
+
+        if row:
+            new_start = min(row[1], year)
+            new_end = max(row[2], year)
+            conn.execute("""
+                UPDATE layout_templates
+                SET year_start = ?, year_end = ?
+                WHERE id = ?
+            """, (new_start, new_end, row[0]))
+            conn.commit()
         conn.close()
 
     def record_geometry(self, year, month, day, page, profile):

@@ -374,38 +374,58 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     # ── Page 2 wide-column detection ────────────────────────────────
     # Page 2 often uses a special editorial layout: 2 wide columns
     # (each ~1.5× standard pitch) followed by regular columns.
-    # Detect this pattern and accept it rather than re-processing.
-    #
-    # The check: does page 2 have columns where the first 1-2 are
-    # wider than the rest, and the rest match the standard pitch?
-    # This works regardless of the detected column count.
-    page2_editorial = False
-    for page_num, result, prof in pass1_results:
-        if page_num != 2 or not result.columns or len(result.columns) < 4:
-            continue
+    # Check both: current detection AND the intelligence layer.
+    from layout_intelligence import LayoutDB
+    _db = LayoutDB(db_path)
 
-        widths = [c.width_vw for c in result.columns]
+    # First check if the intelligence layer already knows about this
+    p2_template = _db.get_template("page2_editorial_wide", 2, year)
+    page2_editorial = p2_template is not None
 
-        # Split into the first 2 and the rest
-        first_two = widths[:2]
-        remaining = widths[2:]
+    if page2_editorial:
+        print(f"\n  Page 2 editorial layout (from intelligence: "
+              f"{p2_template['year_start']}-{p2_template['year_end']})")
+    else:
+        # Try to detect it from the current pass 1 results
+        for page_num, result, prof in pass1_results:
+            if page_num != 2 or not result.columns or len(result.columns) < 4:
+                continue
 
-        # Check: are the remaining columns close to the standard pitch?
-        regular = [w for w in remaining if abs(w - pitch) < pitch * 0.25]
-        if len(regular) < 3:
-            break  # not enough regular columns to confirm pattern
+            widths = [c.width_vw for c in result.columns]
+            first_two = widths[:2]
+            remaining = widths[2:]
 
-        regular_pitch = float(np.median(regular))
+            regular = [w for w in remaining if abs(w - pitch) < pitch * 0.25]
+            if len(regular) < 3:
+                break
 
-        # Check: are the first 1-2 columns significantly wider?
-        wide = [w for w in first_two if w > regular_pitch * 1.2]
-        if wide:
-            wide_ratio = np.mean(wide) / regular_pitch
-            page2_editorial = True
-            print(f"\n  Page 2 editorial layout detected: "
-                  f"{len(wide)} wide col(s) ({wide_ratio:.1f}x pitch) "
-                  f"+ {len(regular)} regular col(s)")
-        break
+            regular_pitch = float(np.median(regular))
+            wide = [w for w in first_two if w > regular_pitch * 1.2]
+
+            if wide:
+                wide_ratio = float(np.mean(wide) / regular_pitch)
+                page2_editorial = True
+
+                # Store in intelligence layer
+                pattern = {
+                    "wide_columns": len(wide),
+                    "wide_ratio": round(wide_ratio, 2),
+                    "regular_columns": len(regular),
+                    "regular_pitch": round(regular_pitch, 1),
+                }
+                _db.record_template(
+                    "page2_editorial_wide", 2, year, year, pattern,
+                    f"{len(wide)} wide col(s) at {wide_ratio:.1f}x pitch "
+                    f"+ {len(regular)} regular col(s)",
+                )
+                print(f"\n  Page 2 editorial layout detected and stored: "
+                      f"{len(wide)} wide col(s) ({wide_ratio:.1f}x pitch) "
+                      f"+ {len(regular)} regular col(s)")
+            break
+
+    if page2_editorial:
+        # Extend the year range if the template already exists
+        _db.update_template_range("page2_editorial_wide", 2, year)
 
     # ── Pass 2: Re-process weak pages with matching template ─────────
     REGULARITY_THRESHOLD = 0.10
