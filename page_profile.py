@@ -181,38 +181,90 @@ def find_rectangles(inv, h, w):
                     break
 
     # ── Text area: print margins within R3 ───────────────────────────
-    # The newspaper page has white print margins on each side before
-    # the text columns begin. Find where content starts/ends.
-    r3_profile = smooth[r3_left_px:r3_right_px]
-    if len(r3_profile) > 0:
-        body_median = float(np.median(r3_profile))
+    # The newspaper page has white print margins before the first column
+    # and after the last column. There are NO vertical rules at the
+    # outer edges — the text_area boundary comes from detecting the
+    # grey block of column content against the white margin.
+    #
+    # Use a heavily smoothed profile (sigma=15) so individual text
+    # lines blur into a uniform grey band. Then find the margin-to-text
+    # transition: the local minimum (white margin) followed by a rise
+    # into column content.
+
+    heavy = gaussian_filter1d(col_profile, sigma=15)
+
+    # Body darkness: median of the central 60% of R3
+    r3_center_lo = r3_left_px + int((r3_right_px - r3_left_px) * 0.2)
+    r3_center_hi = r3_left_px + int((r3_right_px - r3_left_px) * 0.8)
+    r3_center_profile = heavy[r3_center_lo:r3_center_hi]
+    if len(r3_center_profile) > 0:
+        body_median = float(np.median(r3_center_profile))
     else:
         body_median = paper_baseline
 
-    text_thresh = paper_baseline + 0.3 * max(1, body_median - paper_baseline)
+    # The text edge threshold: halfway between the margin minimum
+    # and the body content level. This catches the rising edge into text.
+    # We find the margin minimum first, then set the threshold from it.
 
-    # Walk inward from R3 edges: first sustained run (5+ px) above threshold
-    text_left_px = r3_left_px
-    run = 0
-    for x in range(r3_left_px, r3_right_px):
-        if smooth[x] > text_thresh:
-            run += 1
-            if run >= 5:
-                text_left_px = x - 4
-                break
-        else:
-            run = 0
+    # Left edge: the pattern is shadow_peak → margin_minimum → column_rise.
+    # Find the shadow peak first (highest point in left 15% of R3),
+    # then find the minimum AFTER the peak (the print margin),
+    # then find where the profile rises from that minimum into column text.
+    margin_search_end = r3_left_px + int((r3_right_px - r3_left_px) * 0.2)
 
-    text_right_px = r3_right_px
-    run = 0
-    for x in range(r3_right_px, r3_left_px, -1):
-        if smooth[x] > text_thresh:
-            run += 1
-            if run >= 5:
-                text_right_px = x + 4
+    left_region = heavy[r3_left_px:margin_search_end]
+    if len(left_region) > 5:
+        # Find shadow peak (or page-edge rise)
+        left_peak_idx = r3_left_px + int(np.argmax(left_region))
+
+        # Find the FIRST local minimum after the peak — this is the
+        # print margin. Not the global minimum (which would be a gutter
+        # between columns, further in and possibly lower).
+        left_min_idx = left_peak_idx
+        for x in range(left_peak_idx + 1, margin_search_end - 1):
+            if heavy[x] <= heavy[x - 1] and heavy[x] <= heavy[x + 1]:
+                left_min_idx = x
                 break
-        else:
-            run = 0
+
+        left_min_val = float(heavy[left_min_idx])
+        left_thresh = left_min_val + 0.2 * (body_median - left_min_val)
+
+        # Walk from minimum toward center: first point above threshold
+        text_left_px = left_min_idx
+        for x in range(left_min_idx, margin_search_end):
+            if heavy[x] > left_thresh:
+                text_left_px = x
+                break
+    else:
+        text_left_px = r3_left_px
+
+    # Right edge: same pattern in reverse — shadow_peak → margin_min → column
+    margin_search_start = r3_right_px - int((r3_right_px - r3_left_px) * 0.2)
+
+    right_region = heavy[margin_search_start:r3_right_px]
+    if len(right_region) > 5:
+        # Find shadow peak from right
+        right_peak_idx = margin_search_start + int(np.argmax(right_region))
+
+        # Find the FIRST local minimum before the peak (walking leftward)
+        # — this is the print margin, not a gutter further in.
+        right_min_idx = right_peak_idx
+        for x in range(right_peak_idx - 1, margin_search_start, -1):
+            if heavy[x] <= heavy[x - 1] and heavy[x] <= heavy[x + 1]:
+                right_min_idx = x
+                break
+
+        right_min_val = float(heavy[right_min_idx])
+        right_thresh = right_min_val + 0.2 * (body_median - right_min_val)
+
+        # Walk from minimum toward center: first point above threshold
+        text_right_px = right_min_idx
+        for x in range(right_min_idx, margin_search_start, -1):
+            if heavy[x] > right_thresh:
+                text_right_px = x
+                break
+    else:
+        text_right_px = r3_right_px
 
     # ── Build bounding boxes as % of page dimensions ─────────────────
     def bbox(left_px, right_px):
