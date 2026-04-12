@@ -427,6 +427,113 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         # Extend the year range if the template already exists
         _db.update_template_range("page2_editorial_wide", 2, year)
 
+        # ── Refine page 2 columns using the wide-column logic ────────
+        # P2 is always verso (even), clean side is left.
+        # Find the boundary between wide and regular columns,
+        # then step left in 1.5× pitch increments to place the
+        # wide column boundaries precisely.
+        for i, (page_num, result, prof) in enumerate(pass1_results):
+            if page_num != 2 or not result.columns or len(result.columns) < 4:
+                continue
+
+            widths = [c.width_vw for c in result.columns]
+            positions = ([c.left_vw for c in result.columns]
+                        + [result.columns[-1].right_vw])
+
+            # Find the transition: first column from the right that is
+            # close to standard pitch. Everything left of that is wide.
+            regular_from_right = []
+            transition_idx = None
+            for j in range(len(widths) - 1, -1, -1):
+                if abs(widths[j] - pitch) < pitch * 0.25:
+                    regular_from_right.append(j)
+                else:
+                    transition_idx = j + 1  # first regular column index
+                    break
+
+            if transition_idx is None or transition_idx < 1:
+                break
+
+            # The boundary between wide and regular is at positions[transition_idx]
+            transition_boundary = positions[transition_idx]
+            wide_pitch = pitch * 1.5
+
+            # Step left from the transition boundary
+            wide_boundaries = [transition_boundary]
+            x = transition_boundary - wide_pitch
+            while x > 0:
+                wide_boundaries.insert(0, round(x, 2))
+                x -= wide_pitch
+
+            # Check if these positions align with detected boundaries
+            # or the text_area left edge
+            ta_left = prof.get("text_area", {}).get("left", 0)
+            all_refs = positions + [ta_left]
+
+            matches = 0
+            for wb in wide_boundaries:
+                nearest = min(all_refs, key=lambda p: abs(p - wb))
+                if abs(nearest - wb) < 3.0:
+                    matches += 1
+
+            if matches >= len(wide_boundaries) - 1:
+                # High confidence — rebuild page 2 columns with the
+                # wide boundaries + the regular boundaries from detection
+                new_boundaries = list(wide_boundaries)
+                for p in positions[transition_idx:]:
+                    if p not in new_boundaries:
+                        new_boundaries.append(round(p, 2))
+                new_boundaries.sort()
+
+                # Rebuild the page with these boundaries
+                pdf_path = None
+                for pn, pp in pages:
+                    if pn == 2:
+                        pdf_path = pp
+                        break
+
+                if pdf_path:
+                    from split_page import extract_columns, _open_clean
+                    page_out = os.path.join(output_dir, "p2")
+                    # Clean old column files
+                    if os.path.exists(page_out):
+                        for f in os.listdir(page_out):
+                            if "_col" in f and f.endswith(".png"):
+                                os.remove(os.path.join(page_out, f))
+                            elif f == "page_meta.json":
+                                os.remove(os.path.join(page_out, f))
+                    os.makedirs(page_out, exist_ok=True)
+
+                    new_bound_dicts = [{
+                        "x_pct": p, "peak_darkness": 0, "row_std": 0,
+                        "valley_depth": 0, "confidence": "p2_editorial",
+                        "strips_hit": 0, "total_strips": 0,
+                        "consensus": 0, "weighted_score": 0, "drift": 0,
+                    } for p in new_boundaries]
+
+                    new_columns = extract_columns(
+                        pdf_path, new_bound_dicts, 0, dpi, page_out)
+
+                    if new_columns:
+                        from split_page import PageResult
+                        new_result = PageResult(
+                            pdf_path=pdf_path, page_number=0, dpi=dpi,
+                            page_width_px=result.page_width_px,
+                            page_height_px=result.page_height_px,
+                            num_columns=len(new_columns),
+                            columns=new_columns,
+                            detection_row=result.detection_row,
+                            quality_flags=result.quality_flags + ["p2_editorial_refined"],
+                            error=None, elapsed_seconds=0,
+                        )
+                        pass1_results[i] = (2, new_result, prof)
+                        new_widths = " ".join(f"{c.width_vw:.0f}%"
+                                            for c in new_columns)
+                        print(f"  Page 2 refined: {len(new_columns)}c "
+                              f"[{new_widths}] ({matches}/{len(wide_boundaries)} "
+                              f"wide boundaries confirmed)")
+            break
+
     # ── Pass 2: Re-process weak pages with matching template ─────────
     REGULARITY_THRESHOLD = 0.10
     pages_to_reprocess = []
@@ -763,10 +870,34 @@ def _update_viewer_data(db_path, columns_dir):
 
     conn.close()
 
+    # Add global stats
+    total_gazette_pages = conn.execute(
+        "SELECT COUNT(*) FROM files WHERE file_type='pdf'"
+    ).fetchone()[0] if False else 0
+    # Re-open for stats
+    conn2 = _sql.connect(db_path)
+    total_gazette_pages = conn2.execute(
+        "SELECT COUNT(*) FROM files WHERE file_type='pdf'"
+    ).fetchone()[0]
+    total_processed = conn2.execute(
+        "SELECT COUNT(DISTINCT year||'-'||month||'-'||day||'-'||page) FROM page_layouts"
+    ).fetchone()[0]
+    total_ads = conn2.execute("SELECT COUNT(*) FROM detected_ads").fetchone()[0]
+    conn2.close()
+
+    viewer_data = {
+        "total_gazette_pages": total_gazette_pages,
+        "total_processed": total_processed,
+        "total_ads": total_ads,
+        "pct_done": round(total_processed / total_gazette_pages * 100, 2)
+            if total_gazette_pages > 0 else 0,
+        "issues": issues,
+    }
+
     # Write JSON for the viewer
     viewer_data_path = os.path.join(columns_dir, "viewer_data.json")
     with open(viewer_data_path, "w") as f:
-        json.dump(issues, f, indent=2)
+        json.dump(viewer_data, f, indent=2)
 
 
 if __name__ == "__main__":

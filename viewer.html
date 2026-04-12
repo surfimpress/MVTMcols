@@ -48,14 +48,20 @@ const BASE = '/MVTM/columns';
 async function init() {
     try {
         const resp = await fetch(BASE + '/viewer_data.json');
-        const issues = await resp.json();
+        const data = await resp.json();
+        const issues = data.issues || data;  // handle both formats
         document.getElementById('loading').style.display = 'none';
         renderList(issues);
         renderDetails(issues);
         const totalCols = issues.reduce((s, i) => s + i.n_cols, 0);
-        const totalAds = issues.reduce((s, i) => s + i.n_ads, 0);
-        document.getElementById('totals').textContent =
-            `${issues.length} issues \u2022 ${totalCols} columns \u2022 ${totalAds} ads`;
+        const totalAds = data.total_ads || issues.reduce((s, i) => s + i.n_ads, 0);
+        const totalPages = data.total_gazette_pages || 0;
+        const processed = data.total_processed || 0;
+        const pct = data.pct_done || 0;
+        const statsLine = totalPages > 0
+            ? `${processed} of ${totalPages.toLocaleString()} pages processed (${pct}%) \u2022 ${issues.length} issues \u2022 ${totalCols} columns \u2022 ${totalAds} ads`
+            : `${issues.length} issues \u2022 ${totalCols} columns \u2022 ${totalAds} ads`;
+        document.getElementById('totals').textContent = statsLine;
     } catch (e) {
         document.getElementById('loading').textContent = 'Failed to load data: ' + e.message;
     }
