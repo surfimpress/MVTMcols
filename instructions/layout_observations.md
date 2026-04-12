@@ -104,6 +104,17 @@ Grounding pages: 4 (CV=0.013) and 1 (CV=0.027). Pitch established from these two
 
 Grounding pages: 8 (CV=0.022) and 2 (CV=0.030). Pass 1 showed a recto/verso split: recto pages detected 7 columns, verso pages detected 8. The pitch establishment correctly chose 8 columns from the verso pages. All recto pages re-processed to 8 columns via anchored transposition.
 
+### 1974-05-23 (10 pages, heavy ads — 53 display ads detected)
+
+First issue from the 1970s. Much denser advertising than earlier decades.
+
+- **P3, P9** (recto): 7-8 columns detected at ~11% pitch — clean editorial pages, good detection
+- **P5, P10**: Detection failed — likely all-ad pages with no clear editorial column grid
+- **P7**: 5 columns with some at 21% — heavy ad content disrupting grid
+- **Verso pages**: Anchored transposition produced 18% columns (wrong pitch) because pitch establishment selected 5 columns instead of 7
+- **Key finding**: 53 ads extracted — the 1970s have 5× the ad density of 1890s issues. Ad detection is working well but the pitch establishment needs to handle the case where recto editorial pages clearly show 7 columns while the orchestrator picked 5.
+- **Likely column count**: 7 at ~11%, same as earlier decades. Pages 5 and 10 may be special advertising supplement pages with a different grid.
+
 ## Key Patterns
 
 1. **Interior column rules are always reliable** — the valley-spike-valley detection with row consistency works across all eras
