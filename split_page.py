@@ -918,7 +918,18 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
 
             candidate_grids.append(("anchor", grid))
 
-        # Score each candidate grid by how many detected boundaries it hits
+        # Score each candidate grid.
+        # For clean_edge grids, only score against clean-side detections
+        # (binding-side detections are unreliable due to facing page sliver).
+        # For anchor grids, score against all detections.
+        page_center = 50.0
+        if clean_side == "left":
+            clean_positions = [p for p in positions if p < page_center + 10]
+        elif clean_side == "right":
+            clean_positions = [p for p in positions if p > page_center - 10]
+        else:
+            clean_positions = positions
+
         best_grid = None
         best_score = -1
         best_source = ""
@@ -926,9 +937,13 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
         for source, grid in candidate_grids:
             if len(grid) < 3:
                 continue
+
+            # Clean-edge grids score only against clean-side detections
+            score_against = clean_positions if source == "clean_edge" else positions
+
             hits = 0
             total_dev = 0
-            for det in positions:
+            for det in score_against:
                 nearest = min(grid, key=lambda g: abs(g - det))
                 dev = abs(nearest - det)
                 if dev < 2.0:
@@ -937,10 +952,37 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
 
             score = hits - (total_dev * 0.1)
 
+            if source == "clean_edge" and hits >= 2:
+                # Clean-edge with 2+ hits is highly trusted — record it
+                # separately so we can prefer it
+                if not hasattr(score, '__self__'):  # just tracking
+                    pass
+
             if score > best_score:
                 best_score = score
                 best_grid = grid
                 best_source = source
+
+        # Prefer clean_edge if it has 2+ hits — it starts from the most
+        # reliable position on the page. Only fall back to anchor if
+        # clean_edge matched fewer than 2 detected boundaries.
+        clean_edge_grid = None
+        clean_edge_hits = 0
+        for source, grid in candidate_grids:
+            if source != "clean_edge":
+                continue
+            score_against = clean_positions
+            hits = sum(1 for d in score_against
+                      if min(abs(g - d) for g in grid) < 2.0)
+            if hits >= 2:
+                clean_edge_grid = grid
+                clean_edge_hits = hits
+                break
+
+        if clean_edge_grid and clean_edge_hits >= 2:
+            best_grid = clean_edge_grid
+            best_source = "clean_edge"
+            best_score = clean_edge_hits
 
         # Use the anchored grid if it's better than the raw detection.
         # "Better" = more regular (lower CV) or more matching boundaries.
