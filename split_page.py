@@ -870,19 +870,22 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
         candidate_grids = []
 
         # Strategy 1: Start from clean-side text_area boundary
+        # Use expected_columns if provided (trusted issue-level count),
+        # otherwise fall back to prior's column count
+        target_cols = expected_columns or prior_num_cols
         if clean_side and ta:
             if clean_side == "left":
                 # Verso: clean side is left, build rightward
                 start = ta.get("left", 0)
                 grid = [round(start + i * prior_pitch, 2)
-                        for i in range(prior_num_cols + 1)]
+                        for i in range(target_cols + 1)]
                 grid = [g for g in grid if 0 < g < 100]
                 candidate_grids.append(("clean_edge", grid))
             else:
                 # Recto: clean side is right, build leftward
                 start = ta.get("right", 100)
                 grid = [round(start - i * prior_pitch, 2)
-                        for i in range(prior_num_cols + 1)]
+                        for i in range(target_cols + 1)]
                 grid = sorted([g for g in grid if 0 < g < 100])
                 candidate_grids.append(("clean_edge", grid))
 
