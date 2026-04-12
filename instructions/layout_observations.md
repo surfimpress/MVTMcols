@@ -87,6 +87,23 @@ Field notes from processing pages across the Almonte Gazette's 145-year run. Doc
 - These break the vertical rule at the spanning height
 - The multi-strip consensus handles most cases but occasionally votes down a real boundary
 
+### 1937-01-14 (full issue, 8 pages, 7 columns at 11.9% pitch)
+
+Grounding pages: 4 (CV=0.013) and 1 (CV=0.027). Pitch established from these two.
+
+- **Page 1** (recto): Excellent. Clean 7-column grid.
+- **Page 2** (verso): Good grid but has a **local layout variation** — the left two columns are at 1.5× standard width (deliberate editorial choice, wider editorial column). This is a layout intelligence item: some pages use wider editorial columns. Need to handle per-page column width variations within the overall grid.
+- **Page 3** (recto): Very poor detection — every column wrong. Large display ad disrupts the grid completely. The anchored transposition placed columns at regular intervals but the anchor point was wrong, shifting the entire grid. This is why p3 should NOT be the default grounding page.
+- **Page 4** (verso): Excellent. One of the two grounding pages. Near-perfect regularity.
+- **Page 5** (recto): Workable grid but needs margin of error. A giant display ad occupies the lower half of the page with its own column grid (different pitch from the editorial grid). The detection picks up the ad's column structure which distorts results in the lower strips. The editorial grid in the upper half is correct.
+- **Page 6** (verso): Excellent.
+- **Page 7** (recto): Good on the left, poor on the right. A **photograph spanning three columns** in the top right disrupts detection. The photo obliterates column rules in that zone across the upper strips, and the consensus loses those boundaries. Multi-column photos are a distinct challenge from multi-column ads — they have no borders, just sustained mid-tone darkness.
+- **Page 8** (verso): Good with minor inaccuracy over ads. The editorial grid is correct but where ads sit, the column boundaries drift slightly. Acceptable for extraction — the text content is captured.
+
+### 1897-07-09 (full issue, 8 pages, 8 columns at 10.3% pitch)
+
+Grounding pages: 8 (CV=0.022) and 2 (CV=0.030). Pass 1 showed a recto/verso split: recto pages detected 7 columns, verso pages detected 8. The pitch establishment correctly chose 8 columns from the verso pages. All recto pages re-processed to 8 columns via anchored transposition.
+
 ## Key Patterns
 
 1. **Interior column rules are always reliable** — the valley-spike-valley detection with row consistency works across all eras
