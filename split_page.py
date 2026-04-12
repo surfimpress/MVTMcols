@@ -32,6 +32,7 @@ import numpy as np
 
 from find_columns import find_column_boundaries, ColumnBoundary, _open_clean
 from page_profile import profile_page
+from detect_sliver import find_binding_edge
 
 
 # ── Configuration ────────────────────────────────────────────────────────────
@@ -1012,6 +1013,43 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
                     f"anchored_prior({best_source},hits={best_score:.1f},"
                     f"grid_cv={grid_cv:.3f},det_cv={det_cv:.3f})"
                 )
+
+    # ── Sliver detection: constrain binding-side edge ──────────────
+    # Find the print margin on the binding side. Any grid boundary
+    # beyond the margin is in the sliver zone and should be removed.
+    if page_prof and best_boundaries and len(best_boundaries) >= 2:
+        binding = page_prof.get("binding_side")
+        positions = [b["x_pct"] for b in best_boundaries]
+        pitch_est = float(np.median(np.diff(positions))) if len(positions) > 1 else 10.0
+
+        if binding == "right":
+            last_grid = positions[-1]
+        else:
+            last_grid = positions[0]
+
+        try:
+            sliver_info = find_binding_edge(
+                pdf_path, page_number=page_number,
+                binding_side=binding, pitch=pitch_est,
+                last_grid_boundary=last_grid,
+            )
+
+            if sliver_info["confidence"] != "low":
+                margin_start = sliver_info["margin_start_pct"]
+
+                if binding == "right":
+                    # Remove boundaries beyond the margin start
+                    best_boundaries = [b for b in best_boundaries
+                                      if b["x_pct"] <= margin_start + 2]
+                elif binding == "left":
+                    best_boundaries = [b for b in best_boundaries
+                                      if b["x_pct"] >= margin_start - 2]
+
+                if sliver_info["sliver_present"]:
+                    quality_flags.append(
+                        f"sliver_detected({binding},{sliver_info['sliver_width_pct']}%)")
+        except Exception:
+            pass  # sliver detection failure is non-fatal
 
     # Extract columns
     columns = extract_columns(
