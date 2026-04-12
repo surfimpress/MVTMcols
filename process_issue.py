@@ -443,6 +443,78 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     else:
         print("\nPass 2: All pages regular — no re-processing needed")
 
+    # ── Pass 3: Cross-page consistency check ─────────────────────────
+    # Check that leftmost column positions are consistent within
+    # recto and verso groups. Outliers get reassessed.
+    recto_lefts = []
+    verso_lefts = []
+    for page_num, result, prof in pass1_results:
+        if not result.columns:
+            continue
+        left = result.columns[0].left_vw
+        page_type = prof.get("page_type")
+        if page_type == "recto":
+            recto_lefts.append((page_num, left, result, prof))
+        elif page_type == "verso":
+            verso_lefts.append((page_num, left, result, prof))
+
+    outliers_fixed = 0
+    for group_name, group in [("recto", recto_lefts), ("verso", verso_lefts)]:
+        if len(group) < 3:
+            continue
+        lefts = [g[1] for g in group]
+        median_left = float(np.median(lefts))
+        # An outlier is >5% from the median
+        for page_num, left, result, prof in group:
+            if abs(left - median_left) > 5.0:
+                # This page's left edge is an outlier — reassess
+                pdf_path = None
+                for pn, pp in pages:
+                    if pn == page_num:
+                        pdf_path = pp
+                        break
+                if not pdf_path:
+                    continue
+
+                # Get the right template for this type
+                template = recto_template if group_name == "recto" else verso_template
+                if not template:
+                    template = recto_template or verso_template
+                if not template:
+                    continue
+
+                page_out = os.path.join(output_dir, f"p{page_num}")
+                # Only remove column files, preserve overlays
+                if os.path.exists(page_out):
+                    for f in os.listdir(page_out):
+                        if "_col" in f and f.endswith(".png"):
+                            os.remove(os.path.join(page_out, f))
+                        elif f == "page_meta.json":
+                            os.remove(os.path.join(page_out, f))
+                os.makedirs(page_out, exist_ok=True)
+
+                zones = get_ad_exclusion_zones(page_ads.get(page_num, []))
+                new_result = split_page(
+                    pdf_path, output_dir=page_out, dpi=dpi,
+                    expected_columns=num_columns,
+                    prior_boundaries=template["bounds"],
+                    prior_page_type=template["page_type"],
+                    ad_exclusion_zones=zones,
+                )
+
+                if new_result.columns:
+                    new_left = new_result.columns[0].left_vw
+                    if abs(new_left - median_left) < abs(left - median_left):
+                        # Update the result
+                        for i, (pn, r, p) in enumerate(pass1_results):
+                            if pn == page_num:
+                                pass1_results[i] = (pn, new_result, p)
+                                break
+                        outliers_fixed += 1
+
+    if outliers_fixed:
+        print(f"\nPass 3: Fixed {outliers_fixed} left-edge outliers")
+
     # ── Store in database ──────────────────────────────────────────
     from layout_intelligence import LayoutDB
 
