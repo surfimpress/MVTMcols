@@ -116,6 +116,13 @@ h1 { font-size: 1.8em; margin-bottom: 5px; }
 .section-title { font-size: 1.1em; font-weight: 600; margin: 15px 0 8px; padding-top: 10px; border-top: 1px solid #eee; }
 a img { transition: transform 0.15s; }
 a img:hover { transform: scale(1.05); }
+details { margin-bottom: 10px; border: 1px solid #eee; border-radius: 6px; padding: 0; }
+details[open] { padding-bottom: 10px; }
+details summary { padding: 10px 15px; cursor: pointer; font-weight: 500; background: #fafaf8; border-radius: 6px; }
+details summary:hover { background: #f0f0ea; }
+details[open] summary { border-bottom: 1px solid #eee; border-radius: 6px 6px 0 0; }
+details .page-content { padding: 10px 15px; }
+details.ads-section summary { background: #f8f5ee; }
 </style>
 </head>
 <body>
@@ -162,46 +169,48 @@ a img:hover { transform: scale(1.05); }
             flags_html = "".join(f'<span class="flag">{f}</span>'
                                 for f in pg["flags"]
                                 if "anchor" in f or "prior" in f or "sliver" in f)
+            page_type = "recto" if pn % 2 == 1 else "verso"
 
             html.append(f"""
-  <div class="page-section">
-    <h3>Page {pn}</h3>
-    <div class="page-meta">
-      {pg['num_columns']} cols [{widths_str}] {cv_str} {flags_html}
-    </div>""")
+  <details>
+    <summary>Page {pn} ({page_type}) &mdash; {pg['num_columns']} cols [{widths_str}] {cv_str} {flags_html}</summary>
+    <div class="page-content">""")
 
             # Overlay
             if pg["has_overlay"]:
                 overlay_url = f"{base_url}/columns/{issue['dir']}/p{pn}/overlay.png"
                 html.append(f"""
-    <a href="{overlay_url}" target="_blank">
-      <img class="thumb thumb-wide" src="{overlay_url}" alt="Page {pn} overlay" loading="lazy">
-    </a>""")
+      <a href="{overlay_url}" target="_blank">
+        <img class="thumb thumb-wide" src="{overlay_url}" alt="Page {pn} overlay" loading="lazy">
+      </a>""")
 
             # Column thumbnails
             if pg["col_files"]:
-                html.append('    <div class="thumb-row" style="margin-top:8px">')
+                html.append('      <div class="thumb-row" style="margin-top:8px">')
                 for cf in pg["col_files"]:
                     col_url = f"{base_url}/columns/{issue['dir']}/p{pn}/{cf}"
                     html.append(f"""
-      <a href="{col_url}" target="_blank">
-        <img class="thumb" src="{col_url}" alt="{cf}" loading="lazy">
-      </a>""")
-                html.append("    </div>")
+        <a href="{col_url}" target="_blank">
+          <img class="thumb" src="{col_url}" alt="{cf}" loading="lazy">
+        </a>""")
+                html.append("      </div>")
 
-            html.append("  </div>")
+            html.append("    </div>\n  </details>")
 
         # Ads section
         if issue["ads"]:
-            html.append('  <div class="section-title">Display Ads</div>')
-            html.append('  <div class="thumb-row">')
+            html.append(f"""
+  <details class="ads-section">
+    <summary>Display Ads ({len(issue['ads'])})</summary>
+    <div class="page-content">
+      <div class="thumb-row">""")
             for ad in issue["ads"]:
                 ad_url = f"{base_url}/columns/{ad['path']}"
                 html.append(f"""
-    <a href="{ad_url}" target="_blank">
-      <img class="thumb" src="{ad_url}" alt="P{ad['page']} {ad['file']}" loading="lazy">
-    </a>""")
-            html.append("  </div>")
+        <a href="{ad_url}" target="_blank">
+          <img class="thumb" src="{ad_url}" alt="P{ad['page']} {ad['file']}" loading="lazy">
+        </a>""")
+            html.append("      </div>\n    </div>\n  </details>")
 
         html.append("</div>")
 

@@ -409,8 +409,14 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
                 continue  # no template available
 
             page_out = os.path.join(output_dir, f"p{page_num}")
-            shutil.rmtree(page_out, ignore_errors=True)
-            os.makedirs(page_out)
+            # Remove old column files but preserve overlays
+            if os.path.exists(page_out):
+                for f in os.listdir(page_out):
+                    if "_col" in f and f.endswith(".png"):
+                        os.remove(os.path.join(page_out, f))
+                    elif f == "page_meta.json":
+                        os.remove(os.path.join(page_out, f))
+            os.makedirs(page_out, exist_ok=True)
 
             zones = get_ad_exclusion_zones(page_ads.get(page_num, []))
             new_result = split_page(
@@ -516,6 +522,9 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
 
     print("  Done")
 
+    # ── Update viewer data ──────────────────────────────────────────
+    _update_viewer_data(db_path, "columns")
+
     # ── Summary ──────────────────────────────────────────────────────
     elapsed = time.time() - t0
     print(f"\nCompleted in {elapsed:.1f}s")
@@ -547,6 +556,86 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
             for pn, r, _ in pass1_results
         ],
     }
+
+
+def _update_viewer_data(db_path, columns_dir):
+    """
+    Dump processed issue data from SQLite as JSON for the viewer.
+    Called automatically after each issue is processed.
+    """
+    import sqlite3 as _sql
+    conn = _sql.connect(db_path)
+
+    # Get all issues with layouts
+    issues_raw = conn.execute("""
+        SELECT DISTINCT year, month, day FROM page_layouts ORDER BY year, month, day
+    """).fetchall()
+
+    issues = []
+    for year, month, day in issues_raw:
+        layouts = conn.execute("""
+            SELECT page, num_columns, column_widths, quality_flags, confidence
+            FROM page_layouts WHERE year=? AND month=? AND day=?
+            ORDER BY page
+        """, (year, month, day)).fetchall()
+
+        ads = conn.execute("""
+            SELECT page, cols, confidence, image_filename
+            FROM detected_ads WHERE year=? AND month=? AND day=?
+            ORDER BY page
+        """, (year, month, day)).fetchall()
+
+        pages = []
+        for page, num_cols, widths_json, flags_json, conf in layouts:
+            widths = json.loads(widths_json) if widths_json else []
+            flags = json.loads(flags_json) if flags_json else []
+            page_type = "recto" if page % 2 == 1 else "verso"
+
+            # Check what files exist
+            page_dir = os.path.join(columns_dir, f"{year}-{month:02d}-{day:02d}", f"p{page}")
+            col_files = sorted(f for f in os.listdir(page_dir)
+                              if "_col" in f and f.endswith(".png")) if os.path.exists(page_dir) else []
+            has_overlay = os.path.exists(os.path.join(page_dir, "overlay.png")) if os.path.exists(page_dir) else False
+
+            pages.append({
+                "page": page,
+                "page_type": page_type,
+                "num_columns": num_cols,
+                "widths": widths,
+                "flags": flags,
+                "confidence": conf,
+                "col_files": col_files,
+                "has_overlay": has_overlay,
+            })
+
+        ad_list = [{"page": p, "cols": c, "confidence": cf, "file": fn}
+                   for p, c, cf, fn in ads]
+
+        issue_dir = f"{year}-{month:02d}-{day:02d}"
+        summary_path = os.path.join(columns_dir, issue_dir, "issue_summary.json")
+        pitch = None
+        if os.path.exists(summary_path):
+            with open(summary_path) as f:
+                s = json.load(f)
+                pitch = s.get("pitch")
+
+        issues.append({
+            "year": year, "month": month, "day": day,
+            "dir": issue_dir,
+            "pitch": pitch,
+            "n_pages": len(pages),
+            "n_cols": sum(len(p["col_files"]) for p in pages),
+            "n_ads": len(ad_list),
+            "pages": pages,
+            "ads": ad_list,
+        })
+
+    conn.close()
+
+    # Write JSON for the viewer
+    viewer_data_path = os.path.join(columns_dir, "viewer_data.json")
+    with open(viewer_data_path, "w") as f:
+        json.dump(issues, f, indent=2)
 
 
 if __name__ == "__main__":
