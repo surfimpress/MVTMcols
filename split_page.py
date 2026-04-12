@@ -241,6 +241,17 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
     # Always merge boundaries that are too close together
     boundaries = _remove_narrow_columns(boundaries, min_width_pct=7.0)
 
+    # Remove false boundaries from ad borders: any column narrower
+    # than 65% of the median width is an ad border, not a real rule.
+    # This MUST run before projection so the projection extends from
+    # clean boundaries, not from false ad-border positions.
+    if len(boundaries) >= 3:
+        positions = [b["x_pct"] for b in boundaries]
+        widths = [positions[i+1] - positions[i] for i in range(len(positions)-1)]
+        median_width = float(np.median(widths))
+        min_acceptable = median_width * 0.65
+        boundaries = _remove_narrow_columns(boundaries, min_width_pct=min_acceptable)
+
     # Cap at max boundaries
     MAX_BOUNDARIES = 9  # 9 boundaries = 8 columns max
     if len(boundaries) > MAX_BOUNDARIES:
@@ -278,15 +289,7 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None):
                        reverse=True)[:9]
         boundaries = sorted(scored, key=lambda b: b["x_pct"])
 
-    # Remove columns narrower than 50% of the median interior width.
-    # These are false boundaries from ad borders or noise.
-    # Use median so a single narrow outlier doesn't drag down the threshold.
-    if len(boundaries) >= 3:
-        positions = [b["x_pct"] for b in boundaries]
-        widths = [positions[i+1] - positions[i] for i in range(len(positions)-1)]
-        median_width = float(np.median(widths))
-        min_acceptable = median_width * 0.65
-        boundaries = _remove_narrow_columns(boundaries, min_width_pct=min_acceptable)
+    # (Narrow column filter already ran before projection)
 
     # ── Split any remaining wide columns ───────────────────────────
     # A column wider than 1.4x the median is a double-width element
