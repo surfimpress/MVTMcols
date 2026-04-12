@@ -1036,14 +1036,17 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
 
             if sliver_info["confidence"] != "low":
                 # Use margin_end (where OUR margin ends and sliver begins)
-                # not margin_start (where column content ends).
-                # The print margin belongs to this page — keep it.
+                # then inset 1% toward the binding to give safe clearance.
+                # Everything beyond this line is ignored in detection.
+                SLIVER_INSET = 1.0  # % of page width
                 sliver_boundary = sliver_info["margin_end_pct"]
 
                 if binding == "right":
+                    sliver_boundary -= SLIVER_INSET
                     best_boundaries = [b for b in best_boundaries
                                       if b["x_pct"] <= sliver_boundary]
                 elif binding == "left":
+                    sliver_boundary += SLIVER_INSET
                     best_boundaries = [b for b in best_boundaries
                                       if b["x_pct"] >= sliver_boundary]
 
