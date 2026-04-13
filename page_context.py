@@ -172,6 +172,9 @@ def build_context(gazette_page, year, db_path="data/mvtm.db",
             expected = [round(start - i * pitch, 2) for i in range(num_columns + 1)]
             expected.sort()
 
+    # Filter to page bounds. The text_area is an approximate guide,
+    # not a hard constraint — the grid can legitimately extend slightly
+    # past it on both sides (the text_area detection is conservative).
     expected = [b for b in expected if 0 < b < 100]
 
     return PageContext(
