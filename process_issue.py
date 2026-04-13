@@ -424,114 +424,180 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
             break
 
     if page2_editorial:
-        # Extend the year range if the template already exists
         _db.update_template_range("page2_editorial_wide", 2, year)
 
-        # ── Refine page 2 columns using the wide-column logic ────────
-        # P2 is always verso (even), clean side is left.
-        # Find the boundary between wide and regular columns,
-        # then step left in 1.5× pitch increments to place the
-        # wide column boundaries precisely.
+        # ── Build page 2 from template + detection ─────────────────
+        # We KNOW this is page 2 with the editorial layout.
+        # Use detection (with ad exclusion) to find boundaries,
+        # then apply the template: 2 wide + N regular columns.
+        #
+        # The detected boundaries on the regular-column side are
+        # reliable. Use them to establish the pitch on THIS page.
+        # Then step left from the transition point by 1.5× pitch
+        # to place the wide column boundaries.
+
         for i, (page_num, result, prof) in enumerate(pass1_results):
-            if page_num != 2 or not result.columns or len(result.columns) < 4:
+            if page_num != 2:
                 continue
 
-            widths = [c.width_vw for c in result.columns]
-            positions = ([c.left_vw for c in result.columns]
-                        + [result.columns[-1].right_vw])
-
-            # Find the transition: first column from the right that is
-            # close to standard pitch. Everything left of that is wide.
-            regular_from_right = []
-            transition_idx = None
-            for j in range(len(widths) - 1, -1, -1):
-                if abs(widths[j] - pitch) < pitch * 0.25:
-                    regular_from_right.append(j)
-                else:
-                    transition_idx = j + 1  # first regular column index
+            pdf_path = None
+            for pn, pp in pages:
+                if pn == 2:
+                    pdf_path = pp
                     break
-
-            if transition_idx is None or transition_idx < 1:
+            if not pdf_path:
                 break
 
-            # The boundary between wide and regular is at positions[transition_idx]
-            transition_boundary = positions[transition_idx]
-            wide_pitch = pitch * 1.5
+            tmpl = p2_template["pattern"] if p2_template else {
+                "wide_columns": 2, "wide_ratio": 1.5, "regular_columns": 4
+            }
+            n_wide = tmpl.get("wide_columns", 2)
+            wide_ratio = tmpl.get("wide_ratio", 1.5)
 
-            # Step left from the transition boundary
-            wide_boundaries = [transition_boundary]
-            x = transition_boundary - wide_pitch
-            while x > 0:
-                wide_boundaries.insert(0, round(x, 2))
-                x -= wide_pitch
+            # Detect column rules in the RIGHT HALF of the page only.
+            # The regular columns are on the right side of P2 and will
+            # give clean, reliable boundaries. The wide editorial
+            # columns on the left confuse full-page detection.
+            from find_columns import find_column_boundaries
 
-            # Check if these positions align with detected boundaries
-            # or the text_area left edge
-            ta_left = prof.get("text_area", {}).get("left", 0)
-            all_refs = positions + [ta_left]
+            right_half_start = 0.45  # start from 45% — safely past the wide cols
+            right_half_end = prof.get("text_area", {}).get("right", 90) / 100
 
-            matches = 0
-            for wb in wide_boundaries:
-                nearest = min(all_refs, key=lambda p: abs(p - wb))
-                if abs(nearest - wb) < 3.0:
-                    matches += 1
+            right_boundaries = []
+            for gy in [5, 6, 7]:  # middle strips only
+                try:
+                    results = find_column_boundaries(
+                        pdf_path, x=1, y=gy, w=10, h=1,
+                        page_number=0, dpi=dpi, darkness_threshold=60,
+                        clip_x_frac=(right_half_start, right_half_end),
+                    )
+                    for r in results:
+                        if r.confidence in ("high", "medium"):
+                            right_boundaries.append(r.page_pct)
+                except Exception:
+                    continue
 
-            if matches >= len(wide_boundaries) - 1:
-                # High confidence — rebuild page 2 columns with the
-                # wide boundaries + the regular boundaries from detection
-                new_boundaries = list(wide_boundaries)
-                for p in positions[transition_idx:]:
-                    if p not in new_boundaries:
-                        new_boundaries.append(round(p, 2))
-                new_boundaries.sort()
+            # Cluster and deduplicate
+            right_boundaries.sort()
+            deduped = []
+            for b in right_boundaries:
+                if not deduped or b - deduped[-1] > 3.0:
+                    deduped.append(b)
+                else:
+                    # Keep the one with more occurrences (closer to median)
+                    pass
+            right_boundaries = deduped
 
-                # Rebuild the page with these boundaries
-                pdf_path = None
-                for pn, pp in pages:
-                    if pn == 2:
-                        pdf_path = pp
-                        break
+            if len(right_boundaries) >= 3:
+                # Compute pitch from these clean right-side boundaries
+                right_gaps = [right_boundaries[j+1] - right_boundaries[j]
+                             for j in range(len(right_boundaries) - 1)]
+                page_pitch = float(np.median(right_gaps))
+                wide_pitch = page_pitch * wide_ratio
 
-                if pdf_path:
-                    from split_page import extract_columns, _open_clean
-                    page_out = os.path.join(output_dir, "p2")
-                    # Clean old column files
-                    if os.path.exists(page_out):
-                        for f in os.listdir(page_out):
-                            if "_col" in f and f.endswith(".png"):
-                                os.remove(os.path.join(page_out, f))
-                            elif f == "page_meta.json":
-                                os.remove(os.path.join(page_out, f))
-                    os.makedirs(page_out, exist_ok=True)
+                # The leftmost right-side boundary is the transition point
+                transition = right_boundaries[0]
 
-                    new_bound_dicts = [{
-                        "x_pct": p, "peak_darkness": 0, "row_std": 0,
-                        "valley_depth": 0, "confidence": "p2_editorial",
-                        "strips_hit": 0, "total_strips": 0,
-                        "consensus": 0, "weighted_score": 0, "drift": 0,
-                    } for p in new_boundaries]
+                # Step left from transition by 1.5× pitch for wide columns
+                wide_bounds = [transition]
+                x = transition - wide_pitch
+                while x > 0:
+                    wide_bounds.insert(0, round(x, 2))
+                    x -= wide_pitch
 
-                    new_columns = extract_columns(
-                        pdf_path, new_bound_dicts, 0, dpi, page_out)
+                # Combine wide + right-side regular + one more regular
+                # at the right end
+                boundaries = list(wide_bounds)
+                for b in right_boundaries:
+                    if b not in boundaries:
+                        boundaries.append(round(b, 2))
+                # Add the right edge (one pitch past last boundary)
+                last = right_boundaries[-1]
+                end = round(last + page_pitch, 2)
+                if end < 95:
+                    boundaries.append(end)
+                boundaries.sort()
+                boundaries = [b for b in boundaries if 0 < b < 100]
 
-                    if new_columns:
-                        from split_page import PageResult
-                        new_result = PageResult(
-                            pdf_path=pdf_path, page_number=0, dpi=dpi,
-                            page_width_px=result.page_width_px,
-                            page_height_px=result.page_height_px,
-                            num_columns=len(new_columns),
-                            columns=new_columns,
-                            detection_row=result.detection_row,
-                            quality_flags=result.quality_flags + ["p2_editorial_refined"],
-                            error=None, elapsed_seconds=0,
-                        )
-                        pass1_results[i] = (2, new_result, prof)
-                        new_widths = " ".join(f"{c.width_vw:.0f}%"
-                                            for c in new_columns)
-                        print(f"  Page 2 refined: {len(new_columns)}c "
-                              f"[{new_widths}] ({matches}/{len(wide_boundaries)} "
-                              f"wide boundaries confirmed)")
+                # Sense check: right-half pitch should be close to issue pitch
+                # If not, prefer the issue pitch (established from many pages)
+                if abs(page_pitch - pitch) > pitch * 0.15:
+                    print(f"  P2 right-half pitch {page_pitch:.1f}% differs from "
+                          f"issue pitch {pitch:.1f}% — using issue pitch")
+                    page_pitch = pitch
+                    wide_pitch = page_pitch * wide_ratio
+
+                    # Rebuild: keep the right boundaries but recalculate
+                    # wide columns from issue pitch
+                    boundaries = []
+                    x = transition - wide_pitch
+                    while x > 0:
+                        boundaries.insert(0, round(x, 2))
+                        x -= wide_pitch
+                    boundaries.append(round(transition, 2))
+                    for b in right_boundaries:
+                        if b not in boundaries:
+                            boundaries.append(round(b, 2))
+                    last = right_boundaries[-1]
+                    end = round(last + page_pitch, 2)
+                    if end < 95:
+                        boundaries.append(end)
+                    boundaries.sort()
+                    boundaries = [b for b in boundaries if 0 < b < 100]
+
+                widths_preview = []
+                for j in range(len(boundaries) - 1):
+                    widths_preview.append(round(boundaries[j+1] - boundaries[j], 1))
+                print(f"  P2 pitch: {page_pitch:.1f}%, wide: {wide_pitch:.1f}%, "
+                      f"transition: {transition:.1f}%, "
+                      f"columns: {widths_preview}")
+            else:
+                # Fallback: use issue pitch + text_area
+                ta_left = prof.get("text_area", {}).get("left", 10)
+                wide_pitch = pitch * wide_ratio
+                boundaries = [ta_left]
+                x = ta_left
+                for _ in range(n_wide):
+                    x += wide_pitch
+                    boundaries.append(round(x, 2))
+                for _ in range(tmpl.get("regular_columns", 4)):
+                    x += pitch
+                    boundaries.append(round(x, 2))
+                boundaries = [b for b in boundaries if 0 < b < 100]
+
+            # Extract columns directly
+            from split_page import extract_columns, PageResult, _save_metadata
+            page_out = os.path.join(output_dir, "p2")
+            if os.path.exists(page_out):
+                for f in os.listdir(page_out):
+                    if ("_col" in f and f.endswith(".png")) or f == "page_meta.json":
+                        os.remove(os.path.join(page_out, f))
+            os.makedirs(page_out, exist_ok=True)
+
+            bound_dicts = [{
+                "x_pct": b, "peak_darkness": 0, "row_std": 0,
+                "valley_depth": 0, "confidence": "p2_template",
+                "strips_hit": 0, "total_strips": 0,
+                "consensus": 0, "weighted_score": 0, "drift": 0,
+            } for b in boundaries]
+
+            new_columns = extract_columns(pdf_path, bound_dicts, 0, dpi, page_out)
+
+            if new_columns:
+                new_result = PageResult(
+                    pdf_path=pdf_path, page_number=0, dpi=dpi,
+                    page_width_px=result.page_width_px,
+                    page_height_px=result.page_height_px,
+                    num_columns=len(new_columns),
+                    columns=new_columns,
+                    detection_row=result.detection_row,
+                    quality_flags=["p2_editorial_template"],
+                    error=None, elapsed_seconds=0,
+                )
+                _save_metadata(new_result, os.path.join(page_out, "page_meta.json"))
+                pass1_results[i] = (2, new_result, prof)
+                widths_str = " ".join(f"{c.width_vw:.0f}%" for c in new_columns)
+                print(f"  Page 2 built from template: {len(new_columns)}c [{widths_str}]")
             break
 
     # ── Pass 2: Re-process weak pages with matching template ─────────
