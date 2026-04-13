@@ -24,9 +24,11 @@ from pathlib import Path
 
 import numpy as np
 
-from split_page import split_page, PageResult
+from split_page import split_page, PageResult, extract_columns, _save_metadata
 from page_profile import profile_page
 from detect_ads import detect_ads, extract_ad_images, store_ads, get_ad_exclusion_zones
+from page_context import build_context
+from column_pipeline import detect_strips, cluster_boundaries, place_columns
 
 
 def download_issue(year, month, day, db_path="data/mvtm.db",
@@ -271,26 +273,47 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     else:
         print("  No display ads found")
 
-    # ── Pass 1: Independent column detection ─────────────────────────
+    # ── Pass 1: Independent column detection (new pipeline) ────────
     print("Pass 1: Independent detection...")
     pass1_results = []
+    page_profiles = {}  # cache profiles for pass 2
 
     for page_num, pdf_path in pages:
         page_out = os.path.join(output_dir, f"p{page_num}")
         os.makedirs(page_out, exist_ok=True)
 
         prof = profile_page(pdf_path)
-        # Get ad exclusion zones for this page
-        zones = get_ad_exclusion_zones(page_ads.get(page_num, []))
-        result = split_page(pdf_path, output_dir=page_out, dpi=dpi,
-                           ad_exclusion_zones=zones)
+        page_profiles[page_num] = prof
+        ads = page_ads.get(page_num, [])
+
+        # Build context (no issue pitch yet — pass 1 is independent)
+        ctx = build_context(page_num, year, db_path=db_path,
+                           profile=prof, ads=ads)
+
+        # Run pipeline
+        raw = detect_strips(pdf_path, ctx, dpi=dpi)
+        clustered = cluster_boundaries(raw)
+        final = place_columns(clustered, ctx)
+
+        # Extract columns
+        columns = extract_columns(pdf_path, final, 0, dpi, page_out)
+
+        result = PageResult(
+            pdf_path=pdf_path, page_number=0, dpi=dpi,
+            page_width_px=0, page_height_px=0,
+            num_columns=len(columns), columns=columns,
+            detection_row=[], quality_flags=ctx.ad_zones and ["has_ads"] or [],
+            error=None, elapsed_seconds=0,
+        )
+        _save_metadata(result, os.path.join(page_out, "page_meta.json"))
 
         cv, median_w, num_cols = _score_regularity(result)
         widths = " ".join(f"{c.width_vw:.0f}%" for c in result.columns)
-        n_ads = len(page_ads.get(page_num, []))
+        n_ads = len(ads)
         ad_note = f" [{n_ads} ads]" if n_ads else ""
-        print(f"  P{page_num} ({prof['page_type']}): {num_cols}c [{widths}] "
-              f"CV={cv:.3f}{ad_note}")
+        p2_note = " [P2 editorial]" if ctx.is_page_2 and ctx.page_2_template else ""
+        print(f"  P{page_num} ({ctx.page_type}): {num_cols}c [{widths}] "
+              f"CV={cv:.3f}{ad_note}{p2_note}")
 
         pass1_results.append((page_num, result, prof))
 
@@ -371,253 +394,37 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     else:
         print(f"  Verso template: none found")
 
-    # ── Page 2 wide-column detection ────────────────────────────────
-    # Page 2 often uses a special editorial layout: 2 wide columns
-    # (each ~1.5× standard pitch) followed by regular columns.
-    # Check both: current detection AND the intelligence layer.
+    # ── Page 2 editorial template (intelligence layer) ──────────────
+    # The new pipeline handles page 2 in pass 1 via build_context() +
+    # place_page2_editorial(). Here we just check if the template was
+    # applied and update the intelligence layer's year range.
     from layout_intelligence import LayoutDB
     _db = LayoutDB(db_path)
 
-    # First check if the intelligence layer already knows about this
     p2_template = _db.get_template("page2_editorial_wide", 2, year)
     page2_editorial = p2_template is not None
 
     if page2_editorial:
-        print(f"\n  Page 2 editorial layout (from intelligence: "
-              f"{p2_template['year_start']}-{p2_template['year_end']})")
-    else:
-        # Try to detect it from the current pass 1 results
-        for page_num, result, prof in pass1_results:
-            if page_num != 2 or not result.columns or len(result.columns) < 4:
-                continue
-
-            widths = [c.width_vw for c in result.columns]
-            first_two = widths[:2]
-            remaining = widths[2:]
-
-            regular = [w for w in remaining if abs(w - pitch) < pitch * 0.25]
-            if len(regular) < 3:
-                break
-
-            regular_pitch = float(np.median(regular))
-            wide = [w for w in first_two if w > regular_pitch * 1.2]
-
-            if wide:
-                wide_ratio = float(np.mean(wide) / regular_pitch)
-                page2_editorial = True
-
-                # Store in intelligence layer
-                pattern = {
-                    "wide_columns": len(wide),
-                    "wide_ratio": round(wide_ratio, 2),
-                    "regular_columns": len(regular),
-                    "regular_pitch": round(regular_pitch, 1),
-                }
-                _db.record_template(
-                    "page2_editorial_wide", 2, year, year, pattern,
-                    f"{len(wide)} wide col(s) at {wide_ratio:.1f}x pitch "
-                    f"+ {len(regular)} regular col(s)",
-                )
-                print(f"\n  Page 2 editorial layout detected and stored: "
-                      f"{len(wide)} wide col(s) ({wide_ratio:.1f}x pitch) "
-                      f"+ {len(regular)} regular col(s)")
-            break
-
-    if page2_editorial:
         _db.update_template_range("page2_editorial_wide", 2, year)
+        print(f"\n  Page 2 editorial layout applied (intelligence: "
+              f"{p2_template['year_start']}-{p2_template['year_end']})")
 
-        # ── Build page 2 from template + detection ─────────────────
-        # We KNOW this is page 2 with the editorial layout.
-        # Use detection (with ad exclusion) to find boundaries,
-        # then apply the template: 2 wide + N regular columns.
-        #
-        # The detected boundaries on the regular-column side are
-        # reliable. Use them to establish the pitch on THIS page.
-        # Then step left from the transition point by 1.5× pitch
-        # to place the wide column boundaries.
-
-        for i, (page_num, result, prof) in enumerate(pass1_results):
-            if page_num != 2:
-                continue
-
-            pdf_path = None
-            for pn, pp in pages:
-                if pn == 2:
-                    pdf_path = pp
-                    break
-            if not pdf_path:
-                break
-
-            tmpl = p2_template["pattern"] if p2_template else {
-                "wide_columns": 2, "wide_ratio": 1.5, "regular_columns": 4
-            }
-            n_wide = tmpl.get("wide_columns", 2)
-            wide_ratio = tmpl.get("wide_ratio", 1.5)
-
-            # Detect column rules in the RIGHT HALF of the page only.
-            # The regular columns are on the right side of P2 and will
-            # give clean, reliable boundaries. The wide editorial
-            # columns on the left confuse full-page detection.
-            from find_columns import find_column_boundaries
-
-            right_half_start = 0.45  # start from 45% — safely past the wide cols
-            right_half_end = prof.get("text_area", {}).get("right", 90) / 100
-
-            right_boundaries = []
-            for gy in [5, 6, 7]:  # middle strips only
-                try:
-                    results = find_column_boundaries(
-                        pdf_path, x=1, y=gy, w=10, h=1,
-                        page_number=0, dpi=dpi, darkness_threshold=60,
-                        clip_x_frac=(right_half_start, right_half_end),
-                    )
-                    for r in results:
-                        if r.confidence in ("high", "medium"):
-                            right_boundaries.append(r.page_pct)
-                except Exception:
-                    continue
-
-            # Cluster and deduplicate
-            right_boundaries.sort()
-            deduped = []
-            for b in right_boundaries:
-                if not deduped or b - deduped[-1] > 3.0:
-                    deduped.append(b)
-                else:
-                    # Keep the one with more occurrences (closer to median)
-                    pass
-            right_boundaries = deduped
-
-            if len(right_boundaries) >= 3:
-                # Compute pitch from these clean right-side boundaries
-                right_gaps = [right_boundaries[j+1] - right_boundaries[j]
-                             for j in range(len(right_boundaries) - 1)]
-                page_pitch = float(np.median(right_gaps))
-                wide_pitch = page_pitch * wide_ratio
-
-                # The leftmost right-side boundary is the transition point
-                transition = right_boundaries[0]
-
-                # Step left from transition by 1.5× pitch for wide columns
-                wide_bounds = [transition]
-                x = transition - wide_pitch
-                while x > 0:
-                    wide_bounds.insert(0, round(x, 2))
-                    x -= wide_pitch
-
-                # Combine wide + right-side regular + one more regular
-                # at the right end
-                boundaries = list(wide_bounds)
-                for b in right_boundaries:
-                    if b not in boundaries:
-                        boundaries.append(round(b, 2))
-                # Add the right edge (one pitch past last boundary)
-                last = right_boundaries[-1]
-                end = round(last + page_pitch, 2)
-                if end < 95:
-                    boundaries.append(end)
-                boundaries.sort()
-                boundaries = [b for b in boundaries if 0 < b < 100]
-
-                # Sense check: right-half pitch should be close to issue pitch
-                # If not, prefer the issue pitch (established from many pages)
-                if abs(page_pitch - pitch) > pitch * 0.15:
-                    print(f"  P2 right-half pitch {page_pitch:.1f}% differs from "
-                          f"issue pitch {pitch:.1f}% — using issue pitch")
-                    page_pitch = pitch
-                    wide_pitch = page_pitch * wide_ratio
-
-                    # Rebuild: keep the right boundaries but recalculate
-                    # wide columns from issue pitch
-                    boundaries = []
-                    x = transition - wide_pitch
-                    while x > 0:
-                        boundaries.insert(0, round(x, 2))
-                        x -= wide_pitch
-                    boundaries.append(round(transition, 2))
-                    for b in right_boundaries:
-                        if b not in boundaries:
-                            boundaries.append(round(b, 2))
-                    last = right_boundaries[-1]
-                    end = round(last + page_pitch, 2)
-                    if end < 95:
-                        boundaries.append(end)
-                    boundaries.sort()
-                    boundaries = [b for b in boundaries if 0 < b < 100]
-
-                widths_preview = []
-                for j in range(len(boundaries) - 1):
-                    widths_preview.append(round(boundaries[j+1] - boundaries[j], 1))
-                print(f"  P2 pitch: {page_pitch:.1f}%, wide: {wide_pitch:.1f}%, "
-                      f"transition: {transition:.1f}%, "
-                      f"columns: {widths_preview}")
-            else:
-                # Fallback: use issue pitch + text_area
-                ta_left = prof.get("text_area", {}).get("left", 10)
-                wide_pitch = pitch * wide_ratio
-                boundaries = [ta_left]
-                x = ta_left
-                for _ in range(n_wide):
-                    x += wide_pitch
-                    boundaries.append(round(x, 2))
-                for _ in range(tmpl.get("regular_columns", 4)):
-                    x += pitch
-                    boundaries.append(round(x, 2))
-                boundaries = [b for b in boundaries if 0 < b < 100]
-
-            # Extract columns directly
-            from split_page import extract_columns, PageResult, _save_metadata
-            page_out = os.path.join(output_dir, "p2")
-            if os.path.exists(page_out):
-                for f in os.listdir(page_out):
-                    if ("_col" in f and f.endswith(".png")) or f == "page_meta.json":
-                        os.remove(os.path.join(page_out, f))
-            os.makedirs(page_out, exist_ok=True)
-
-            bound_dicts = [{
-                "x_pct": b, "peak_darkness": 0, "row_std": 0,
-                "valley_depth": 0, "confidence": "p2_template",
-                "strips_hit": 0, "total_strips": 0,
-                "consensus": 0, "weighted_score": 0, "drift": 0,
-            } for b in boundaries]
-
-            new_columns = extract_columns(pdf_path, bound_dicts, 0, dpi, page_out)
-
-            if new_columns:
-                new_result = PageResult(
-                    pdf_path=pdf_path, page_number=0, dpi=dpi,
-                    page_width_px=result.page_width_px,
-                    page_height_px=result.page_height_px,
-                    num_columns=len(new_columns),
-                    columns=new_columns,
-                    detection_row=result.detection_row,
-                    quality_flags=["p2_editorial_template"],
-                    error=None, elapsed_seconds=0,
-                )
-                _save_metadata(new_result, os.path.join(page_out, "page_meta.json"))
-                pass1_results[i] = (2, new_result, prof)
-                widths_str = " ".join(f"{c.width_vw:.0f}%" for c in new_columns)
-                print(f"  Page 2 built from template: {len(new_columns)}c [{widths_str}]")
-            break
-
-    # ── Pass 2: Re-process weak pages with matching template ─────────
+    # ── Pass 2: Re-run placement with issue pitch (new pipeline) ────
+    # Now that we know the issue pitch, rebuild context for weak pages
+    # and re-run place_columns. Detection doesn't need re-running —
+    # only the placement strategy changes (it now has the pitch).
     REGULARITY_THRESHOLD = 0.10
     pages_to_reprocess = []
     for page_num, result, prof in pass1_results:
         cv, _, nc = _score_regularity(result)
-        page_type = prof.get("page_type")
-        is_template = ((recto_template and page_num == recto_template["page"]) or
-                       (verso_template and page_num == verso_template["page"]))
-        if is_template:
-            continue
-        # Skip page 2 if we detected the editorial wide-column layout
+        # Skip page 2 with editorial template (already handled)
         if page_num == 2 and page2_editorial:
             continue
         if cv > REGULARITY_THRESHOLD or nc != num_columns:
             pages_to_reprocess.append((page_num, result, prof))
 
     if pages_to_reprocess:
-        print(f"\nPass 2: Re-processing {len(pages_to_reprocess)} weak pages "
+        print(f"\nPass 2: Re-placing {len(pages_to_reprocess)} weak pages "
               f"with pitch={pitch:.1f}%...")
 
         for page_num, old_result, prof in pages_to_reprocess:
@@ -626,48 +433,45 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
                 if pn == page_num:
                     pdf_path = pp
                     break
+            if not pdf_path:
+                continue
 
-            # Select the template matching this page's type
-            page_type = prof.get("page_type")
-            if page_type == "recto" and recto_template:
-                template = recto_template
-            elif page_type == "verso" and verso_template:
-                template = verso_template
-            elif recto_template:
-                template = recto_template  # fallback
-            elif verso_template:
-                template = verso_template
-            else:
-                continue  # no template available
+            # Build context WITH the issue pitch
+            ads = page_ads.get(page_num, [])
+            ctx = build_context(page_num, year, db_path=db_path,
+                               profile=prof, ads=ads,
+                               issue_pitch=pitch, issue_columns=num_columns)
 
+            # Re-run detection + clustering + placement with issue context
+            raw = detect_strips(pdf_path, ctx, dpi=dpi)
+            clustered = cluster_boundaries(raw)
+            final = place_columns(clustered, ctx)
+
+            # Re-extract columns
             page_out = os.path.join(output_dir, f"p{page_num}")
-            # Remove old column files but preserve overlays
             if os.path.exists(page_out):
                 for f in os.listdir(page_out):
-                    if "_col" in f and f.endswith(".png"):
-                        os.remove(os.path.join(page_out, f))
-                    elif f == "page_meta.json":
+                    if ("_col" in f and f.endswith(".png")) or f == "page_meta.json":
                         os.remove(os.path.join(page_out, f))
             os.makedirs(page_out, exist_ok=True)
 
-            zones = get_ad_exclusion_zones(page_ads.get(page_num, []))
-            new_result = split_page(
-                pdf_path, output_dir=page_out, dpi=dpi,
-                expected_columns=template.get("num_cols", num_columns),
-                prior_boundaries=template["bounds"],
-                prior_page_type=template["page_type"],
-                ad_exclusion_zones=zones,
+            new_columns = extract_columns(pdf_path, final, 0, dpi, page_out)
+            new_result = PageResult(
+                pdf_path=pdf_path, page_number=0, dpi=dpi,
+                page_width_px=0, page_height_px=0,
+                num_columns=len(new_columns), columns=new_columns,
+                detection_row=[], quality_flags=["pass2_reprocessed"],
+                error=None, elapsed_seconds=0,
             )
+            _save_metadata(new_result, os.path.join(page_out, "page_meta.json"))
 
             cv_old, _, _ = _score_regularity(old_result)
             cv_new, _, _ = _score_regularity(new_result)
             widths = " ".join(f"{c.width_vw:.0f}%" for c in new_result.columns)
             improved = "IMPROVED" if cv_new < cv_old else "same"
-            anchored = "ANCHORED" if any("anchor" in f for f in new_result.quality_flags) else ""
             print(f"  P{page_num}: {new_result.num_columns}c [{widths}] "
-                  f"CV {cv_old:.3f}→{cv_new:.3f} {improved} {anchored}")
+                  f"CV {cv_old:.3f}→{cv_new:.3f} {improved}")
 
-            # Update the result in pass1_results
             for i, (pn, r, p) in enumerate(pass1_results):
                 if pn == page_num:
                     pass1_results[i] = (pn, new_result, p)

@@ -102,12 +102,13 @@ def build_context(gazette_page, year, db_path="data/mvtm.db",
         # Era pitch and columns
         prior = db.get_prior(year)
         if prior:
-            era_pitch = prior.get("expected_columns")
             era_columns = prior.get("expected_columns")
             # The prior returns typical_widths — median is the pitch
             if prior.get("typical_widths"):
                 import numpy as np
                 era_pitch = round(float(np.median(prior["typical_widths"])), 1)
+            else:
+                era_pitch = None  # no width data available
 
         # Page 2 template
         if is_page_2:
