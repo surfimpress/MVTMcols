@@ -499,8 +499,9 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         if os.path.exists(meta_path):
             with open(meta_path) as f:
                 meta = json.load(f)
-            boundaries = [col["right_vw"] for col in meta["columns"]
-                         if col["right_vw"] < 100]
+            # Include left edge of first column + right edges of all columns
+            boundaries = [meta["columns"][0]["left_vw"]]
+            boundaries += [col["right_vw"] for col in meta["columns"]]
             cv, _, _ = _score_regularity(result)
             db.record_layout(year, month, day, page_num,
                             result.num_columns, boundaries,

@@ -132,8 +132,10 @@ class LayoutDB:
             confidence: 0-1 overall confidence score
             profile: dict from page_profile (optional, stored as JSON)
         """
-        # Compute column widths
-        edges = [0.0] + list(boundary_positions) + [100.0]
+        # Compute column widths from boundary positions.
+        # Boundaries should include left edge of first column and
+        # right edge of last column — NOT padded with 0/100.
+        edges = list(boundary_positions)
         widths = [round(edges[i+1] - edges[i], 2) for i in range(len(edges)-1)]
 
         conn = self._conn()
