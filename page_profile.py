@@ -229,7 +229,8 @@ def find_rectangles(inv, h, w, gazette_page=None):
     # then find where the profile rises from that minimum into column text.
     margin_search_end = r3_left_px + int((r3_right_px - r3_left_px) * 0.2)
 
-    def _find_text_edge(heavy, search_start, search_end, body_median, direction="right"):
+    def _find_text_edge(heavy, search_start, search_end, body_median, direction="right",
+                        paper_baseline_val=0):
         """
         Find a text area edge and compute its confidence.
 
@@ -272,12 +273,23 @@ def find_rectangles(inv, h, w, gazette_page=None):
             peak_idx = search_start + int(np.argmax(region))
             peak_val = float(heavy[peak_idx])
 
+            # Find the SUSTAINED minimum before the peak — this is the
+            # print margin, not a brief column gutter dip. The margin
+            # stays low for at least 5 pixels; a gutter dips and recovers.
+            margin_thresh = paper_baseline_val + (body_median - paper_baseline_val) * 0.4
             min_idx = peak_idx
-            for x in range(peak_idx - 1, search_start, -1):
-                if heavy[x] <= heavy[x - 1] and heavy[x] <= heavy[x + 1]:
+            min_val = peak_val
+            for x in range(peak_idx - 1, search_start + 5, -1):
+                # Check if this point and its neighbours are all below margin level
+                window = heavy[max(search_start, x-3):x+3]
+                if len(window) >= 5 and float(np.max(window)) < margin_thresh:
                     min_idx = x
+                    min_val = float(heavy[x])
                     break
-            min_val = float(heavy[min_idx])
+            # Fallback: if no sustained minimum found, use the deepest point
+            if min_idx == peak_idx:
+                min_idx = search_start + int(np.argmin(region))
+                min_val = float(heavy[min_idx])
 
             thresh = min_val + 0.2 * (body_median - min_val)
             edge_px = min_idx
@@ -317,13 +329,15 @@ def find_rectangles(inv, h, w, gazette_page=None):
     # Left edge
     margin_search_end = r3_left_px + int((r3_right_px - r3_left_px) * 0.2)
     text_left_px, text_left_conf = _find_text_edge(
-        heavy, r3_left_px, margin_search_end, body_median, direction="right"
+        heavy, r3_left_px, margin_search_end, body_median, direction="right",
+        paper_baseline_val=paper_baseline,
     )
 
     # Right edge
     margin_search_start = r3_right_px - int((r3_right_px - r3_left_px) * 0.2)
     text_right_px, text_right_conf = _find_text_edge(
-        heavy, margin_search_start, r3_right_px, body_median, direction="left"
+        heavy, margin_search_start, r3_right_px, body_median, direction="left",
+        paper_baseline_val=paper_baseline,
     )
 
     # ── Build bounding boxes as % of page dimensions ─────────────────

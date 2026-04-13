@@ -71,6 +71,7 @@ function renderList(issues) {
     const el = document.getElementById('issue-list');
     el.innerHTML = issues.map(issue => {
         const date = `${issue.year}-${String(issue.month).padStart(2,'0')}-${String(issue.day).padStart(2,'0')}`;
+        const lastRan = issue.last_ran ? new Date(issue.last_ran + 'Z').toLocaleDateString() : '';
         return `<div class="issue-card" onclick="showIssue('${issue.dir}')">
             <h2>${date}</h2>
             <div class="stats">
@@ -78,6 +79,7 @@ function renderList(issues) {
                 ${issue.pitch || '?'}% pitch \u2022
                 ${issue.n_cols} columns \u2022
                 ${issue.n_ads} ads
+                ${lastRan ? '\u2022 ran ' + lastRan : ''}
             </div>
         </div>`;
     }).join('');

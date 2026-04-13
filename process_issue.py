@@ -678,10 +678,18 @@ def _update_viewer_data(db_path, columns_dir):
                 s = json.load(f)
                 pitch = s.get("pitch")
 
+        # Get last processed timestamp
+        last_ran = conn.execute("""
+            SELECT MAX(created_at) FROM page_layouts
+            WHERE year=? AND month=? AND day=?
+        """, (year, month, day)).fetchone()
+        last_ran_str = last_ran[0] if last_ran and last_ran[0] else None
+
         issues.append({
             "year": year, "month": month, "day": day,
             "dir": issue_dir,
             "pitch": pitch,
+            "last_ran": last_ran_str,
             "n_pages": len(pages),
             "n_cols": sum(len(p["col_files"]) for p in pages),
             "n_ads": len(ad_list),
