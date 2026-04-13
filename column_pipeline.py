@@ -16,7 +16,7 @@ Page type strategies:
 """
 
 import numpy as np
-from find_columns import find_column_boundaries
+from find_columns import find_column_boundaries, find_column_boundaries_morph
 
 
 # ── Stage 1: Detection ───────────────────────────────────────────────────────
@@ -40,6 +40,33 @@ def detect_strips(pdf_path, ctx, dpi=450):
     std_thresh = int(ctx.row_std_threshold)
 
     all_detections = []
+
+    # ── Morphological vertical rule detection ───────────────────────
+    # Uses a tall vertical kernel to isolate column rules directly.
+    # More effective than Hough on heritage scans with thin, faint rules.
+    # Catches rules the darkness-peak method misses near page edges.
+    for grid_y in [5, 6]:  # middle strips only
+        try:
+            morph_results = find_column_boundaries_morph(
+                pdf_path, x=1, y=grid_y, w=10, h=1,
+                page_number=0, dpi=dpi,
+                clip_x_frac=clip_x,
+            )
+            for r in morph_results:
+                if r.confidence in ("high", "medium"):
+                    all_detections.append({
+                        "pct": r.page_pct,
+                        "confidence": r.confidence,
+                        "row_std": 0,
+                        "valley_depth": r.valley_depth,
+                        "darkness": r.peak_darkness,
+                        "strip": grid_y,
+                        "weight": STRIP_WEIGHTS.get(grid_y, 1.0),
+                    })
+        except Exception:
+            pass
+
+    # ── Darkness-peak detection (original method) ────────────────────
     for grid_y in CONSENSUS_ROWS:
         strip_weight = STRIP_WEIGHTS.get(grid_y, 0.5)
         strip_y_start = (grid_y - 1) * 10

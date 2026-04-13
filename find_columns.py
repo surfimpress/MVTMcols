@@ -17,6 +17,7 @@ for r in results:
 
 import fitz
 import numpy as np
+import cv2
 from dataclasses import dataclass
 
 @dataclass
@@ -192,6 +193,117 @@ def find_column_boundaries(
     results.sort(key=lambda r: (order[r.confidence], r.local_x))
 
     return results
+
+def find_column_boundaries_morph(pdf_path, x=1, y=6, w=1, h=1,
+                                 page_number=0, dpi=450,
+                                 clip_x_frac=None,
+                                 min_height_frac=0.3,
+                                 binary_threshold=180):
+    """
+    Detect vertical column rules using morphological line extraction.
+
+    Uses a tall, narrow morphological kernel to isolate vertical
+    structures (column rules) from text and horizontal elements.
+    More effective than Hough on heritage scans where rules are
+    thin and faint.
+
+    Args:
+        pdf_path:          Path to the PDF.
+        x, y, w, h:       Grid rectangle (1-indexed, 10% squares).
+        page_number:       Zero-indexed page number.
+        dpi:               Render resolution.
+        clip_x_frac:       Optional (start, end) as fractions of page width.
+        min_height_frac:   Minimum rule height as fraction of strip height.
+        binary_threshold:  Threshold for binarisation (ink vs paper).
+
+    Returns:
+        List of ColumnBoundary objects from morphologically-detected rules.
+    """
+    doc = _open_clean(pdf_path)
+    page = doc[page_number]
+    pw, ph = page.rect.width, page.rect.height
+
+    if clip_x_frac:
+        clip_x0_frac, clip_x1_frac = clip_x_frac
+    else:
+        clip_x0_frac = (x - 1) / 10
+        clip_x1_frac = (x - 1 + w) / 10
+
+    clip = fitz.Rect(
+        pw * clip_x0_frac,
+        ph * (y - 1) / 10,
+        pw * clip_x1_frac,
+        ph * (y - 1 + h) / 10,
+    )
+    pix = page.get_pixmap(clip=clip, dpi=dpi)
+    doc.close()
+
+    img = np.frombuffer(pix.samples, dtype=np.uint8)
+    if pix.n >= 3:
+        img = img.reshape(pix.h, pix.w, pix.n)[:, :, :3]
+        grey = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    else:
+        grey = img.reshape(pix.h, pix.w)
+
+    img_h, img_w = grey.shape
+
+    # Binarise: ink is dark → white in binary
+    _, binary = cv2.threshold(grey, binary_threshold, 255, cv2.THRESH_BINARY_INV)
+
+    # Morphological open with tall vertical kernel extracts only
+    # structures that are at least min_height_frac of the strip tall
+    # and 1 pixel wide — i.e., vertical rules
+    kernel_h = max(10, int(img_h * min_height_frac))
+    v_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, kernel_h))
+    v_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, v_kernel)
+
+    # Sum vertically: columns with tall vertical ink get high values
+    col_sums = v_lines.astype(float).sum(axis=0)
+    min_sum = img_h * min_height_frac * 255 * 0.5  # at least half the kernel height
+
+    # Find peaks in the column sum
+    peaks = []
+    for cx in range(5, img_w - 5):
+        if col_sums[cx] < min_sum:
+            continue
+        # Local maximum within 10 pixels
+        window = col_sums[max(0, cx-10):min(img_w, cx+11)]
+        if col_sums[cx] < window.max():
+            continue
+        # Deduplicate
+        if peaks and cx - peaks[-1][0] < 10:
+            if col_sums[cx] > peaks[-1][1]:
+                peaks[-1] = (cx, col_sums[cx])
+            continue
+        peaks.append((cx, float(col_sums[cx])))
+
+    results = []
+    for cx, strength in peaks:
+        page_pct = (clip_x0_frac + cx / img_w * (clip_x1_frac - clip_x0_frac)) * 100
+
+        # Confidence based on strength relative to maximum possible
+        max_possible = img_h * 255
+        ratio = strength / max_possible
+        if ratio > 0.5:
+            confidence = "high"
+        elif ratio > 0.2:
+            confidence = "medium"
+        else:
+            confidence = "low"
+
+        results.append(ColumnBoundary(
+            local_x=cx,
+            local_pct=round(cx / img_w * 100, 1),
+            page_pct=round(page_pct, 2),
+            peak_darkness=round(strength, 1),
+            row_std=0,
+            valley_depth=round(ratio * 100, 1),
+            confidence=confidence,
+        ))
+
+    results.sort(key=lambda r: r.page_pct)
+    return results
+
 
 def print_results(results):
     """Pretty-print the analysis results."""

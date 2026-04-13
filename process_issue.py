@@ -333,15 +333,23 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         pitch = round(float(np.median([p for p, _, _, _ in all_pitches])), 1)
         grounding_pages = [pn for _, pn, _, _ in all_pitches[:2]]
 
-    # Column count: N detected boundaries = N+1 columns
-    # (boundaries are interior rules; outer columns have no outer rule)
-    boundary_counts = [len(c) for c in pass1_detections.values() if len(c) >= 3]
-    if boundary_counts:
-        # Use the most common boundary count (mode)
-        from collections import Counter
-        count_dist = Counter(boundary_counts)
-        most_common_boundaries = count_dist.most_common(1)[0][0]
-        num_columns = most_common_boundaries + 1
+    # Column count: N detected boundaries = N+1 columns.
+    # Use recto pages only (no sliver contamination) and take
+    # the median boundary count. This avoids verso pages inflating
+    # the count with sliver boundaries.
+    recto_counts = []
+    for page_num, clustered in pass1_detections.items():
+        if len(clustered) >= 3 and page_contexts[page_num].page_type == "recto":
+            recto_counts.append(len(clustered))
+
+    if recto_counts:
+        median_boundaries = round(float(np.median(recto_counts)))
+        num_columns = median_boundaries + 1
+        num_columns = max(3, min(8, num_columns))
+    elif any(len(c) >= 3 for c in pass1_detections.values()):
+        # Fallback to all pages if no recto data
+        all_counts = [len(c) for c in pass1_detections.values() if len(c) >= 3]
+        num_columns = round(float(np.median(all_counts))) + 1
         num_columns = max(3, min(8, num_columns))
     else:
         num_columns = 7
