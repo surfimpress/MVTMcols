@@ -98,7 +98,9 @@ function renderDetails(issues) {
             let overlayHtml = '';
             if (pg.has_overlay) {
                 const url = `${BASE}/${issue.dir}/p${pg.page}/overlay.png`;
-                overlayHtml = `<a href="${url}" target="_blank"><img class="thumb thumb-wide" src="${url}" loading="lazy"></a>`;
+                const viewerUrl = `page_viewer.html?issue=${issue.dir}&page=${pg.page}`;
+                overlayHtml = `<a href="${viewerUrl}" target="_blank"><img class="thumb thumb-wide" src="${url}" loading="lazy"></a>
+                    <a href="${viewerUrl}" target="_blank" style="display:inline-block;margin-left:8px;font-size:0.8em;color:#4488ff;text-decoration:none">Open inspector →</a>`;
             }
 
             const colsHtml = pg.col_files.map(cf => {

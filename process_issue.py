@@ -534,6 +534,12 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         doc.close()
 
         pil = Image.fromarray(img[:, :, :3]).convert("RGBA")
+
+        # Save raw page image (no overlay lines) for the SVG viewer
+        raw_path = os.path.join(page_out, "page_raw.png")
+        if not os.path.exists(raw_path):
+            pil.convert("RGB").save(raw_path)
+
         ol = Image.new("RGBA", pil.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(ol)
         ih, iw = pil.size[1], pil.size[0]
@@ -635,6 +641,13 @@ def _update_viewer_data(db_path, columns_dir):
                               if "_col" in f and f.endswith(".png")) if os.path.exists(page_dir) else []
             has_overlay = os.path.exists(os.path.join(page_dir, "overlay.png")) if os.path.exists(page_dir) else False
 
+            # Get geometry for this page
+            geom = conn.execute("""
+                SELECT text_left, text_right FROM page_geometry
+                WHERE year=? AND month=? AND day=? AND page=?
+            """, (year, month, day, page)).fetchone()
+            text_area = {"left": geom[0], "right": geom[1]} if geom else None
+
             pages.append({
                 "page": page,
                 "page_type": page_type,
@@ -644,10 +657,18 @@ def _update_viewer_data(db_path, columns_dir):
                 "confidence": conf,
                 "col_files": col_files,
                 "has_overlay": has_overlay,
+                "text_area": text_area,
             })
 
-        ad_list = [{"page": p, "cols": c, "confidence": cf, "file": fn}
-                   for p, c, cf, fn in ads]
+        ad_list = [{"page": p, "cols": c, "confidence": cf, "file": fn,
+                     "x_pct": x, "y_pct": y, "w_pct": w, "h_pct": bh}
+                   for p, c, cf, fn, x, y, w, bh in
+                   conn.execute("""
+                       SELECT page, cols, confidence, image_filename,
+                              x_pct, y_pct, w_pct, h_pct
+                       FROM detected_ads WHERE year=? AND month=? AND day=?
+                       ORDER BY page
+                   """, (year, month, day)).fetchall()]
 
         issue_dir = f"{year}-{month:02d}-{day:02d}"
         summary_path = os.path.join(columns_dir, issue_dir, "issue_summary.json")

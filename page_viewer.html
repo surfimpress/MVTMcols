@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Page Viewer — Almonte Gazette</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, system-ui, sans-serif; background: #2a2a2a; color: #eee; }
+.container { display: flex; height: 100vh; }
+.sidebar { width: 320px; background: #333; padding: 15px; overflow-y: auto; flex-shrink: 0; border-right: 1px solid #555; }
+.viewer { flex: 1; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.page-wrap { position: relative; display: inline-block; }
+.page-wrap img { display: block; max-height: 95vh; max-width: 100%; }
+.page-wrap svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+h2 { font-size: 1.1em; margin-bottom: 10px; color: #ccc; }
+h3 { font-size: 0.95em; margin: 15px 0 8px; color: #aaa; text-transform: uppercase; letter-spacing: 1px; }
+.info-bar { background: #3a3a3a; border-radius: 6px; padding: 10px 12px; margin-bottom: 12px; font-size: 0.85em; line-height: 1.6; }
+.info-bar span { color: #999; }
+.info-val { color: #ddd; font-weight: 500; }
+.layer { display: flex; align-items: center; padding: 8px 10px; margin-bottom: 4px; border-radius: 5px; cursor: pointer; user-select: none; }
+.layer:hover { background: #3a3a3a; }
+.layer input { margin-right: 10px; accent-color: var(--layer-color); }
+.layer-num { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; align-items: center; justify-content: center; font-size: 0.75em; font-weight: 700; margin-right: 8px; color: #fff; background: var(--layer-color); flex-shrink: 0; }
+.layer-name { flex: 1; font-size: 0.9em; }
+.layer-swatch { width: 30px; height: 3px; border-radius: 2px; background: var(--layer-color); margin-right: 8px; flex-shrink: 0; }
+.layer-swatch.dashed { background: repeating-linear-gradient(90deg, var(--layer-color) 0 6px, transparent 6px 10px); }
+.info-icon { display: inline-flex; width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid #888; align-items: center; justify-content: center; font-size: 0.65em; font-style: italic; color: #888; cursor: help; margin-left: 4px; flex-shrink: 0; position: relative; }
+.info-icon:hover { border-color: #ddd; color: #ddd; }
+.tooltip { display: none; position: absolute; bottom: 24px; left: -100px; width: 260px; background: #222; border: 1px solid #666; border-radius: 6px; padding: 10px; font-size: 0.8em; font-style: normal; color: #ccc; line-height: 1.4; z-index: 100; pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+.info-icon:hover .tooltip { display: block; }
+.back-link { display: inline-block; margin-bottom: 12px; color: #7af; text-decoration: none; font-size: 0.85em; }
+.back-link:hover { text-decoration: underline; }
+.nav-buttons { display: flex; gap: 8px; margin-bottom: 12px; }
+.nav-btn { padding: 4px 12px; background: #444; border: 1px solid #666; border-radius: 4px; color: #ddd; cursor: pointer; font-size: 0.85em; text-decoration: none; }
+.nav-btn:hover { background: #555; }
+.nav-btn.disabled { opacity: 0.3; pointer-events: none; }
+</style>
+</head>
+<body>
+<div class="container">
+<div class="sidebar" id="sidebar">
+    <a class="back-link" href="viewer.html">← Back to issues</a>
+    <h2 id="page-title">Loading...</h2>
+    <div class="nav-buttons" id="nav"></div>
+    <div class="info-bar" id="info-bar"></div>
+    <h3>Layers</h3>
+    <div id="layers"></div>
+</div>
+<div class="viewer">
+    <div class="page-wrap" id="page-wrap">
+        <img id="page-img" src="" alt="Page">
+        <svg id="overlay-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none"></svg>
+    </div>
+</div>
+</div>
+
+<script>
+const BASE = '/MVTM/columns';
+const params = new URLSearchParams(window.location.search);
+const issueDir = params.get('issue');
+const pageNum = parseInt(params.get('page') || '1');
+
+const LAYERS = [
+    {
+        id: 'text_area', name: 'Text area', num: 1,
+        color: '#ff8c00', style: 'solid', default: true,
+        desc: 'The detected newspaper content area within the scanned image. Found by analysing the darkness profile to locate where text content begins and ends, excluding PDF margins, binding shadow, and facing page sliver.'
+    },
+    {
+        id: 'detected', name: 'Detected boundaries', num: 2,
+        color: '#00cc44', style: 'solid', default: true,
+        desc: 'Raw column rule detections from multi-strip consensus. Each vertical line was found by the valley-spike-valley detector running across 7 horizontal strips of the page, weighted by position (middle strips count more). Green lines that survived clustering appear here.'
+    },
+    {
+        id: 'columns', name: 'Final columns', num: 3,
+        color: '#4488ff', style: 'solid', default: true,
+        desc: 'The final placed column boundaries after grid projection and page-type strategy. For standard pages: clean-edge grid at the established pitch. For page 2 editorial: 2 wide columns (1.5× pitch) + regular columns. These positions determine where column images are cropped.'
+    },
+    {
+        id: 'ads', name: 'Ad regions', num: 4,
+        color: '#ffcc00', style: 'dashed', default: false,
+        desc: 'Display advertisements detected by OpenCV contour analysis. Bordered rectangular regions wider than 2 columns with high rectangularity scores. These zones are excluded from the column detection consensus to prevent ad borders being mistaken for column rules.'
+    },
+    {
+        id: 'expected', name: 'Expected grid', num: 5,
+        color: '#ff44ff', style: 'dashed', default: false,
+        desc: 'Where columns would be if the grid were mathematically perfect, starting from the clean-side text area edge and stepping at the established pitch. Used as a reference for scoring detected boundaries. Dashed lines show the ideal; solid blue lines show where columns were actually placed.'
+    },
+];
+
+let pageData = null;
+let issueData = null;
+let detectedBoundaries = [];
+
+async function init() {
+    try {
+        const resp = await fetch(BASE + '/viewer_data.json');
+        const data = await resp.json();
+        const issues = data.issues || data;
+        issueData = issues.find(i => i.dir === issueDir);
+        if (!issueData) { document.getElementById('page-title').textContent = 'Issue not found'; return; }
+        pageData = issueData.pages.find(p => p.page === pageNum);
+        if (!pageData) { document.getElementById('page-title').textContent = 'Page not found'; return; }
+
+        const date = `${issueData.year}-${String(issueData.month).padStart(2,'0')}-${String(issueData.day).padStart(2,'0')}`;
+        document.title = `P${pageNum} — ${date}`;
+        document.getElementById('page-title').textContent = `${date} — Page ${pageNum}`;
+
+        // Nav buttons
+        const nav = document.getElementById('nav');
+        const prevPage = issueData.pages.find(p => p.page === pageNum - 1);
+        const nextPage = issueData.pages.find(p => p.page === pageNum + 1);
+        nav.innerHTML = `
+            <a class="nav-btn ${prevPage ? '' : 'disabled'}" href="?issue=${issueDir}&page=${pageNum-1}">← Prev</a>
+            <a class="nav-btn ${nextPage ? '' : 'disabled'}" href="?issue=${issueDir}&page=${pageNum+1}">Next →</a>
+        `;
+
+        // Info bar
+        const widths = pageData.widths ? pageData.widths.map(w => Math.round(w) + '%').join(' ') : '?';
+        const nAds = issueData.ads ? issueData.ads.filter(a => a.page == pageNum).length : 0;
+        document.getElementById('info-bar').innerHTML = `
+            <span>Type:</span> <span class="info-val">${pageData.page_type}</span><br>
+            <span>Columns:</span> <span class="info-val">${pageData.num_columns} [${widths}]</span><br>
+            <span>Confidence:</span> <span class="info-val">${pageData.confidence || '—'}</span><br>
+            <span>Ads:</span> <span class="info-val">${nAds}</span><br>
+            <span>Pitch:</span> <span class="info-val">${issueData.pitch || '?'}%</span>
+        `;
+
+        // Layers
+        const layersEl = document.getElementById('layers');
+        layersEl.innerHTML = LAYERS.map(l => `
+            <label class="layer" style="--layer-color: ${l.color}">
+                <input type="checkbox" ${l.default ? 'checked' : ''} data-layer="${l.id}" onchange="updateOverlay()">
+                <span class="layer-num">${l.num}</span>
+                <span class="layer-swatch ${l.style === 'dashed' ? 'dashed' : ''}"></span>
+                <span class="layer-name">${l.name}</span>
+                <span class="info-icon">i<span class="tooltip">${l.desc}</span></span>
+            </label>
+        `).join('');
+
+        // Load page image
+        const imgEl = document.getElementById('page-img');
+        // Use the raw page image (no baked-in lines) for SVG overlay
+        const rawUrl = `${BASE}/${issueDir}/p${pageNum}/page_raw.png`;
+        const overlayUrl = `${BASE}/${issueDir}/p${pageNum}/overlay.png`;
+        imgEl.src = rawUrl;
+        imgEl.onerror = () => { imgEl.src = overlayUrl; }; // fallback to overlay if raw doesn't exist
+
+        // Wait for image to load to get dimensions
+        imgEl.onload = () => {
+            // Set SVG viewBox to match image natural dimensions
+            const svg = document.getElementById('overlay-svg');
+            svg.setAttribute('viewBox', `0 0 ${imgEl.naturalWidth} ${imgEl.naturalHeight}`);
+            // Hide the baked-in overlay lines by using the raw page render
+            // Actually we need the raw page - let's try loading from the PDF render
+            // For now, use the overlay but draw SVG lines on top
+            loadPageMeta();
+        };
+
+    } catch(e) {
+        document.getElementById('page-title').textContent = 'Error: ' + e.message;
+    }
+}
+
+async function loadPageMeta() {
+    try {
+        const resp = await fetch(`${BASE}/${issueDir}/p${pageNum}/page_meta.json`);
+        const meta = await resp.json();
+        // Store column positions for SVG drawing
+        window._columns = meta.columns || [];
+        window._ads = (issueData.ads || []).filter(a => a.page == pageNum);
+
+        // Try to get detected boundaries from the overlay compare if it exists
+        // For now, use column boundaries as proxy for detected
+        updateOverlay();
+    } catch(e) {
+        updateOverlay();
+    }
+}
+
+function updateOverlay() {
+    const svg = document.getElementById('overlay-svg');
+    const img = document.getElementById('page-img');
+    const w = img.naturalWidth;
+    const h = img.naturalHeight;
+    if (!w || !h) return;
+
+    const active = {};
+    document.querySelectorAll('[data-layer]').forEach(cb => {
+        active[cb.dataset.layer] = cb.checked;
+    });
+
+    let svgContent = '';
+
+    // Layer 1: Text area (orange)
+    if (active.text_area && pageData && pageData.text_area) {
+        svgContent += svgLine(pageData.text_area.left, w, h, '#ff8c00', 3, 'solid');
+        svgContent += svgLine(pageData.text_area.right, w, h, '#ff8c00', 3, 'solid');
+    }
+
+    // Layer 3: Final columns (blue)
+    if (active.columns && window._columns) {
+        const positions = new Set();
+        window._columns.forEach(col => {
+            positions.add(col.left_vw);
+            positions.add(col.right_vw);
+        });
+        positions.forEach(pct => {
+            svgContent += svgLine(pct, w, h, '#4488ff', 2, 'solid');
+        });
+    }
+
+    // Layer 5: Expected grid (magenta dashed)
+    if (active.expected && issueData.pitch) {
+        const pitch = issueData.pitch;
+        if (window._columns && window._columns.length > 0) {
+            // Build expected from first column left + pitch steps
+            const start = window._columns[0].left_vw;
+            for (let x = start; x < 100; x += pitch) {
+                svgContent += svgLine(x, w, h, '#ff44ff', 1.5, 'dashed');
+            }
+        }
+    }
+
+    // Layer 4: Ad regions (yellow dashed rectangles)
+    if (active.ads && window._ads) {
+        window._ads.forEach(ad => {
+            if (ad.x_pct != null && ad.y_pct != null) {
+                const x1 = ad.x_pct / 100 * w;
+                const y1 = ad.y_pct / 100 * h;
+                const bw = (ad.w_pct || 10) / 100 * w;
+                const bh = (ad.h_pct || 10) / 100 * h;
+                svgContent += `<rect x="${x1}" y="${y1}" width="${bw}" height="${bh}"
+                    fill="rgba(255,204,0,0.08)" stroke="#ffcc00" stroke-width="2" stroke-dasharray="8,4" opacity="0.7"/>`;
+            }
+        });
+    }
+
+    // Layer 2: Detected boundaries (green)
+    // Shows the raw detected column rules from consensus
+    // Currently uses the same positions as final columns — in future
+    // these should come from the raw detection data stored separately
+    if (active.detected && window._columns) {
+        const positions = new Set();
+        window._columns.forEach(col => {
+            positions.add(col.left_vw);
+            positions.add(col.right_vw);
+        });
+        positions.forEach(pct => {
+            svgContent += svgLine(pct, w, h, '#00cc44', 1.5, 'solid');
+        });
+    }
+
+    svg.innerHTML = svgContent;
+}
+
+function svgLine(pct, imgW, imgH, color, width, style) {
+    const x = pct / 100 * imgW;
+    const dash = style === 'dashed' ? `stroke-dasharray="10,6"` : '';
+    return `<line x1="${x}" y1="0" x2="${x}" y2="${imgH}"
+        stroke="${color}" stroke-width="${width}" ${dash} opacity="0.8"/>`;
+}
+
+init();
+</script>
+</body>
+</html>
