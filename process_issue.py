@@ -280,6 +280,8 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     print("Pass 1: Detecting boundaries...")
     pass1_detections = {}   # page_num → clustered boundaries
     page_profiles = {}
+    page_strip_profiles = {}  # page_num → strip darkness profiles for viewer
+    page_dark_thresholds = {} # page_num → darkness threshold used for detection
     page_contexts = {}
 
     for page_num, pdf_path in pages:
@@ -291,9 +293,12 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
                            profile=prof, ads=ads)
         page_contexts[page_num] = ctx
 
-        raw = detect_strips(pdf_path, ctx, dpi=dpi)
-        clustered = cluster_boundaries(raw)
+        raw, strip_profiles, dark_thresh = detect_strips(pdf_path, ctx, dpi=dpi)
+        clustered = cluster_boundaries(raw,
+            strip_profiles=strip_profiles, ad_zones=ctx.ad_zones)
         pass1_detections[page_num] = clustered
+        page_strip_profiles[page_num] = strip_profiles
+        page_dark_thresholds[page_num] = dark_thresh
 
         n_det = len(clustered)
         n_ads = len(ads)
@@ -302,67 +307,77 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         print(f"  P{page_num} ({ctx.page_type}): {n_det} boundaries detected{ad_note}{p2_note}")
 
     # ── Establish pitch from detected boundaries ────────────────────
-    # Compute pitch directly from the gaps between detected boundaries.
-    # Use all pages, prefer recto (no sliver contamination).
-    all_pitches = []
+    # Compute pitch from the gaps between detected boundaries.
+    # Keep recto and verso separate — photography differences affect
+    # the apparent pitch. Guard against missed boundaries by treating
+    # gaps > 1.5× the initial median as doubled gaps (divide by 2).
+    recto_gaps = []
+    verso_gaps = []
     for page_num, clustered in pass1_detections.items():
         if len(clustered) < 3:
             continue
         positions = sorted(b["x_pct"] for b in clustered)
         gaps = [positions[i+1] - positions[i] for i in range(len(positions)-1)]
-        # Filter to plausible column widths (8-16%)
+        # Filter to plausible single-column widths (8-16%)
         plausible = [g for g in gaps if 8 < g < 16]
-        if plausible:
-            page_pitch = float(np.median(plausible))
-            page_type = page_contexts[page_num].page_type
-            all_pitches.append((page_pitch, page_num, page_type, len(plausible)))
+        if not plausible:
+            continue
+        initial_median = float(np.median(plausible))
+        # Now re-examine all gaps: if a gap is ~2x the median, treat
+        # it as two pitches (a missed boundary)
+        for g in gaps:
+            if 8 < g < initial_median * 1.4:
+                # Normal single-pitch gap
+                target = recto_gaps if page_contexts[page_num].page_type == "recto" else verso_gaps
+                target.append(g)
+            elif initial_median * 1.4 <= g < initial_median * 2.5:
+                # Likely a doubled gap (missed boundary) — halve it
+                target = recto_gaps if page_contexts[page_num].page_type == "recto" else verso_gaps
+                target.append(g / 2)
 
-    if not all_pitches:
+    if not recto_gaps and not verso_gaps:
         print("  Could not establish pitch — no plausible boundaries detected")
         return {"error": "no_pitch"}
 
-    # Prefer recto pages (no sliver contamination)
-    recto_pitches = [(p, pn, n) for p, pn, pt, n in all_pitches if pt == "recto"]
-    if recto_pitches:
-        # Weight by number of plausible gaps (more = more reliable)
-        recto_pitches.sort(key=lambda x: -x[2])
-        pitch = round(float(np.median([p for p, _, _ in recto_pitches])), 1)
-        grounding_pages = [pn for _, pn, _ in recto_pitches[:2]]
-    else:
-        all_pitches.sort(key=lambda x: -x[3])
-        pitch = round(float(np.median([p for p, _, _, _ in all_pitches])), 1)
-        grounding_pages = [pn for _, pn, _, _ in all_pitches[:2]]
+    # Compute pitch per page type, keep full precision (2 decimals)
+    recto_pitch = round(float(np.median(recto_gaps)), 2) if recto_gaps else None
+    verso_pitch = round(float(np.median(verso_gaps)), 2) if verso_gaps else None
+    # Overall pitch — prefer recto (cleaner signal), fall back to verso
+    pitch = recto_pitch or verso_pitch
 
-    # Column count: N detected boundaries = N+1 columns.
-    # Use recto pages only (no sliver contamination) and take
-    # the median boundary count. This avoids verso pages inflating
-    # the count with sliver boundaries.
+    # Column count from recto pages (no sliver contamination)
     recto_counts = []
     for page_num, clustered in pass1_detections.items():
         if len(clustered) >= 3 and page_contexts[page_num].page_type == "recto":
             recto_counts.append(len(clustered))
-
     if recto_counts:
         median_boundaries = round(float(np.median(recto_counts)))
         num_columns = median_boundaries + 1
         num_columns = max(3, min(8, num_columns))
     elif any(len(c) >= 3 for c in pass1_detections.values()):
-        # Fallback to all pages if no recto data
         all_counts = [len(c) for c in pass1_detections.values() if len(c) >= 3]
         num_columns = round(float(np.median(all_counts))) + 1
         num_columns = max(3, min(8, num_columns))
     else:
         num_columns = 7
 
-    print(f"\nPitch: {pitch:.1f}% from {num_columns} columns "
-          f"(grounding pages: {grounding_pages})")
+    grounding_pages = [pn for pn in pass1_detections
+                       if len(pass1_detections[pn]) >= 3
+                       and page_contexts[pn].page_type == "recto"][:2]
+    if not grounding_pages:
+        grounding_pages = [pn for pn in pass1_detections if len(pass1_detections[pn]) >= 3][:2]
+
+    pitch_note = f"recto={recto_pitch}" if recto_pitch else ""
+    if verso_pitch:
+        pitch_note += f" verso={verso_pitch}" if pitch_note else f"verso={verso_pitch}"
+    print(f"\nPitch: {pitch}% from {num_columns} columns "
+          f"({pitch_note}, grounding: {grounding_pages})")
 
     # ── Page 2 editorial template ───────────────────────────────────
     from layout_intelligence import LayoutDB
     _db = LayoutDB(db_path)
     p2_template = _db.get_template("page2_editorial_wide", 2, year)
     if p2_template:
-        _db.update_template_range("page2_editorial_wide", 2, year)
         print(f"  Page 2 editorial template: {p2_template['year_start']}-{p2_template['year_end']}")
 
     # ── Pass 2: Place columns with established pitch ─────────────────
@@ -401,6 +416,64 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
             error=None, elapsed_seconds=0,
         )
         _save_metadata(result, os.path.join(page_out, "page_meta.json"))
+
+        # Save analysis data for the viewer (profile chart + strip profiles
+        # + raw detected boundary positions before placement)
+        analysis = {}
+        profile_chart = prof.get("profile_chart")
+        if profile_chart:
+            analysis["profile_chart"] = profile_chart
+            analysis["shadow_thresh"] = prof.get("shadow_thresh", 0)
+            analysis["content_floor"] = prof.get("content_floor", 0)
+            analysis["paper_baseline"] = prof.get("paper_baseline", 0)
+        strips = page_strip_profiles.get(page_num)
+        if strips:
+            analysis["strip_profiles"] = strips
+            analysis["darkness_threshold"] = page_dark_thresholds.get(page_num, 60)
+            # Ad exclusion zones used during detection (x1%, x2%, y1%, y2%)
+            if ctx.ad_zones:
+                analysis["ad_exclusion_zones"] = [
+                    {"x1": z[0], "x2": z[1], "y1": z[2], "y2": z[3]}
+                    for z in ctx.ad_zones
+                ]
+        # Composite strip chart: sum of all strip values, with ad zones zeroed.
+        # Shows the combined signal across all strips at each x position.
+        if strips and len(strips) > 0:
+            # Build a common x-axis from the first strip's profile
+            ref_profile = strips[0]["profile"]
+            composite = [{"pct": p["pct"], "val": 0.0} for p in ref_profile]
+            ad_zones_list = ctx.ad_zones  # [(x1,x2,y1,y2), ...]
+            for strip in strips:
+                sp = strip["profile"]
+                y1 = strip["y_start_pct"]
+                y2 = strip["y_end_pct"]
+                # Check if this strip is blocked by any ad at each x
+                for i, pt in enumerate(sp):
+                    if i >= len(composite):
+                        break
+                    x_pct = pt["pct"]
+                    in_ad = any(
+                        az[0] < x_pct < az[1] and az[2] < y2 and az[3] > y1
+                        for az in ad_zones_list
+                    )
+                    if not in_ad:
+                        composite[i]["val"] += pt["val"]
+            # Round values
+            for c in composite:
+                c["val"] = round(c["val"], 1)
+            analysis["composite_profile"] = composite
+
+        # Raw clustered boundary positions — what the detector actually found,
+        # before pitch projection or grid snapping.
+        raw = pass1_detections.get(page_num, [])
+        if raw:
+            analysis["detected_boundaries"] = [
+                {"pct": b["x_pct"], "score": b.get("weighted_score", 0)}
+                for b in raw
+            ]
+        if analysis:
+            with open(os.path.join(page_out, "page_analysis.json"), "w") as f:
+                json.dump(analysis, f)
 
         cv, _, nc = _score_regularity(result)
         widths = " ".join(f"{c.width_vw:.0f}%" for c in result.columns)
@@ -537,8 +610,7 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
 
         # Save raw page image (no overlay lines) for the SVG viewer
         raw_path = os.path.join(page_out, "page_raw.png")
-        if not os.path.exists(raw_path):
-            pil.convert("RGB").save(raw_path)
+        pil.convert("RGB").save(raw_path)
 
         ol = Image.new("RGBA", pil.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(ol)
@@ -643,10 +715,16 @@ def _update_viewer_data(db_path, columns_dir):
 
             # Get geometry for this page
             geom = conn.execute("""
-                SELECT text_left, text_right FROM page_geometry
+                SELECT r2_left, r2_right, r3_left, r3_right,
+                       text_left, text_right FROM page_geometry
                 WHERE year=? AND month=? AND day=? AND page=?
             """, (year, month, day, page)).fetchone()
-            text_area = {"left": geom[0], "right": geom[1]} if geom else None
+            if geom:
+                r2 = {"left": geom[0], "right": geom[1]}
+                r3 = {"left": geom[2], "right": geom[3]}
+                text_area = {"left": geom[4], "right": geom[5]}
+            else:
+                r2 = r3 = text_area = None
 
             pages.append({
                 "page": page,
@@ -657,6 +735,8 @@ def _update_viewer_data(db_path, columns_dir):
                 "confidence": conf,
                 "col_files": col_files,
                 "has_overlay": has_overlay,
+                "r2": r2,
+                "r3": r3,
                 "text_area": text_area,
             })
 

@@ -50,6 +50,7 @@ def find_column_boundaries(
     valley_width=15,
     max_row_std=35,
     clip_x_frac=None,
+    return_profile=False,
 ):
     """
     Detect column boundaries in a grid rectangle or clipped region.
@@ -188,9 +189,74 @@ def find_column_boundaries(
             confidence=confidence,
         ))
 
+    # Pass 3: valley detection — column gaps as boundaries
+    # When column rules are faint or absent, the gap between columns
+    # reads as a dip toward white (low darkness). A valley is:
+    #   - Local minimum below a low threshold (near white paper)
+    #   - Content (darker) on both sides
+    #   - Wide enough to be a real gap (> 3px), not noise
+    # These are lower confidence than spike detections but when they
+    # align across strips, the consensus builds.
+    valley_max = min(darkness_threshold * 0.15, 15)  # must be genuinely white
+    content_min = darkness_threshold * 0.35  # flanks must have some content
+    min_valley_w = 3  # minimum width to avoid single-pixel noise
+
+    # Find existing result positions to avoid duplicates
+    existing_positions = set(r.local_x for r in results)
+
+    for cx in range(margin + valley_width, img_w - margin - valley_width):
+        val = col_means[cx]
+        if val > valley_max:
+            continue
+        # Must be a local minimum within valley_width
+        window = col_means[max(0, cx - valley_width):cx + valley_width + 1]
+        if val > window.min() + 1:
+            continue
+        # Check width: how many adjacent pixels are also below threshold
+        vw = 1
+        lx, rx = cx - 1, cx + 1
+        while lx >= 0 and col_means[lx] < valley_max:
+            vw += 1; lx -= 1
+        while rx < img_w and col_means[rx] < valley_max:
+            vw += 1; rx += 1
+        if vw < min_valley_w:
+            continue
+        # Centre of the valley
+        valley_center = (lx + 1 + rx - 1) // 2
+        # Skip if too close to an existing detection
+        if any(abs(valley_center - ep) < strip_width * 3 for ep in existing_positions):
+            continue
+        # Content on both sides
+        left_content = col_means[max(0, lx - valley_width):lx + 1].mean() if lx > 0 else 0
+        right_content = col_means[rx:min(img_w, rx + valley_width)].mean() if rx < img_w else 0
+        if left_content < content_min or right_content < content_min:
+            continue
+
+        page_pct = (clip_x0_frac + valley_center / img_w * (clip_x1_frac - clip_x0_frac)) * 100
+        results.append(ColumnBoundary(
+            local_x=valley_center,
+            local_pct=round(valley_center / img_w * 100, 1),
+            page_pct=round(page_pct, 2),
+            peak_darkness=round(float(col_means[valley_center]), 1),
+            row_std=0,
+            valley_depth=round(float(left_content + right_content) / 2 - val, 1),
+            confidence="valley",
+        ))
+        existing_positions.add(valley_center)
+
     # Sort: high confidence first, then by position
-    order = {"high": 0, "medium": 1, "low": 2}
+    order = {"high": 0, "medium": 1, "low": 2, "valley": 3}
     results.sort(key=lambda r: (order[r.confidence], r.local_x))
+
+    if return_profile:
+        # Downsample col_means to ~200 points mapped to page-%
+        n_samples = min(200, img_w)
+        step = max(1, img_w // n_samples)
+        profile = []
+        for lx in range(0, img_w, step):
+            page_pct = (clip_x0_frac + lx / img_w * (clip_x1_frac - clip_x0_frac)) * 100
+            profile.append({"pct": round(page_pct, 2), "val": round(float(col_means[lx]), 1)})
+        return results, profile
 
     return results
 

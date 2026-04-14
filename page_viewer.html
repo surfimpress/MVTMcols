@@ -6,51 +6,186 @@
 <title>Page Viewer — Almonte Gazette</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, system-ui, sans-serif; background: #2a2a2a; color: #eee; }
+body { font-family: -apple-system, system-ui, sans-serif; background: #2a2a2a; color: #eee; overflow: hidden; }
+
+/* ── Layout shell ───────────────────────────────────────── */
 .container { display: flex; height: 100vh; }
-.sidebar { width: 320px; background: #333; padding: 15px; overflow-y: auto; flex-shrink: 0; border-right: 1px solid #555; }
-.viewer { flex: 1; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-.page-wrap { position: relative; display: inline-block; }
-.page-wrap img { display: block; max-height: 95vh; max-width: 100%; }
-.page-wrap svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+.sidebar {
+    background: #333; padding: 15px; overflow-y: auto;
+    flex-shrink: 0; display: flex; flex-direction: column;
+}
+.viewer {
+    flex: 1; position: relative; overflow: auto;
+}
+
+/* ── Side layout (default) ──────────────────────────────── */
+.sidebar { width: var(--side-w, 320px); border-right: 1px solid #555; }
+
+/* ── Bottom layout ──────────────────────────────────────── */
+body.bottom-panel .container { flex-direction: column; }
+body.bottom-panel .sidebar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    width: 100% !important; height: var(--bottom-h, 240px);
+    border-right: none; border-top: 1px solid #555;
+    z-index: 50; flex-direction: row; gap: 20px;
+    padding: 12px 20px;
+}
+body.bottom-panel .sidebar-section { flex-shrink: 0; }
+body.bottom-panel .sidebar-section.layers-section {
+    flex: 1; min-width: 0; overflow-y: auto; max-height: 100%;
+}
+body.bottom-panel .viewer {
+    width: 100%; height: calc(100vh - var(--bottom-h, 240px));
+}
+
+/* ── Resize handles ─────────────────────────────────────── */
+.resize-handle { position: absolute; z-index: 51; background: transparent; }
+.resize-handle:hover, .resize-handle.dragging { background: #7af; }
+#resize-side {
+    display: block; top: 0; bottom: 0; width: 5px;
+    left: calc(var(--side-w, 320px) - 3px); cursor: ew-resize;
+}
+body.bottom-panel #resize-side { display: none; }
+#resize-bottom {
+    display: none; left: 0; right: 0; height: 5px;
+    bottom: var(--bottom-h, 240px); cursor: ns-resize;
+}
+body.bottom-panel #resize-bottom { display: block; }
+
+/* ── Page image ─────────────────────────────────────────── */
+.page-wrap { display: inline-flex; flex-direction: column; align-items: flex-start; min-width: 100%; }
+
+/* fit-width (default): image fills available width, scrolls vertically */
+.page-wrap img { display: block; width: 100%; height: auto; }
+
+/* fit-area: image fits within the viewport area */
+body.fit-area .page-wrap img { width: auto; max-width: 100%; max-height: calc(100vh - 26px); }
+body.fit-area.bottom-panel .page-wrap img { max-height: calc(100vh - var(--bottom-h, 240px) - 26px); }
+body.fit-area .viewer { overflow: hidden; display: flex; align-items: center; justify-content: center; }
+body.fit-area .page-wrap { min-width: 0; }
+
+.img-container { position: relative; line-height: 0; width: 100%; }
+body.fit-area .img-container { width: auto; }
+.img-container img { -webkit-user-drag: none; user-select: none; }
+#overlay-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+
+/* ── Ruler ──────────────────────────────────────────────── */
+#ruler-svg { height: 26px; flex-shrink: 0; display: block; cursor: crosshair; background: #1a1a1a; }
+.ruler-tick text { font-family: -apple-system, system-ui, sans-serif; }
+#line-tooltip {
+    position: absolute; z-index: 100; pointer-events: none;
+    background: #111; border: 1px solid #888; border-radius: 4px;
+    padding: 3px 8px; font-size: 12px; color: #fff; white-space: nowrap;
+    display: none;
+}
+
+/* ── Fit toggle button ──────────────────────────────────── */
+#fit-btn {
+    position: absolute; top: 8px; right: 8px; z-index: 60;
+    padding: 5px 10px; background: rgba(50,50,50,0.85); border: 1px solid #666;
+    border-radius: 4px; color: #ddd; cursor: pointer; font-size: 0.75em;
+    backdrop-filter: blur(4px);
+}
+#fit-btn:hover { background: rgba(80,80,80,0.9); border-color: #999; }
+
+/* ── Loupe ──────────────────────────────────────────────── */
+#loupe {
+    position: absolute; pointer-events: none; z-index: 90;
+    width: 220px; height: 220px; border-radius: 50%;
+    border: 2px solid #aaa; box-shadow: 0 0 20px rgba(0,0,0,0.7);
+    overflow: hidden; display: none;
+}
+#loupe canvas { display: block; }
+
+/* ── Layers list ────────────────────────────────────────── */
+#layers { display: flex; flex-direction: column; overflow-y: auto; flex: 1; min-height: 0; }
+
+/* ── Typography & components ────────────────────────────── */
 h2 { font-size: 1.1em; margin-bottom: 10px; color: #ccc; }
 h3 { font-size: 0.95em; margin: 15px 0 8px; color: #aaa; text-transform: uppercase; letter-spacing: 1px; }
 .info-bar { background: #3a3a3a; border-radius: 6px; padding: 10px 12px; margin-bottom: 12px; font-size: 0.85em; line-height: 1.6; }
 .info-bar span { color: #999; }
 .info-val { color: #ddd; font-weight: 500; }
-.layer { display: flex; align-items: center; padding: 8px 10px; margin-bottom: 4px; border-radius: 5px; cursor: pointer; user-select: none; }
+.layer { display: flex; align-items: center; padding: 8px 10px; margin-bottom: 4px; border-radius: 5px; cursor: pointer; user-select: none; flex-shrink: 0; }
 .layer:hover { background: #3a3a3a; }
 .layer input { margin-right: 10px; accent-color: var(--layer-color); }
 .layer-num { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; align-items: center; justify-content: center; font-size: 0.75em; font-weight: 700; margin-right: 8px; color: #fff; background: var(--layer-color); flex-shrink: 0; }
-.layer-name { flex: 1; font-size: 0.9em; }
+.layer-name { flex: 1; font-size: 0.9em; white-space: nowrap; }
+.chart-toggle { display: inline-flex; align-items: center; cursor: pointer; margin-left: 4px; flex-shrink: 0; }
+.chart-toggle input { display: none; }
+.chart-icon {
+    font-size: 0.65em; letter-spacing: -1px; opacity: 0.3;
+    padding: 1px 4px; border: 1px solid transparent; border-radius: 3px;
+    transition: all 0.15s;
+}
+.chart-toggle input:checked + .chart-icon {
+    opacity: 1.0; border-color: var(--layer-color); color: var(--layer-color);
+}
 .layer-swatch { width: 30px; height: 3px; border-radius: 2px; background: var(--layer-color); margin-right: 8px; flex-shrink: 0; }
 .layer-swatch.dashed { background: repeating-linear-gradient(90deg, var(--layer-color) 0 6px, transparent 6px 10px); }
 .info-icon { display: inline-flex; width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid #888; align-items: center; justify-content: center; font-size: 0.65em; font-style: italic; color: #888; cursor: help; margin-left: 4px; flex-shrink: 0; position: relative; }
 .info-icon:hover { border-color: #ddd; color: #ddd; }
-.tooltip { display: none; position: absolute; bottom: 24px; left: -100px; width: 260px; background: #222; border: 1px solid #666; border-radius: 6px; padding: 10px; font-size: 0.8em; font-style: normal; color: #ccc; line-height: 1.4; z-index: 100; pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+.tooltip { display: none; position: fixed; width: 280px; background: #222; border: 1px solid #666; border-radius: 6px; padding: 10px; font-size: 0.8em; font-style: normal; color: #ccc; line-height: 1.4; z-index: 200; pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
 .info-icon:hover .tooltip { display: block; }
-.back-link { display: inline-block; margin-bottom: 12px; color: #7af; text-decoration: none; font-size: 0.85em; }
+.back-link { display: inline-block; color: #7af; text-decoration: none; font-size: 0.85em; }
 .back-link:hover { text-decoration: underline; }
 .nav-buttons { display: flex; gap: 8px; margin-bottom: 12px; }
 .nav-btn { padding: 4px 12px; background: #444; border: 1px solid #666; border-radius: 4px; color: #ddd; cursor: pointer; font-size: 0.85em; text-decoration: none; }
 .nav-btn:hover { background: #555; }
 .nav-btn.disabled { opacity: 0.3; pointer-events: none; }
+.dock-btn {
+    padding: 4px 10px; background: #444; border: 1px solid #666;
+    border-radius: 4px; color: #ddd; cursor: pointer; font-size: 0.8em;
+    margin-left: auto; flex-shrink: 0;
+}
+.dock-btn:hover { background: #555; }
+.header-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.header-row h2 { margin-bottom: 0; }
+
+@media (max-width: 700px) {
+    body { overflow: hidden; }
+    .container { flex-direction: column; }
+    .sidebar {
+        position: fixed; bottom: 0; left: 0; right: 0;
+        width: 100% !important; height: var(--bottom-h, 240px);
+        border-right: none; border-top: 1px solid #555;
+        z-index: 50; flex-direction: row; gap: 20px;
+    }
+    .viewer { width: 100%; height: calc(100vh - var(--bottom-h, 240px)); }
+    #resize-side { display: none; }
+    #resize-bottom { display: block; }
+}
 </style>
 </head>
 <body>
+<div class="resize-handle" id="resize-side"></div>
+<div class="resize-handle" id="resize-bottom"></div>
 <div class="container">
 <div class="sidebar" id="sidebar">
-    <a class="back-link" href="viewer.html">← Back to issues</a>
-    <h2 id="page-title">Loading...</h2>
-    <div class="nav-buttons" id="nav"></div>
-    <div class="info-bar" id="info-bar"></div>
-    <h3>Layers</h3>
-    <div id="layers"></div>
+    <div class="sidebar-section">
+        <div class="header-row">
+            <a class="back-link" href="viewer.html">← Back</a>
+            <h2 id="page-title">Loading...</h2>
+            <button class="dock-btn" id="dock-btn" title="Toggle panel position">▼ Bottom</button>
+        </div>
+        <div class="nav-buttons" id="nav"></div>
+        <div class="info-bar" id="info-bar"></div>
+    </div>
+    <div class="sidebar-section layers-section">
+        <h3>Layers</h3>
+        <div id="layers"></div>
+    </div>
 </div>
-<div class="viewer">
+<div class="viewer" id="viewer">
+    <button id="fit-btn" title="Toggle fit mode">Fit area</button>
     <div class="page-wrap" id="page-wrap">
-        <img id="page-img" src="" alt="Page">
-        <svg id="overlay-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none"></svg>
+        <svg id="ruler-svg" viewBox="0 0 1000 26" preserveAspectRatio="none"></svg>
+        <div class="img-container" id="img-container">
+            <img id="page-img" src="" alt="Page">
+            <svg id="overlay-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none"></svg>
+            <div id="loupe"><canvas id="loupe-canvas"></canvas></div>
+        </div>
+        <div id="line-tooltip"></div>
     </div>
 </div>
 </div>
@@ -61,38 +196,112 @@ const params = new URLSearchParams(window.location.search);
 const issueDir = params.get('issue');
 const pageNum = parseInt(params.get('page') || '1');
 
+// Layer definitions — numbered to match pipeline processing order.
 const LAYERS = [
     {
-        id: 'text_area', name: 'Text area', num: 1,
-        color: '#ff8c00', style: 'solid', default: true,
-        desc: 'The detected newspaper content area within the scanned image. Found by analysing the darkness profile to locate where text content begins and ends, excluding PDF margins, binding shadow, and facing page sliver.'
+        id: 'r2', name: 'Scanned image (R2)', num: 1,
+        color: '#888888', style: 'dashed', default: false,
+        desc: 'Step 1 — Page profile. The outer boundary of the scanned newspaper image within the PDF. Everything outside is white PDF margin. This is detected first, before any content analysis.'
     },
     {
-        id: 'detected', name: 'Detected boundaries', num: 2,
-        color: '#00cc44', style: 'solid', default: true,
-        desc: 'Raw column rule detections from multi-strip consensus. Each vertical line was found by the valley-spike-valley detector running across 7 horizontal strips of the page, weighted by position (middle strips count more). Green lines that survived clustering appear here.'
+        id: 'r3', name: 'Newspaper page (R3)', num: 2,
+        color: '#cc66ff', style: 'dashed', default: false, chart: true,
+        desc: 'Step 2 — Page profile. The physical newspaper page within the scan. Inside R2 but excludes binding shadow and facing-page sliver. Establishes where the printed page starts and ends.'
     },
     {
-        id: 'columns', name: 'Final columns', num: 3,
-        color: '#4488ff', style: 'solid', default: true,
-        desc: 'The final placed column boundaries after grid projection and page-type strategy. For standard pages: clean-edge grid at the established pitch. For page 2 editorial: 2 wide columns (1.5× pitch) + regular columns. These positions determine where column images are cropped.'
+        id: 'text_area', name: 'Text area', num: 3,
+        color: '#ff8c00', style: 'solid', default: true, chart: true,
+        desc: 'Step 3 — Page profile. The text content area within the newspaper page. Found by analysing the darkness profile for margin-to-content transitions. Column detection is clipped to this region.'
     },
     {
         id: 'ads', name: 'Ad regions', num: 4,
         color: '#ffcc00', style: 'dashed', default: false,
-        desc: 'Display advertisements detected by OpenCV contour analysis. Bordered rectangular regions wider than 2 columns with high rectangularity scores. These zones are excluded from the column detection consensus to prevent ad borders being mistaken for column rules.'
+        desc: 'Step 4 — Ad detection. Display advertisements found by OpenCV contour analysis. Bordered rectangular regions wider than 2 columns. These exclusion zones prevent ad borders being mistaken for column rules in the next step.'
     },
     {
-        id: 'expected', name: 'Expected grid', num: 5,
+        id: 'detected', name: 'Detected boundaries', num: 5,
+        color: '#00cc44', style: 'solid', default: true, chart: true,
+        desc: 'Step 5 — Boundary detection. Raw column rule detections from multi-strip consensus, with ad zones excluded. Each line was found by the valley-spike-valley detector across 7 horizontal strips, weighted by position.'
+    },
+    {
+        id: 'columns', name: 'Final columns', num: 6,
+        color: '#4488ff', style: 'solid', default: true,
+        desc: 'Step 6 — Column placement. Final boundaries after pitch establishment and grid projection. For standard pages: clean-edge grid at pitch. For page 2 editorial: 2 wide (1.5x) + regular columns.'
+    },
+    {
+        id: 'expected', name: 'Expected grid', num: 7,
         color: '#ff44ff', style: 'dashed', default: false,
-        desc: 'Where columns would be if the grid were mathematically perfect, starting from the clean-side text area edge and stepping at the established pitch. Used as a reference for scoring detected boundaries. Dashed lines show the ideal; solid blue lines show where columns were actually placed.'
+        desc: 'Reference — Where columns would be if the grid were mathematically perfect, stepping at the established pitch from the clean-side text edge. Compare against the blue placed lines to see deviations.'
     },
 ];
 
 let pageData = null;
 let issueData = null;
-let detectedBoundaries = [];
 
+// ── Fit mode toggle ────────────────────────────────────────
+const fitBtn = document.getElementById('fit-btn');
+let fitArea = localStorage.getItem('fitMode') === 'area';
+
+function applyFitMode() {
+    document.body.classList.toggle('fit-area', fitArea);
+    fitBtn.textContent = fitArea ? 'Fit width' : 'Fit area';
+    fitBtn.title = fitArea ? 'Fill available width (scroll vertical)' : 'Fit entire page in view';
+    localStorage.setItem('fitMode', fitArea ? 'area' : 'width');
+    // Re-sync ruler after layout change
+    requestAnimationFrame(syncRulerWidth);
+}
+applyFitMode();
+fitBtn.addEventListener('click', () => { fitArea = !fitArea; applyFitMode(); });
+
+// ── Dock toggle ────────────────────────────────────────────
+const dockBtn = document.getElementById('dock-btn');
+let isBottom = localStorage.getItem('dock') === 'bottom';
+let sideW = parseInt(localStorage.getItem('sideW') || '320');
+let bottomH = parseInt(localStorage.getItem('bottomH') || '240');
+
+function applyLayout() {
+    document.body.classList.toggle('bottom-panel', isBottom);
+    document.body.style.setProperty('--side-w', sideW + 'px');
+    document.body.style.setProperty('--bottom-h', bottomH + 'px');
+    dockBtn.textContent = isBottom ? '◀ Side' : '▼ Bottom';
+    dockBtn.title = isBottom ? 'Move panel to side' : 'Move panel to bottom';
+    localStorage.setItem('dock', isBottom ? 'bottom' : 'side');
+    requestAnimationFrame(syncRulerWidth);
+}
+applyLayout();
+dockBtn.addEventListener('click', () => { isBottom = !isBottom; applyLayout(); });
+
+// ── Resize drag ────────────────────────────────────────────
+let dragging = null;
+document.getElementById('resize-side').addEventListener('mousedown', e => {
+    dragging = 'side'; e.preventDefault(); e.target.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+});
+document.getElementById('resize-bottom').addEventListener('mousedown', e => {
+    dragging = 'bottom'; e.preventDefault(); e.target.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+});
+window.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    if (dragging === 'side') {
+        sideW = Math.max(200, Math.min(window.innerWidth - 200, e.clientX));
+        document.body.style.setProperty('--side-w', sideW + 'px');
+    } else {
+        bottomH = Math.max(120, Math.min(window.innerHeight - 120, window.innerHeight - e.clientY));
+        document.body.style.setProperty('--bottom-h', bottomH + 'px');
+    }
+    syncRulerWidth();
+});
+window.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    document.querySelectorAll('.resize-handle').forEach(h => h.classList.remove('dragging'));
+    document.body.style.userSelect = '';
+    localStorage.setItem('sideW', sideW);
+    localStorage.setItem('bottomH', bottomH);
+    dragging = null;
+});
+
+// ── Init ───────────────────────────────────────────────────
 async function init() {
     try {
         const resp = await fetch(BASE + '/viewer_data.json');
@@ -107,16 +316,13 @@ async function init() {
         document.title = `P${pageNum} — ${date}`;
         document.getElementById('page-title').textContent = `${date} — Page ${pageNum}`;
 
-        // Nav buttons
         const nav = document.getElementById('nav');
         const prevPage = issueData.pages.find(p => p.page === pageNum - 1);
         const nextPage = issueData.pages.find(p => p.page === pageNum + 1);
         nav.innerHTML = `
             <a class="nav-btn ${prevPage ? '' : 'disabled'}" href="?issue=${issueDir}&page=${pageNum-1}">← Prev</a>
-            <a class="nav-btn ${nextPage ? '' : 'disabled'}" href="?issue=${issueDir}&page=${pageNum+1}">Next →</a>
-        `;
+            <a class="nav-btn ${nextPage ? '' : 'disabled'}" href="?issue=${issueDir}&page=${pageNum+1}">Next →</a>`;
 
-        // Info bar
         const widths = pageData.widths ? pageData.widths.map(w => Math.round(w) + '%').join(' ') : '?';
         const nAds = issueData.ads ? issueData.ads.filter(a => a.page == pageNum).length : 0;
         document.getElementById('info-bar').innerHTML = `
@@ -124,40 +330,42 @@ async function init() {
             <span>Columns:</span> <span class="info-val">${pageData.num_columns} [${widths}]</span><br>
             <span>Confidence:</span> <span class="info-val">${pageData.confidence || '—'}</span><br>
             <span>Ads:</span> <span class="info-val">${nAds}</span><br>
-            <span>Pitch:</span> <span class="info-val">${issueData.pitch || '?'}%</span>
-        `;
+            <span>Pitch:</span> <span class="info-val">${issueData.pitch || '?'}%</span>`;
 
-        // Layers
         const layersEl = document.getElementById('layers');
-        layersEl.innerHTML = LAYERS.map(l => `
-            <label class="layer" style="--layer-color: ${l.color}">
-                <input type="checkbox" ${l.default ? 'checked' : ''} data-layer="${l.id}" onchange="updateOverlay()">
+        const savedLayers = JSON.parse(localStorage.getItem('layerState') || '{}');
+        const savedCharts = JSON.parse(localStorage.getItem('chartState') || '{}');
+        layersEl.innerHTML = LAYERS.map(l => {
+            const on = l.id in savedLayers ? savedLayers[l.id] : l.default;
+            const chartOn = l.chart ? (l.id in savedCharts ? savedCharts[l.id] : false) : false;
+            const chartHtml = l.chart
+                ? `<label class="chart-toggle" title="Show analysis chart">
+                     <input type="checkbox" ${chartOn ? 'checked' : ''} data-chart="${l.id}" onchange="saveLayerState(); updateOverlay()">
+                     <span class="chart-icon" title="Show analysis overlay">|||</span>
+                   </label>`
+                : '';
+            return `<label class="layer" style="--layer-color: ${l.color}">
+                <input type="checkbox" ${on ? 'checked' : ''} data-layer="${l.id}" onchange="saveLayerState(); updateOverlay()">
                 <span class="layer-num">${l.num}</span>
                 <span class="layer-swatch ${l.style === 'dashed' ? 'dashed' : ''}"></span>
                 <span class="layer-name">${l.name}</span>
+                ${chartHtml}
                 <span class="info-icon">i<span class="tooltip">${l.desc}</span></span>
-            </label>
-        `).join('');
+            </label>`;
+        }).join('');
 
-        // Load page image
         const imgEl = document.getElementById('page-img');
-        // Use the raw page image (no baked-in lines) for SVG overlay
-        const rawUrl = `${BASE}/${issueDir}/p${pageNum}/page_raw.png`;
-        const overlayUrl = `${BASE}/${issueDir}/p${pageNum}/overlay.png`;
-        imgEl.src = rawUrl;
-        imgEl.onerror = () => { imgEl.src = overlayUrl; }; // fallback to overlay if raw doesn't exist
+        imgEl.src = `${BASE}/${issueDir}/p${pageNum}/page_raw.png`;
+        imgEl.onerror = () => { imgEl.src = `${BASE}/${issueDir}/p${pageNum}/overlay.png`; };
 
-        // Wait for image to load to get dimensions
         imgEl.onload = () => {
-            // Set SVG viewBox to match image natural dimensions
-            const svg = document.getElementById('overlay-svg');
-            svg.setAttribute('viewBox', `0 0 ${imgEl.naturalWidth} ${imgEl.naturalHeight}`);
-            // Hide the baked-in overlay lines by using the raw page render
-            // Actually we need the raw page - let's try loading from the PDF render
-            // For now, use the overlay but draw SVG lines on top
+            document.getElementById('overlay-svg').setAttribute('viewBox', `0 0 ${imgEl.naturalWidth} ${imgEl.naturalHeight}`);
+            document.getElementById('ruler-svg').setAttribute('viewBox', `0 0 ${imgEl.naturalWidth} ${RULER_H}`);
+            syncRulerWidth();
             loadPageMeta();
         };
 
+        new ResizeObserver(syncRulerWidth).observe(imgEl);
     } catch(e) {
         document.getElementById('page-title').textContent = 'Error: ' + e.message;
     }
@@ -167,100 +375,423 @@ async function loadPageMeta() {
     try {
         const resp = await fetch(`${BASE}/${issueDir}/p${pageNum}/page_meta.json`);
         const meta = await resp.json();
-        // Store column positions for SVG drawing
         window._columns = meta.columns || [];
         window._ads = (issueData.ads || []).filter(a => a.page == pageNum);
+    } catch(e) {}
 
-        // Try to get detected boundaries from the overlay compare if it exists
-        // For now, use column boundaries as proxy for detected
-        updateOverlay();
-    } catch(e) {
-        updateOverlay();
+    // Load analysis data (profile chart + strip profiles)
+    try {
+        const resp = await fetch(`${BASE}/${issueDir}/p${pageNum}/page_analysis.json`);
+        window._analysis = await resp.json();
+    } catch(e) { window._analysis = null; }
+
+    updateOverlay();
+}
+
+// ── Layer state persistence ─────────────────────────────────
+function saveLayerState() {
+    const state = {};
+    document.querySelectorAll('[data-layer]').forEach(cb => { state[cb.dataset.layer] = cb.checked; });
+    localStorage.setItem('layerState', JSON.stringify(state));
+    const charts = {};
+    document.querySelectorAll('[data-chart]').forEach(cb => { charts[cb.dataset.chart] = cb.checked; });
+    localStorage.setItem('chartState', JSON.stringify(charts));
+}
+
+// ── Ruler/image width sync ─────────────────────────────────
+function syncRulerWidth() {
+    const img = document.getElementById('page-img');
+    const ruler = document.getElementById('ruler-svg');
+    if (img.clientWidth > 0) ruler.style.width = img.clientWidth + 'px';
+}
+
+// ── Centralised positioning ────────────────────────────────
+function pctToX(pct, imgW) { return pct / 100 * imgW; }
+function pctToY(pct, imgH) { return pct / 100 * imgH; }
+
+let drawnLines = [];
+
+function svgLine(pct, imgW, imgH, color, width, style, layerName) {
+    const x = pctToX(pct, imgW);
+    const dash = style === 'dashed' ? `stroke-dasharray="10,6"` : '';
+    if (layerName) drawnLines.push({ pct: Math.round(pct * 100) / 100, layer: layerName, color });
+    return `<line x1="${x}" y1="0" x2="${x}" y2="${imgH}"
+        stroke="${color}" stroke-width="${width}" ${dash} opacity="0.8"/>`;
+}
+
+const RULER_H = 26;
+
+function renderRuler(imgW) {
+    const rulerSvg = document.getElementById('ruler-svg');
+    rulerSvg.setAttribute('viewBox', `0 0 ${imgW} ${RULER_H}`);
+    const majorH = RULER_H, minorH = RULER_H * 0.5, fontSize = 10;
+    let s = '';
+    for (let pct = 0; pct <= 100; pct += 5) {
+        const x = pctToX(pct, imgW);
+        const isMajor = pct % 10 === 0;
+        s += `<line class="ruler-tick" x1="${x}" y1="0" x2="${x}" y2="${isMajor ? majorH : minorH}"
+            stroke="#ccc" stroke-width="${isMajor ? 1.5 : 0.75}" opacity="${isMajor ? 0.9 : 0.5}"/>`;
+        if (isMajor) s += `<text class="ruler-tick" x="${x + 2}" y="${majorH - 4}"
+                fill="#ccc" font-size="${fontSize}" opacity="0.85">${pct}</text>`;
     }
+    for (const ln of drawnLines) {
+        const x = pctToX(ln.pct, imgW);
+        s += `<line x1="${x}" y1="0" x2="${x}" y2="${RULER_H}"
+            stroke="${ln.color}" stroke-width="2" opacity="0.9"/>`;
+    }
+    rulerSvg.innerHTML = s;
 }
 
 function updateOverlay() {
     const svg = document.getElementById('overlay-svg');
     const img = document.getElementById('page-img');
-    const w = img.naturalWidth;
-    const h = img.naturalHeight;
+    const w = img.naturalWidth, h = img.naturalHeight;
     if (!w || !h) return;
 
     const active = {};
-    document.querySelectorAll('[data-layer]').forEach(cb => {
-        active[cb.dataset.layer] = cb.checked;
-    });
+    document.querySelectorAll('[data-layer]').forEach(cb => { active[cb.dataset.layer] = cb.checked; });
 
-    let svgContent = '';
+    drawnLines = [];
+    let s = '';
+    const a = window._analysis;
 
-    // Layer 1: Text area (orange)
-    if (active.text_area && pageData && pageData.text_area) {
-        svgContent += svgLine(pageData.text_area.left, w, h, '#ff8c00', 3, 'solid');
-        svgContent += svgLine(pageData.text_area.right, w, h, '#ff8c00', 3, 'solid');
+    // Draw order matches pipeline sequence — later steps on top.
+    if (active.r2 && pageData.r2) {
+        s += svgLine(pageData.r2.left, w, h, '#888888', 2, 'dashed', 'R2 Scanned image');
+        s += svgLine(pageData.r2.right, w, h, '#888888', 2, 'dashed', 'R2 Scanned image');
     }
-
-    // Layer 3: Final columns (blue)
-    if (active.columns && window._columns) {
-        const positions = new Set();
-        window._columns.forEach(col => {
-            positions.add(col.left_vw);
-            positions.add(col.right_vw);
-        });
-        positions.forEach(pct => {
-            svgContent += svgLine(pct, w, h, '#4488ff', 2, 'solid');
-        });
+    if (active.r3 && pageData.r3) {
+        s += svgLine(pageData.r3.left, w, h, '#cc66ff', 2, 'dashed', 'R3 Newspaper page');
+        s += svgLine(pageData.r3.right, w, h, '#cc66ff', 2, 'dashed', 'R3 Newspaper page');
     }
-
-    // Layer 5: Expected grid (magenta dashed)
-    if (active.expected && issueData.pitch) {
-        const pitch = issueData.pitch;
-        if (window._columns && window._columns.length > 0) {
-            // Build expected from first column left + pitch steps
-            const start = window._columns[0].left_vw;
-            for (let x = start; x < 100; x += pitch) {
-                svgContent += svgLine(x, w, h, '#ff44ff', 1.5, 'dashed');
-            }
-        }
+    if (active.text_area && pageData.text_area) {
+        s += svgLine(pageData.text_area.left, w, h, '#ff8c00', 3, 'solid', 'Text area');
+        s += svgLine(pageData.text_area.right, w, h, '#ff8c00', 3, 'solid', 'Text area');
     }
-
-    // Layer 4: Ad regions (yellow dashed rectangles)
     if (active.ads && window._ads) {
         window._ads.forEach(ad => {
             if (ad.x_pct != null && ad.y_pct != null) {
-                const x1 = ad.x_pct / 100 * w;
-                const y1 = ad.y_pct / 100 * h;
-                const bw = (ad.w_pct || 10) / 100 * w;
-                const bh = (ad.h_pct || 10) / 100 * h;
-                svgContent += `<rect x="${x1}" y="${y1}" width="${bw}" height="${bh}"
+                s += `<rect x="${pctToX(ad.x_pct, w)}" y="${pctToY(ad.y_pct, h)}"
+                    width="${pctToX(ad.w_pct || 10, w)}" height="${pctToY(ad.h_pct || 10, h)}"
                     fill="rgba(255,204,0,0.08)" stroke="#ffcc00" stroke-width="2" stroke-dasharray="8,4" opacity="0.7"/>`;
             }
         });
     }
-
-    // Layer 2: Detected boundaries (green)
-    // Shows the raw detected column rules from consensus
-    // Currently uses the same positions as final columns — in future
-    // these should come from the raw detection data stored separately
-    if (active.detected && window._columns) {
-        const positions = new Set();
-        window._columns.forEach(col => {
-            positions.add(col.left_vw);
-            positions.add(col.right_vw);
-        });
-        positions.forEach(pct => {
-            svgContent += svgLine(pct, w, h, '#00cc44', 1.5, 'solid');
+    if (active.detected && a && a.detected_boundaries) {
+        // Raw detected positions from clustering — what the detector
+        // actually found, before pitch projection or grid placement.
+        a.detected_boundaries.forEach(b => {
+            s += svgLine(b.pct, w, h, '#00cc44', 1.5, 'solid', 'Detected');
         });
     }
+    if (active.columns && window._columns) {
+        const positions = new Set();
+        window._columns.forEach(col => { positions.add(col.left_vw); positions.add(col.right_vw); });
+        positions.forEach(pct => { s += svgLine(pct, w, h, '#4488ff', 2, 'solid', 'Final columns'); });
+    }
+    if (active.expected && issueData.pitch) {
+        const pitch = issueData.pitch;
+        if (window._columns && window._columns.length > 0) {
+            const start = window._columns[0].left_vw;
+            for (let x = start; x < 100; x += pitch)
+                s += svgLine(x, w, h, '#ff44ff', 1.5, 'dashed', 'Expected grid');
+        }
+    }
 
-    svg.innerHTML = svgContent;
+    // ── Analysis charts ──────────────────────────────────────
+    const chartOn = {};
+    document.querySelectorAll('[data-chart]').forEach(cb => { chartOn[cb.dataset.chart] = cb.checked; });
+
+    // Profile chart: shown when layer is active AND its chart toggle is on.
+    // Rendered within the actual sampled band (25%-75% of page height).
+    // Fixed scale 0-255 so charts are comparable across pages.
+    const showProfileChart = a && a.profile_chart &&
+        ((active.r3 && chartOn.r3) || (active.text_area && chartOn.text_area));
+    if (showProfileChart) {
+        const chart = a.profile_chart;
+        const SCALE = 255; // fixed max — darkness values are 0-255
+        const bandY0 = h * 0.25;
+        const bandY1 = h * 0.75;
+        const bandH = bandY1 - bandY0;
+
+        // Tint over the sampled band
+        s += `<rect x="0" y="${bandY0}" width="${w}" height="${bandH}"
+            fill="rgba(0,0,30,0.55)"/>`;
+
+        // Filled area path — baseline at bottom of band, peaks upward
+        let path = `M ${pctToX(chart[0].pct, w)} ${bandY1}`;
+        for (const p of chart) {
+            const x = pctToX(p.pct, w);
+            const y = bandY1 - (p.val / SCALE) * bandH;
+            path += ` L ${x} ${y}`;
+        }
+        path += ` L ${pctToX(chart[chart.length-1].pct, w)} ${bandY1} Z`;
+        s += `<path d="${path}" fill="rgba(220,220,255,0.4)" stroke="rgba(255,255,255,0.8)" stroke-width="1.5"/>`;
+
+        // Threshold lines
+        // Content floor: sits just under column content.
+        // Where the profile drops below this from the centre outward = text_area edge.
+        if (a.content_floor > 0) {
+            const fy = bandY1 - (a.content_floor / SCALE) * bandH;
+            s += `<line x1="0" y1="${fy}" x2="${w}" y2="${fy}"
+                stroke="#ffaa00" stroke-width="1.5" stroke-dasharray="8,4" opacity="0.9"/>`;
+            s += `<text x="4" y="${fy - 3}" fill="#ffaa00" font-size="${h*0.012}" font-weight="bold" opacity="0.9">content floor</text>`;
+        }
+        if (a.shadow_thresh > 0) {
+            const ty = bandY1 - (a.shadow_thresh / SCALE) * bandH;
+            s += `<line x1="0" y1="${ty}" x2="${w}" y2="${ty}"
+                stroke="#ff4444" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.7"/>`;
+            s += `<text x="4" y="${ty - 3}" fill="#ff4444" font-size="${h*0.012}" opacity="0.7">shadow thresh</text>`;
+        }
+        if (a.paper_baseline > 0) {
+            const py = bandY1 - (a.paper_baseline / SCALE) * bandH;
+            s += `<line x1="0" y1="${py}" x2="${w}" y2="${py}"
+                stroke="#44ff44" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.7"/>`;
+            s += `<text x="4" y="${py - 3}" fill="#44ff44" font-size="${h*0.012}" opacity="0.7">paper baseline</text>`;
+        }
+    }
+
+    // Composite strip chart: sum of all strips with ads zeroed.
+    // Shown at the top of the page (0-15% height) when detected chart is on.
+    if (a && a.composite_profile && active.detected && chartOn.detected) {
+        const comp = a.composite_profile;
+        const compMax = Math.max(...comp.map(p => p.val), 1);
+        const compY0 = 0;
+        const compH = h * 0.15;
+
+        s += `<rect x="0" y="${compY0}" width="${w}" height="${compH}"
+            fill="rgba(0,0,30,0.5)"/>`;
+
+        let cpath = `M ${pctToX(comp[0].pct, w)} ${compY0 + compH}`;
+        for (const p of comp) {
+            const x = pctToX(p.pct, w);
+            const y = compY0 + compH - (p.val / compMax) * compH;
+            cpath += ` L ${x} ${y}`;
+        }
+        cpath += ` L ${pctToX(comp[comp.length-1].pct, w)} ${compY0 + compH} Z`;
+        s += `<path d="${cpath}" fill="rgba(80,120,255,0.3)" stroke="rgba(100,150,255,0.9)" stroke-width="1.5"/>`;
+
+        // Absolute change bars (white): abs(val[i] - val[i-1])
+        // Each bar is 2px wide, centred on the midpoint between adjacent samples.
+        // High bars = rapid transitions at column boundaries.
+        let diffMax = 1;
+        for (let i = 1; i < comp.length; i++) {
+            const d = Math.abs(comp[i].val - comp[i-1].val);
+            if (d > diffMax) diffMax = d;
+        }
+        for (let i = 1; i < comp.length; i++) {
+            const d = Math.abs(comp[i].val - comp[i-1].val);
+            if (d < diffMax * 0.05) continue; // skip negligible changes
+            const midPct = (comp[i-1].pct + comp[i].pct) / 2;
+            const x = pctToX(midPct, w) - 1;
+            const barH = (d / diffMax) * compH;
+            const y = compY0 + compH - barH;
+            s += `<rect x="${x}" y="${y}" width="2" height="${barH}"
+                fill="rgba(255,255,255,0.7)"/>`;
+        }
+    }
+
+    // Strip profiles: shown when detected layer is active AND its chart toggle is on.
+    // Renders each strip's darkness profile as a small chart at
+    // its Y position on the page.
+    if (a && a.strip_profiles && active.detected && chartOn.detected) {
+        const darkThresh = a.darkness_threshold || 60;
+        const adZones = a.ad_exclusion_zones || [];
+
+        for (const strip of a.strip_profiles) {
+            const profile = strip.profile;
+            if (!profile || !profile.length) continue;
+            const SCALE = 255;
+            const stripY0 = pctToY(strip.y_start_pct, h);
+            const stripY1 = pctToY(strip.y_end_pct, h);
+            const stripH = stripY1 - stripY0;
+
+            // Tint over the strip band
+            s += `<rect x="0" y="${stripY0}" width="${w}" height="${stripH}"
+                fill="rgba(0,20,0,0.5)"/>`;
+
+            // Ad exclusion zones — mask over excluded areas
+            for (const az of adZones) {
+                if (az.y1 < strip.y_end_pct && az.y2 > strip.y_start_pct) {
+                    const ax1 = pctToX(az.x1, w);
+                    const ax2 = pctToX(az.x2, w);
+                    s += `<rect x="${ax1}" y="${stripY0}" width="${ax2 - ax1}" height="${stripH}"
+                        fill="rgba(255,100,0,0.2)" stroke="rgba(255,100,0,0.5)" stroke-width="0.5" stroke-dasharray="4,2"/>`;
+                }
+            }
+
+            // Filled area path within the strip band, fixed 0-255 scale
+            let path = `M ${pctToX(profile[0].pct, w)} ${stripY1}`;
+            for (const p of profile) {
+                const x = pctToX(p.pct, w);
+                const y = stripY1 - (p.val / SCALE) * stripH;
+                path += ` L ${x} ${y}`;
+            }
+            path += ` L ${pctToX(profile[profile.length-1].pct, w)} ${stripY1} Z`;
+            s += `<path d="${path}" fill="rgba(0,230,80,0.35)" stroke="rgba(0,255,100,0.8)" stroke-width="1"/>`;
+
+            // Darkness threshold line
+            const threshY = stripY1 - (darkThresh / SCALE) * stripH;
+            s += `<line x1="0" y1="${threshY}" x2="${w}" y2="${threshY}"
+                stroke="#ff6644" stroke-width="1" stroke-dasharray="4,3" opacity="0.8"/>`;
+        }
+    }
+
+    svg.innerHTML = s;
+    renderRuler(w);
 }
 
-function svgLine(pct, imgW, imgH, color, width, style) {
-    const x = pct / 100 * imgW;
-    const dash = style === 'dashed' ? `stroke-dasharray="10,6"` : '';
-    return `<line x1="${x}" y1="0" x2="${x}" y2="${imgH}"
-        stroke="${color}" stroke-width="${width}" ${dash} opacity="0.8"/>`;
-}
+// ── Ruler line tooltip ─────────────────────────────────────
+(function() {
+    const wrap = document.getElementById('page-wrap');
+    const tip = document.getElementById('line-tooltip');
+    const rulerSvg = document.getElementById('ruler-svg');
+    const HIT = 0.8;
+
+    rulerSvg.addEventListener('mousemove', e => {
+        if (!drawnLines.length) { tip.style.display = 'none'; return; }
+        const r = rulerSvg.getBoundingClientRect();
+        const pct = ((e.clientX - r.left) / r.width) * 100;
+        let best = null;
+        for (let i = drawnLines.length - 1; i >= 0; i--) {
+            if (Math.abs(drawnLines[i].pct - pct) <= HIT) { best = drawnLines[i]; break; }
+        }
+        if (!best) { tip.style.display = 'none'; return; }
+        tip.innerHTML = `<span style="color:${best.color}">\u25A0</span> ${best.layer}: <b>${best.pct}%</b>`;
+        tip.style.display = 'block';
+        const wr = wrap.getBoundingClientRect();
+        let tx = e.clientX - wr.left + 12, ty = e.clientY - wr.top + 12;
+        if (tx + tip.offsetWidth > wr.width - 4) tx = e.clientX - wr.left - tip.offsetWidth - 8;
+        tip.style.left = tx + 'px';
+        tip.style.top = ty + 'px';
+    });
+    rulerSvg.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+})();
+
+// ── Loupe (mouse + touch) ──────────────────────────────────
+// Press and hold to show a circular magnifier. The press point
+// is positioned at (50%, 80%) within the loupe so the zoomed
+// area appears above the finger/cursor.
+(function() {
+    const imgContainer = document.getElementById('img-container');
+    const img = document.getElementById('page-img');
+    const loupe = document.getElementById('loupe');
+    const canvas = document.getElementById('loupe-canvas');
+    const ctx2d = canvas.getContext('2d');
+    const SIZE = 220, ZOOM = 3;
+    const AX = 0.5, AY = 0.8;
+    let active = false, holdTimer = null;
+
+    canvas.width = SIZE;
+    canvas.height = SIZE;
+
+    function getXY(e) {
+        if (e.touches && e.touches.length) {
+            return { clientX: e.touches[0].clientX, clientY: e.touches[0].clientY };
+        }
+        return { clientX: e.clientX, clientY: e.clientY };
+    }
+
+    function draw(clientX, clientY) {
+        const ir = img.getBoundingClientRect();
+        const natX = (clientX - ir.left) / ir.width * img.naturalWidth;
+        const natY = (clientY - ir.top) / ir.height * img.naturalHeight;
+
+        const cr = imgContainer.getBoundingClientRect();
+        loupe.style.left = (clientX - cr.left - SIZE * AX) + 'px';
+        loupe.style.top = (clientY - cr.top - SIZE * AY) + 'px';
+
+        const srcW = SIZE / ZOOM, srcH = SIZE / ZOOM;
+        const srcX = natX - srcW * AX, srcY = natY - srcH * AY;
+
+        ctx2d.clearRect(0, 0, SIZE, SIZE);
+        ctx2d.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, SIZE, SIZE);
+
+        for (const ln of drawnLines) {
+            const lnX = pctToX(ln.pct, img.naturalWidth);
+            const cx = (lnX - srcX) / srcW * SIZE;
+            if (cx < -2 || cx > SIZE + 2) continue;
+            ctx2d.beginPath();
+            ctx2d.moveTo(cx, 0);
+            ctx2d.lineTo(cx, SIZE);
+            ctx2d.strokeStyle = ln.color;
+            ctx2d.lineWidth = 2;
+            const dashed = ln.layer.includes('R2') || ln.layer.includes('R3') ||
+                           ln.layer.includes('Expected') || ln.layer.includes('Ad');
+            ctx2d.setLineDash(dashed ? [6, 4] : []);
+            ctx2d.globalAlpha = 0.85;
+            ctx2d.stroke();
+            ctx2d.setLineDash([]);
+            ctx2d.globalAlpha = 1.0;
+        }
+
+        const cx = SIZE * AX, cy = SIZE * AY;
+        ctx2d.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx2d.lineWidth = 1;
+        ctx2d.beginPath();
+        ctx2d.moveTo(cx - 10, cy); ctx2d.lineTo(cx + 10, cy);
+        ctx2d.moveTo(cx, cy - 10); ctx2d.lineTo(cx, cy + 10);
+        ctx2d.stroke();
+    }
+
+    function startLoupe(e) {
+        const pos = getXY(e);
+        holdTimer = setTimeout(() => {
+            active = true;
+            loupe.style.display = 'block';
+            draw(pos.clientX, pos.clientY);
+        }, 200);
+    }
+
+    function moveLoupe(e) {
+        if (!active) return;
+        const pos = getXY(e);
+        draw(pos.clientX, pos.clientY);
+        e.preventDefault(); // prevent scroll on touch
+    }
+
+    function endLoupe() {
+        clearTimeout(holdTimer);
+        active = false;
+        loupe.style.display = 'none';
+    }
+
+    // Mouse
+    imgContainer.addEventListener('mousedown', e => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        startLoupe(e);
+    });
+    imgContainer.addEventListener('mousemove', moveLoupe);
+    imgContainer.addEventListener('mouseup', endLoupe);
+    imgContainer.addEventListener('mouseleave', endLoupe);
+
+    // Touch
+    imgContainer.addEventListener('touchstart', e => {
+        if (e.touches.length !== 1) return;
+        startLoupe(e);
+    }, { passive: true });
+    imgContainer.addEventListener('touchmove', moveLoupe, { passive: false });
+    imgContainer.addEventListener('touchend', endLoupe);
+    imgContainer.addEventListener('touchcancel', endLoupe);
+})();
+
+// ── Tooltip positioning (info icons) ───────────────────────
+document.addEventListener('mouseover', e => {
+    const icon = e.target.closest('.info-icon');
+    if (!icon) return;
+    const tip = icon.querySelector('.tooltip');
+    if (!tip) return;
+    const r = icon.getBoundingClientRect();
+    const tw = 280, th = tip.offsetHeight || 120;
+    let top = r.top - th - 6, left = r.left - tw / 2 + r.width / 2;
+    if (top < 4) top = r.bottom + 6;
+    if (left < 4) left = 4;
+    if (left + tw > window.innerWidth - 4) left = window.innerWidth - tw - 4;
+    if (top + th > window.innerHeight - 4) top = window.innerHeight - th - 4;
+    tip.style.top = top + 'px';
+    tip.style.left = left + 'px';
+});
 
 init();
 </script>

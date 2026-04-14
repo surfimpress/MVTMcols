@@ -47,7 +47,9 @@ class PageContext:
     issue_columns: Optional[int]    # column count from this issue
 
     # ── From page profile (this specific page) ───────────────────────
-    text_area_left: float           # clean-side boundary (% of page)
+    r3_left: float                  # newspaper page boundary (% of page)
+    r3_right: float
+    text_area_left: float           # text content boundary (% of page)
     text_area_right: float
     paper_baseline: float
     dynamic_range: float
@@ -119,6 +121,9 @@ def build_context(gazette_page, year, db_path="data/mvtm.db",
         pass
 
     # ── Profile data ─────────────────────────────────────────────────
+    r3 = profile.get("r3", {}) if profile else {}
+    r3_left = r3.get("left", 5.0)
+    r3_right = r3.get("right", 95.0)
     ta = profile.get("text_area", {}) if profile else {}
     text_area_left = ta.get("left", 5.0)
     text_area_right = ta.get("right", 95.0)
@@ -172,10 +177,9 @@ def build_context(gazette_page, year, db_path="data/mvtm.db",
             expected = [round(start - i * pitch, 2) for i in range(num_columns + 1)]
             expected.sort()
 
-    # Filter to page bounds. The text_area is an approximate guide,
-    # not a hard constraint — the grid can legitimately extend slightly
-    # past it on both sides (the text_area detection is conservative).
-    expected = [b for b in expected if 0 < b < 100]
+    # Constrain to R3 bounds — the grid cannot extend outside
+    # the newspaper page boundary. All coordinates in PDF page space.
+    expected = [b for b in expected if r3_left < b < r3_right]
 
     return PageContext(
         gazette_page=gazette_page,
@@ -188,6 +192,8 @@ def build_context(gazette_page, year, db_path="data/mvtm.db",
         page_2_template=page_2_template,
         issue_pitch=issue_pitch,
         issue_columns=issue_columns,
+        r3_left=r3_left,
+        r3_right=r3_right,
         text_area_left=text_area_left,
         text_area_right=text_area_right,
         paper_baseline=paper_baseline,

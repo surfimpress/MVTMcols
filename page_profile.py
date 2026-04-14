@@ -34,7 +34,7 @@ def _open_clean(pdf_path):
     return doc
 
 
-def find_rectangles(inv, h, w, gazette_page=None):
+def find_rectangles(inv, h, w, gazette_page=None, pdf_image_rect=None):
     """
     Detect the three nested rectangles in a scanned newspaper PDF page.
 
@@ -49,40 +49,58 @@ def find_rectangles(inv, h, w, gazette_page=None):
         gazette_page: Page number from the gazette filename (1-indexed).
                       Odd = recto (binding left), even = verso (binding right).
                       If None, falls back to darkness comparison.
+        pdf_image_rect: Optional dict with left/right/top/bottom as % of page,
+                        extracted from the PDF image placement structure.
+                        When available, this is the authoritative R2 source —
+                        exact coordinates rather than raster threshold guessing.
 
     Returns:
         dict with bounding boxes r2, r3, text_area (all in % of page dimensions),
         plus binding_side, clean_side, and page_type.
     """
-    # Column-wise mean darkness, middle 60% of rows (avoid masthead/footer)
-    row_lo = int(h * 0.2)
-    row_hi = int(h * 0.8)
+    # ── R1 → R2: PDF white margin to scanned image ──────────────────
+    # Compute R2 first so we can use its vertical extent for row sampling.
+    if pdf_image_rect:
+        # Use the exact image placement from the PDF structure.
+        # Convert percentages to pixel positions in the profile render.
+        r2_left_px = int(pdf_image_rect["left"] / 100 * w)
+        r2_right_px = int(pdf_image_rect["right"] / 100 * w)
+        # Clamp to valid range
+        r2_left_px = max(0, min(w - 1, r2_left_px))
+        r2_right_px = max(0, min(w - 1, r2_right_px))
+    else:
+        # Fallback: raster threshold detection.
+        # PDF margins are digitally white: inverted value near 0 (< 2).
+        PDF_WHITE_THRESH = 2.0
+        r2_left_px = 0
+        for x in range(w):
+            if smooth[x] > PDF_WHITE_THRESH:
+                r2_left_px = x
+                break
+        r2_right_px = w - 1
+        for x in range(w - 1, -1, -1):
+            if smooth[x] > PDF_WHITE_THRESH:
+                r2_right_px = x
+                break
+
+    # ── Column-wise profiles within the scanned image ───────────────
+    # Sample the middle 50% of the IMAGE's vertical extent (not the PDF
+    # page). This avoids including PDF margin rows that dilute the signal
+    # and create V-shaped gradients instead of flat troughs.
+    if pdf_image_rect:
+        img_top_px = max(0, int(pdf_image_rect.get("top", 0) / 100 * h))
+        img_bot_px = min(h, int(pdf_image_rect.get("bottom", 100) / 100 * h))
+    else:
+        img_top_px = 0
+        img_bot_px = h
+    img_h = img_bot_px - img_top_px
+    row_lo = img_top_px + int(img_h * 0.25)
+    row_hi = img_top_px + int(img_h * 0.75)
     body_rows = inv[row_lo:row_hi, :]
     col_profile = body_rows.mean(axis=0)
     smooth = gaussian_filter1d(col_profile, sigma=5)
 
-    # ── R1 → R2: PDF white margin to scanned image ──────────────────
-    # PDF margins are digitally white: inverted value near 0 (< 2).
-    # Paper/shadow is always > 5. This is a clean, reliable threshold.
-    PDF_WHITE_THRESH = 2.0
-
-    r2_left_px = 0
-    for x in range(w):
-        if smooth[x] > PDF_WHITE_THRESH:
-            r2_left_px = x
-            break
-
-    r2_right_px = w - 1
-    for x in range(w - 1, -1, -1):
-        if smooth[x] > PDF_WHITE_THRESH:
-            r2_right_px = x
-            break
-
     # ── Binding side from page number (recto/verso) ────────────────
-    # Odd pages = recto (right-hand page) → binding on LEFT
-    # Even pages = verso (left-hand page) → binding on RIGHT
-    # This is deterministic and always correct. If no page number
-    # is provided, fall back to darkness comparison.
     edge_w = max(5, int((r2_right_px - r2_left_px) * 0.05))
     left_dark = float(smooth[r2_left_px:r2_left_px + edge_w].mean())
     right_dark = float(smooth[r2_right_px - edge_w:r2_right_px].mean())
@@ -101,11 +119,12 @@ def find_rectangles(inv, h, w, gazette_page=None):
         binding_confirmed = True  # no contradiction possible
 
     # ── Paper baseline from interior of R2 ───────────────────────────
-    # Sample from the central 40% of R2 — guaranteed to be newspaper
-    # content, not shadow or facing page.
+    # Sample from the central 60% of the scanned image — well within
+    # the newspaper content, avoiding binding shadow and facing page
+    # sliver on both sides. All measurements stay in PDF page space.
     r2_span = r2_right_px - r2_left_px
-    center_lo = r2_left_px + int(r2_span * 0.3)
-    center_hi = r2_left_px + int(r2_span * 0.7)
+    center_lo = r2_left_px + int(r2_span * 0.2)
+    center_hi = r2_left_px + int(r2_span * 0.8)
     center_profile = smooth[center_lo:center_hi]
 
     # Paper baseline: the low end of the content darkness.
@@ -118,227 +137,148 @@ def find_rectangles(inv, h, w, gazette_page=None):
     # The threshold where shadow ends and paper begins
     shadow_thresh = paper_baseline + 2.5 * paper_std
 
-    # ── R2 → R3: binding side ───────────────────────────────────────
-    # Walk inward from the binding edge. Shadow is dark and tapers.
-    # Newspaper page begins where darkness drops below shadow_thresh.
-    if binding_side == "left":
-        r3_left_px = r2_left_px
-        for x in range(r2_left_px, center_lo):
-            if smooth[x] < shadow_thresh:
-                r3_left_px = x
-                break
-    else:
-        r3_left_px = r2_left_px
-        for x in range(r2_left_px, center_lo):
-            if smooth[x] < shadow_thresh:
-                r3_left_px = x
-                break
-
-    if binding_side == "right":
-        r3_right_px = r2_right_px
-        for x in range(r2_right_px, center_hi, -1):
-            if smooth[x] < shadow_thresh:
-                r3_right_px = x
-                break
-    else:
-        r3_right_px = r2_right_px
-        for x in range(r2_right_px, center_hi, -1):
-            if smooth[x] < shadow_thresh:
-                r3_right_px = x
-                break
-
-    # ── R2 → R3: facing-page side ───────────────────────────────────
-    # The facing page sliver (if present) sits between the edge shadow
-    # and the main page. Look for a dark valley (inter-page gap) after
-    # any initial content from the facing page.
+    # ── R2 → R3 and text_area ────────────────────────────────────
     #
-    # Walk inward from the non-binding R2 edge. Track the pattern:
-    #   shadow zone → [facing content → dark valley →] newspaper page
-    # The newspaper page starts after the last dark zone before the
-    # paper baseline is reached consistently.
-    facing_side = "left" if binding_side == "right" else "right"
+    # Each side is detected independently using multiple signals:
+    #   1. Margin region: contiguous near-zero region wider than a gutter
+    #   2. Full-height spike: p25 profile shows features dark in 75% of rows
+    #   3. Mean profile spike: large darkness in the mean profile
+    # Best available signal wins. Results are clamped against each other.
 
-    if facing_side == "left":
-        # Walk rightward from r2_left looking for the true R3 start
-        # First pass: skip the initial shadow/facing zone
-        in_dark = True
-        last_dark_end = r2_left_px
-        for x in range(r2_left_px, center_lo):
-            is_dark = smooth[x] > shadow_thresh
-            if in_dark and not is_dark:
-                in_dark = False
-            elif not in_dark and is_dark:
-                # Re-entered dark zone — this is the inter-page gap
-                in_dark = True
-            elif not in_dark and not is_dark:
-                last_dark_end = x
-                # Check: have we had a sustained run of paper?
-                # If 10+ pixels of paper, we've found R3
+    # ── Additional profile: p25 ───────────────────────────────────
+    col_p25 = np.percentile(body_rows, 25, axis=0)
+    col_p25 = gaussian_filter1d(col_p25.astype(float), sigma=3)
+
+    # ── Otsu content floor ────────────────────────────────────────
+    def _otsu_threshold(values):
+        """Otsu's method via histogram for a 1D array."""
+        hist, bin_edges = np.histogram(values, bins=64)
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        total = hist.sum()
+        if total == 0:
+            return float(np.median(values))
+        sum_total = (hist * bin_centers).sum()
+        sum_bg = 0.0
+        w_bg = 0
+        best_var = -1
+        best_thresh = bin_centers[0]
+        for i in range(len(hist)):
+            w_bg += hist[i]
+            if w_bg == 0:
+                continue
+            w_fg = total - w_bg
+            if w_fg == 0:
+                break
+            sum_bg += hist[i] * bin_centers[i]
+            mean_bg = sum_bg / w_bg
+            mean_fg = (sum_total - sum_bg) / w_fg
+            between_var = w_bg * w_fg * (mean_bg - mean_fg) ** 2
+            if between_var > best_var:
+                best_var = between_var
+                best_thresh = bin_centers[i]
+        return float(best_thresh)
+
+    content_floor = _otsu_threshold(center_profile)
+
+    # ── Detection parameters ──────────────────────────────────────
+    margin_thresh = min(max(paper_baseline * 0.4, 5), 15)
+    min_margin_width = max(int(r2_span * 0.012), 8)
+    spike_thresh = content_floor * 2
+    search_extent = int(r2_span * 0.25)
+
+    def _find_margin_regions(start_px, end_px):
+        """Find contiguous runs below margin_thresh, wider than min_margin_width."""
+        regions = []
+        x = start_px
+        while x <= end_px:
+            if smooth[x] < margin_thresh:
                 run_start = x
-                while x < center_lo and smooth[x] < shadow_thresh:
+                while x <= end_px and smooth[x] < margin_thresh:
                     x += 1
-                if x - run_start >= 10:
-                    r3_left_px = run_start
-                    break
-    else:
-        # Walk leftward from r2_right
-        in_dark = True
-        for x in range(r2_right_px, center_hi, -1):
-            is_dark = smooth[x] > shadow_thresh
-            if in_dark and not is_dark:
-                in_dark = False
-            elif not in_dark and is_dark:
-                in_dark = True
-            elif not in_dark and not is_dark:
-                run_start = x
-                while x > center_hi and smooth[x] < shadow_thresh:
-                    x -= 1
-                if run_start - x >= 10:
-                    r3_right_px = run_start
-                    break
+                if (x - 1) - run_start + 1 >= min_margin_width:
+                    regions.append((run_start, x - 1))
+            else:
+                x += 1
+        return regions
 
-    # ── Text area: print margins within R3 ───────────────────────────
-    # The newspaper page has white print margins before the first column
-    # and after the last column. There are NO vertical rules at the
-    # outer edges — the text_area boundary comes from detecting the
-    # grey block of column content against the white margin.
-    #
-    # Use a heavily smoothed profile (sigma=15) so individual text
-    # lines blur into a uniform grey band. Then find the margin-to-text
-    # transition: the local minimum (white margin) followed by a rise
-    # into column content.
+    def _detect_edge(edge_px, center_px, direction):
+        """Detect R3 and text_area for one side of the page.
 
-    heavy = gaussian_filter1d(col_profile, sigma=15)
+        Uses the mean profile to find margin regions (positioning).
+        Uses p25 to score confidence (validation only, never positioning).
+        Mean spikes prevent boundaries sitting outside them (safety net).
 
-    # Body darkness: median of the central 60% of R3
-    r3_center_lo = r3_left_px + int((r3_right_px - r3_left_px) * 0.2)
-    r3_center_hi = r3_left_px + int((r3_right_px - r3_left_px) * 0.8)
-    r3_center_profile = heavy[r3_center_lo:r3_center_hi]
-    if len(r3_center_profile) > 0:
-        body_median = float(np.median(r3_center_profile))
-    else:
-        body_median = paper_baseline
-
-    # The text edge threshold: halfway between the margin minimum
-    # and the body content level. This catches the rising edge into text.
-    # We find the margin minimum first, then set the threshold from it.
-
-    # Left edge: the pattern is shadow_peak → margin_minimum → column_rise.
-    # Find the shadow peak first (highest point in left 15% of R3),
-    # then find the minimum AFTER the peak (the print margin),
-    # then find where the profile rises from that minimum into column text.
-    margin_search_end = r3_left_px + int((r3_right_px - r3_left_px) * 0.2)
-
-    def _find_text_edge(heavy, search_start, search_end, body_median, direction="right",
-                        paper_baseline_val=0):
+        direction: +1 = left edge (walk rightward), -1 = right edge
+        Returns (r3_px, text_area_px, method).
         """
-        Find a text area edge and compute its confidence.
-
-        Looks for shadow_peak → margin_minimum → column_rise pattern.
-        Confidence is based on:
-        - How deep the margin minimum is relative to body (deeper = clearer signal)
-        - How sharp the rise from margin to content is (sharper = more confident)
-
-        direction: "right" = searching left-to-right, "left" = right-to-left
-
-        Returns (edge_px, confidence 0-1)
-        """
-        if direction == "right":
-            region = heavy[search_start:search_end]
-            if len(region) < 5:
-                return search_start, 0.0
-
-            peak_idx = search_start + int(np.argmax(region))
-            peak_val = float(heavy[peak_idx])
-
-            # First local minimum after peak
-            min_idx = peak_idx
-            for x in range(peak_idx + 1, search_end - 1):
-                if heavy[x] <= heavy[x - 1] and heavy[x] <= heavy[x + 1]:
-                    min_idx = x
-                    break
-            min_val = float(heavy[min_idx])
-
-            thresh = min_val + 0.2 * (body_median - min_val)
-            edge_px = min_idx
-            for x in range(min_idx, search_end):
-                if heavy[x] > thresh:
-                    edge_px = x
-                    break
+        if direction > 0:
+            search_end = min(edge_px + search_extent, center_px)
         else:
-            region = heavy[search_start:search_end]
-            if len(region) < 5:
-                return search_end, 0.0
+            search_end = max(edge_px - search_extent, center_px)
 
-            peak_idx = search_start + int(np.argmax(region))
-            peak_val = float(heavy[peak_idx])
+        r3 = edge_px
+        ta = edge_px
+        method = 'none'
 
-            # Find the SUSTAINED minimum before the peak — this is the
-            # print margin, not a brief column gutter dip. The margin
-            # stays low for at least 5 pixels; a gutter dips and recovers.
-            margin_thresh = paper_baseline_val + (body_median - paper_baseline_val) * 0.4
-            min_idx = peak_idx
-            min_val = peak_val
-            for x in range(peak_idx - 1, search_start + 5, -1):
-                # Check if this point and its neighbours are all below margin level
-                window = heavy[max(search_start, x-3):x+3]
-                if len(window) >= 5 and float(np.max(window)) < margin_thresh:
-                    min_idx = x
-                    min_val = float(heavy[x])
-                    break
-            # Fallback: if no sustained minimum found, use the deepest point
-            if min_idx == peak_idx:
-                min_idx = search_start + int(np.argmin(region))
-                min_val = float(heavy[min_idx])
-
-            thresh = min_val + 0.2 * (body_median - min_val)
-            edge_px = min_idx
-            for x in range(min_idx, search_start, -1):
-                if heavy[x] > thresh:
-                    edge_px = x
-                    break
-
-        # Confidence scoring:
-        # 1. Margin depth: how much lower is the minimum than body_median?
-        #    Full body_median drop = 1.0, no drop = 0.0
-        depth_ratio = (body_median - min_val) / max(1, body_median) if body_median > 0 else 0
-        depth_score = min(1.0, depth_ratio)
-
-        # 2. Peak clarity: how much higher is the shadow peak than the margin?
-        #    Strong shadow = clear separation. No shadow = we're guessing.
-        if peak_val > min_val + 5:
-            peak_score = min(1.0, (peak_val - min_val) / max(1, body_median))
+        # ── Primary: margin region from mean profile ──────────────
+        if direction > 0:
+            regions = _find_margin_regions(edge_px, search_end)
+            if regions:
+                ms, me = regions[0]
+                r3 = ms
+                ta = me + 1
+                method = 'margin'
         else:
-            peak_score = 0.2  # weak: no clear shadow/margin separation
+            regions = _find_margin_regions(search_end, edge_px)
+            if regions:
+                ms, me = regions[-1]
+                r3 = me
+                ta = ms - 1
+                method = 'margin'
 
-        # 3. Transition sharpness: how quickly does the profile rise from
-        #    minimum to threshold? Sharp = confident, gradual = uncertain.
-        rise_distance = abs(edge_px - min_idx)
-        if rise_distance < 3:
-            rise_score = 1.0   # very sharp
-        elif rise_distance < 10:
-            rise_score = 0.7
-        elif rise_distance < 20:
-            rise_score = 0.4
+        # ── Safety net: mean spike boundary ───────────────────────
+        # If there's a mean spike (> 2x content_floor) between the
+        # edge and our result, R3/TA cannot sit outside it.
+        # This prevents boundaries landing in the binding shadow.
+        spike_inner = edge_px
+        x = edge_px
+        end = search_end
+        while (direction > 0 and x < end) or (direction < 0 and x > end):
+            if smooth[x] >= spike_thresh:
+                while ((direction > 0 and x < end) or
+                       (direction < 0 and x > end)):
+                    if smooth[x] < spike_thresh:
+                        break
+                    x += direction
+                spike_inner = x
+            else:
+                x += direction
+
+        if direction > 0:
+            r3 = max(r3, spike_inner)
+            ta = max(ta, spike_inner)
         else:
-            rise_score = 0.2   # very gradual — low confidence
+            r3 = min(r3, spike_inner)
+            ta = min(ta, spike_inner)
 
-        confidence = (depth_score * 0.4 + peak_score * 0.3 + rise_score * 0.3)
-        return edge_px, round(confidence, 3)
+        if method == 'none' and spike_inner != edge_px:
+            method = 'spike'
 
-    # Left edge
-    margin_search_end = r3_left_px + int((r3_right_px - r3_left_px) * 0.2)
-    text_left_px, text_left_conf = _find_text_edge(
-        heavy, r3_left_px, margin_search_end, body_median, direction="right",
-        paper_baseline_val=paper_baseline,
-    )
+        # ── Fallback: ta = r3 ─────────────────────────────────────
+        if method == 'none':
+            ta = r3
 
-    # Right edge
-    margin_search_start = r3_right_px - int((r3_right_px - r3_left_px) * 0.2)
-    text_right_px, text_right_conf = _find_text_edge(
-        heavy, margin_search_start, r3_right_px, body_median, direction="left",
-        paper_baseline_val=paper_baseline,
-    )
+        return r3, ta, method
+
+    # ── Run detection on both sides ───────────────────────────────
+    r3_left_px, text_left_px, left_method = _detect_edge(r2_left_px, center_lo, +1)
+    r3_right_px, text_right_px, right_method = _detect_edge(r2_right_px, center_hi, -1)
+
+    # ── Enforce hierarchy ─────────────────────────────────────────
+    r3_left_px = max(r3_left_px, r2_left_px)
+    r3_right_px = min(r3_right_px, r2_right_px)
+    text_left_px = max(text_left_px, r3_left_px)
+    text_right_px = min(text_right_px, r3_right_px)
 
     # ── Build bounding boxes as % of page dimensions ─────────────────
     def bbox(left_px, right_px):
@@ -349,11 +289,33 @@ def find_rectangles(inv, h, w, gazette_page=None):
             "bottom": round(row_hi / h * 100, 2),
         }
 
+    # R2: prefer the exact PDF structural coordinates.
+    if pdf_image_rect:
+        r2 = {
+            "left": round(pdf_image_rect["left"], 2),
+            "right": round(pdf_image_rect["right"], 2),
+            "top": round(pdf_image_rect["top"], 2),
+            "bottom": round(pdf_image_rect["bottom"], 2),
+        }
+    else:
+        r2 = bbox(r2_left_px, r2_right_px)
+
+    # R3 and text_area as percentages, clamped to enforce hierarchy
+    # against the authoritative R2 values (avoids pixel rounding drift).
+    r3_box = bbox(r3_left_px, r3_right_px)
+    r3_box["left"] = max(r3_box["left"], r2["left"])
+    r3_box["right"] = min(r3_box["right"], r2["right"])
+
     text_area = bbox(text_left_px, text_right_px)
+    text_area["left"] = max(text_area["left"], r3_box["left"])
+    text_area["right"] = min(text_area["right"], r3_box["right"])
+
+    conf_map = {'margin': 0.9, 'spike': 0.8, 'none': 0.3}
+    text_left_conf = conf_map[left_method]
+    text_right_conf = conf_map[right_method]
     text_area["left_confidence"] = text_left_conf
     text_area["right_confidence"] = text_right_conf
 
-    # Label confidence by side role
     if clean_side == "left":
         text_area["clean_side_confidence"] = text_left_conf
         text_area["binding_side_confidence"] = text_right_conf
@@ -361,9 +323,19 @@ def find_rectangles(inv, h, w, gazette_page=None):
         text_area["clean_side_confidence"] = text_right_conf
         text_area["binding_side_confidence"] = text_left_conf
 
+    # ── Analysis profile for visualization ─────────────────────────
+    # Downsample the smooth darkness profile to 200 points (every 0.5%
+    # of page width). This is the data the viewer charts.
+    n_samples = 200
+    profile_xs = np.linspace(0, w - 1, n_samples).astype(int)
+    profile_chart = [
+        {"pct": round(x / w * 100, 2), "val": round(float(smooth[x]), 2)}
+        for x in profile_xs
+    ]
+
     return {
-        "r2": bbox(r2_left_px, r2_right_px),
-        "r3": bbox(r3_left_px, r3_right_px),
+        "r2": r2,
+        "r3": r3_box,
         "text_area": text_area,
         "binding_side": binding_side,
         "clean_side": clean_side,
@@ -372,6 +344,8 @@ def find_rectangles(inv, h, w, gazette_page=None):
         "paper_baseline": round(paper_baseline, 1),
         "paper_std": round(paper_std, 1),
         "shadow_thresh": round(shadow_thresh, 1),
+        "content_floor": round(content_floor, 1),
+        "profile_chart": profile_chart,
     }
 
 
@@ -423,10 +397,33 @@ def profile_page(pdf_path, page_number=0, profile_dpi=150, gazette_page=None):
 
     h, w = grey.shape
     inv = 255.0 - grey
+
+    # ── Extract R2 from PDF structure ────────────────────────────────
+    # The image placement rectangle in the PDF gives the exact position
+    # of the scanned image within the PDF page — far more accurate than
+    # raster analysis which is affected by smoothing and threshold choice.
+    pdf_image_rect = None
+    try:
+        images = page.get_images(full=True)
+        if images:
+            rects_list = page.get_image_rects(images[0][0])
+            if rects_list:
+                ir = rects_list[0]
+                # Convert from PDF points to percentage of page
+                pdf_image_rect = {
+                    "left": max(0, ir.x0 / pw * 100),
+                    "right": min(100, ir.x1 / pw * 100),
+                    "top": max(0, ir.y0 / ph * 100),
+                    "bottom": min(100, ir.y1 / ph * 100),
+                }
+    except Exception:
+        pass
+
     doc.close()
 
     # ── Detect nested rectangles ─────────────────────────────────────
-    rects = find_rectangles(inv, h, w, gazette_page=gazette_page)
+    rects = find_rectangles(inv, h, w, gazette_page=gazette_page,
+                            pdf_image_rect=pdf_image_rect)
 
     # ── Body region statistics (within text area) ────────────────────
     ta = rects["text_area"]
@@ -541,6 +538,11 @@ def profile_page(pdf_path, page_number=0, profile_dpi=150, gazette_page=None):
 
         # Quality
         "quality_flags": flags,
+
+        # Analysis chart data for viewer
+        "profile_chart": rects.get("profile_chart"),
+        "shadow_thresh": rects.get("shadow_thresh", 0),
+        "content_floor": rects.get("content_floor", 0),
     }
 
 

@@ -30,12 +30,13 @@ STRIP_WEIGHTS = {
 
 def detect_strips(pdf_path, ctx, dpi=450):
     """
-    Run find_column_boundaries on each strip within the text area.
+    Run find_column_boundaries on each strip within R3 (the newspaper
+    page boundary). We use R3 rather than text_area to avoid missing
+    columns near the edges — text_area can be too aggressive.
 
-    Returns list of raw detections, each with position, confidence,
-    strip number, and weight.
+    Returns (detections, strip_profiles).
     """
-    clip_x = (ctx.text_area_left / 100, ctx.text_area_right / 100)
+    clip_x = (ctx.r3_left / 100, ctx.r3_right / 100)
     dark_thresh = max(60, int(ctx.column_darkness_threshold))
     std_thresh = int(ctx.row_std_threshold)
 
@@ -45,42 +46,62 @@ def detect_strips(pdf_path, ctx, dpi=450):
     # Uses a tall vertical kernel to isolate column rules directly.
     # More effective than Hough on heritage scans with thin, faint rules.
     # Catches rules the darkness-peak method misses near page edges.
-    for grid_y in [5, 6]:  # middle strips only
+    for grid_y in [5, 6]:  # middle strips — morphological is most reliable here
         try:
             morph_results = find_column_boundaries_morph(
                 pdf_path, x=1, y=grid_y, w=10, h=1,
                 page_number=0, dpi=dpi,
                 clip_x_frac=clip_x,
             )
+            strip_y_start = (grid_y - 1) * 10
+            strip_y_end = grid_y * 10
             for r in morph_results:
-                if r.confidence in ("high", "medium"):
-                    all_detections.append({
-                        "pct": r.page_pct,
-                        "confidence": r.confidence,
-                        "row_std": 0,
-                        "valley_depth": r.valley_depth,
-                        "darkness": r.peak_darkness,
-                        "strip": grid_y,
-                        "weight": STRIP_WEIGHTS.get(grid_y, 1.0),
-                    })
+                if r.confidence not in ("high", "medium"):
+                    continue
+                # Apply same ad exclusion as darkness-peak detections
+                in_ad = False
+                for ax1, ax2, ay1, ay2 in ctx.ad_zones:
+                    if ax1 < r.page_pct < ax2 and ay1 < strip_y_end and ay2 > strip_y_start:
+                        in_ad = True
+                        break
+                if in_ad:
+                    continue
+                all_detections.append({
+                    "pct": r.page_pct,
+                    "confidence": r.confidence,
+                    "row_std": 0,
+                    "valley_depth": r.valley_depth,
+                    "darkness": r.peak_darkness,
+                    "strip": grid_y,
+                    "weight": STRIP_WEIGHTS.get(grid_y, 1.0),
+                })
         except Exception:
             pass
 
     # ── Darkness-peak detection (original method) ────────────────────
+    strip_profiles = []
     for grid_y in CONSENSUS_ROWS:
         strip_weight = STRIP_WEIGHTS.get(grid_y, 0.5)
         strip_y_start = (grid_y - 1) * 10
         strip_y_end = grid_y * 10
 
         try:
-            results = find_column_boundaries(
+            results, profile = find_column_boundaries(
                 pdf_path, x=1, y=grid_y, w=10, h=1,
                 page_number=0, dpi=dpi,
                 darkness_threshold=dark_thresh,
                 clip_x_frac=clip_x,
+                return_profile=True,
             )
         except Exception:
             continue
+
+        strip_profiles.append({
+            "strip": grid_y,
+            "y_start_pct": strip_y_start,
+            "y_end_pct": strip_y_end,
+            "profile": profile,
+        })
 
         for r in results:
             # Skip boundaries inside ad exclusion zones
@@ -92,10 +113,12 @@ def detect_strips(pdf_path, ctx, dpi=450):
             if in_ad:
                 continue
 
-            # Accept high/medium confidence, or low with good structure
+            # Accept high/medium confidence, valleys, or low with good structure
             if r.confidence in ("high", "medium"):
                 weight = strip_weight
-            elif r.row_std < std_thresh or r.valley_depth > 40:
+            elif r.confidence == "valley":
+                weight = strip_weight * 0.5
+            elif r.row_std < std_thresh:
                 weight = strip_weight * 0.5
             else:
                 continue
@@ -110,14 +133,17 @@ def detect_strips(pdf_path, ctx, dpi=450):
                 "weight": weight,
             })
 
-    return all_detections
+    return all_detections, strip_profiles, dark_thresh
 
 
 # ── Stage 2: Clustering ──────────────────────────────────────────────────────
 
-def cluster_boundaries(detections, merge_distance=2.0):
+def cluster_boundaries(detections, merge_distance=2.0,
+                       strip_profiles=None, ad_zones=None):
     """
     Cluster nearby detections and compute weighted positions.
+    Optionally reinforces/penalises using the composite rate-of-change
+    signal from strip profiles.
 
     Returns list of boundary dicts with position, confidence,
     strip count, weighted score, and drift.
@@ -132,6 +158,46 @@ def cluster_boundaries(detections, merge_distance=2.0):
             clusters[-1].append(d)
         else:
             clusters.append([d])
+
+    # ── Build composite rate-of-change from strip profiles ────────
+    # Sum strip values (zeroing ad zones), then compute abs change.
+    change_at_pct = None
+    if strip_profiles and len(strip_profiles) > 0:
+        ref = strip_profiles[0]["profile"]
+        composite = [0.0] * len(ref)
+        pcts = [p["pct"] for p in ref]
+        ad_z = ad_zones or []
+
+        for strip in strip_profiles:
+            sp = strip["profile"]
+            y1, y2 = strip["y_start_pct"], strip["y_end_pct"]
+            for i, pt in enumerate(sp):
+                if i >= len(composite):
+                    break
+                in_ad = any(
+                    az[0] < pt["pct"] < az[1] and az[2] < y2 and az[3] > y1
+                    for az in ad_z
+                )
+                if not in_ad:
+                    composite[i] += pt["val"]
+
+        # Absolute change
+        changes = [0.0]
+        for i in range(1, len(composite)):
+            changes.append(abs(composite[i] - composite[i - 1]))
+        max_change = max(changes) if changes else 1
+
+        # Build a lookup: for a given page-%, what's the normalised
+        # change score (0-1) in the nearest 2% window?
+        def _change_near(target_pct, window=1.0):
+            best = 0.0
+            for i, p in enumerate(pcts):
+                if abs(p - target_pct) <= window:
+                    if changes[i] > best:
+                        best = changes[i]
+            return best / max_change if max_change > 0 else 0
+
+        change_at_pct = _change_near
 
     boundaries = []
     for cluster in clusters:
@@ -151,8 +217,36 @@ def cluster_boundaries(detections, merge_distance=2.0):
         else:
             drift = 0.0
 
-        # Accept if reasonable support
-        if weighted_score >= 1.5 or strips_hit >= 3:
+        # Reinforce/penalise using composite rate-of-change.
+        # A change spike within 2% of the boundary reinforces it.
+        # No change spike nearby marks it as uncertain.
+        change_score = 0.0
+        if change_at_pct:
+            change_score = change_at_pct(wmean)
+            # Boost: up to 50% extra score for strong change agreement
+            weighted_score *= (1.0 + change_score * 0.5)
+            # Penalise: if change is very weak, reduce score
+            if change_score < 0.1:
+                weighted_score *= 0.7
+
+        # How many strips were available (not blocked by ads) at this x?
+        available_strips = len(CONSENSUS_ROWS)
+        if ad_zones:
+            for row in CONSENSUS_ROWS:
+                y1 = (row - 1) * 10
+                y2 = row * 10
+                for az in ad_zones:
+                    if az[0] < wmean < az[1] and az[2] < y2 and az[3] > y1:
+                        available_strips -= 1
+                        break
+
+        # Scale threshold by coverage: if only 2 of 7 strips are
+        # available, threshold drops proportionally
+        coverage = max(available_strips, 1) / len(CONSENSUS_ROWS)
+        accept_thresh = 1.5 * coverage
+
+        # Accept if reasonable support relative to what was available
+        if weighted_score >= accept_thresh or strips_hit >= min(3, available_strips):
             boundaries.append({
                 "x_pct": round(float(wmean), 2),
                 "confidence": best["confidence"],
@@ -199,84 +293,119 @@ def place_standard(boundaries, ctx):
     """
     Place columns for a standard page.
 
-    Strategy:
-    1. Remove narrow boundaries (< 65% of pitch)
-    2. Build clean-edge grid from text_area + pitch
-    3. Score clean-edge grid against detected boundaries
-    4. If good match (2+ hits): use clean-edge grid
-    5. Otherwise: use best anchor from detected boundaries
-    6. Constrain to expected column count
+    Strategy: build a grid at the established pitch, centred on
+    R2. Slide it left/right to maximise alignment with:
+      - Detected boundaries (strongest signal)
+      - Ad region edges (supporting signal)
+      - Text area edges (weak signal)
+    Constrain to R3 bounds and expected column count.
     """
-    if not boundaries:
-        # No detected boundaries — use expected positions from context
-        return _boundaries_from_positions(ctx.expected_boundaries)
+    num_cols = ctx.num_columns
+    n_boundaries = num_cols + 1
 
-    # Remove narrow gaps (ad borders)
-    positions = [b["x_pct"] for b in boundaries]
-    if len(positions) >= 3:
-        widths = [positions[i+1] - positions[i] for i in range(len(positions)-1)]
-        median_w = float(np.median(widths))
-        min_acceptable = median_w * 0.65
-        boundaries = _merge_narrow(boundaries, min_acceptable)
-        positions = [b["x_pct"] for b in boundaries]
+    if not boundaries and not ctx.expected_boundaries:
+        return []
 
-    # Build clean-edge grid from context
-    clean_grid = ctx.expected_boundaries
+    # ── Estimate pitch from this page's detected boundaries ───────
+    # Use the issue pitch as a reference to distinguish single-pitch
+    # gaps from doubled gaps (missed boundaries).
+    ref_pitch = ctx.pitch
+    page_gaps = []
+    if len(boundaries) >= 2:
+        positions = sorted(b["x_pct"] for b in boundaries)
+        for i in range(len(positions) - 1):
+            g = positions[i + 1] - positions[i]
+            if ref_pitch * 0.7 < g < ref_pitch * 1.4:
+                page_gaps.append(g)
+            elif ref_pitch * 1.4 <= g < ref_pitch * 2.5:
+                page_gaps.append(g / 2)
 
-    # Score clean-edge grid against detected boundaries (clean side only)
-    if ctx.clean_side == "left":
-        clean_det = [p for p in positions if p < 55]
+    if len(page_gaps) >= 3:
+        # Remove outliers: reject gaps more than 1.5 IQR from median
+        med = float(np.median(page_gaps))
+        q1 = float(np.percentile(page_gaps, 25))
+        q3 = float(np.percentile(page_gaps, 75))
+        iqr = q3 - q1
+        filtered = [g for g in page_gaps if q1 - 1.5 * iqr <= g <= q3 + 1.5 * iqr]
+        pitch = round(float(np.median(filtered if filtered else page_gaps)), 2)
+    elif page_gaps:
+        pitch = round(float(np.median(page_gaps)), 2)
     else:
-        clean_det = [p for p in positions if p > 45]
+        pitch = ref_pitch
 
-    clean_hits = 0
-    for det in clean_det:
-        if clean_grid:
-            nearest = min(clean_grid, key=lambda g: abs(g - det))
-            if abs(nearest - det) < 2.0:
-                clean_hits += 1
+    # ── Alignment targets ─────────────────────────────────────────
+    # Detected boundaries are the primary signal for grid positioning.
+    # Ad edges and text_area boost confidence of nearby boundaries
+    # but don't influence position directly.
+    targets = []
+    for b in boundaries:
+        # Use log of score to prevent any single boundary from
+        # dominating. A boundary with score 35 vs 4 should be
+        # stronger but not 9x stronger.
+        raw_score = max(b.get("weighted_score", 1.0), 0.1)
+        weight = 1.0 + np.log2(raw_score)
+        pos = b["x_pct"]
+        # Boost if an ad edge is within 2% — confirms this boundary
+        for az in ctx.ad_zones:
+            if abs(pos - az[0]) < 2.0 or abs(pos - az[1]) < 2.0:
+                weight *= 1.3
+                break
+        # Mild boost if text_area edge is within 2%
+        if abs(pos - ctx.text_area_left) < 2.0 or abs(pos - ctx.text_area_right) < 2.0:
+            weight *= 1.1
+        targets.append((pos, weight))
 
-    # Try anchor-based grids from detected boundaries
-    best_anchor_grid = None
-    best_anchor_score = -1
+    # ── Build candidate grids ─────────────────────────────────────
+    # Start from the centre of R2, try offsets from -pitch/2 to +pitch/2
+    # in small steps. Score each grid against the targets.
+    r2_center = (ctx.r3_left + ctx.r3_right) / 2
+    half_span = (n_boundaries // 2) * pitch
 
-    for b in boundaries[:5]:
-        anchor = b["x_pct"]
-        grid = [anchor]
-        x = anchor - ctx.pitch
-        while x > 0:
-            grid.append(round(x, 2))
-            x -= ctx.pitch
-        x = anchor + ctx.pitch
-        while x < 100:
-            grid.append(round(x, 2))
-            x += ctx.pitch
-        grid.sort()
+    best_grid = None
+    best_score = -1
 
-        # Trim to expected column count
-        if len(grid) > ctx.num_columns + 1:
-            anchor_idx = min(range(len(grid)), key=lambda i: abs(grid[i] - anchor))
-            start = max(0, anchor_idx - ctx.num_columns // 2)
-            end = start + ctx.num_columns + 1
-            if end > len(grid):
-                end = len(grid)
-                start = max(0, end - ctx.num_columns - 1)
-            grid = grid[start:end]
+    # Try 100 offsets across one pitch width
+    for step in range(100):
+        offset = -pitch / 2 + pitch * step / 100
 
-        hits = sum(1 for p in positions
-                   if min(abs(g - p) for g in grid) < 2.0)
-        score = hits
-        if score > best_anchor_score:
-            best_anchor_score = score
-            best_anchor_grid = grid
+        # Build grid centred on R2 centre + offset
+        center = r2_center + offset
+        grid = []
+        for i in range(n_boundaries):
+            pos = center - half_span + i * pitch
+            grid.append(round(pos, 2))
 
-    # Prefer clean-edge if it has 2+ hits
-    if clean_hits >= 2:
-        return _boundaries_from_positions(clean_grid)
-    elif best_anchor_grid and best_anchor_score >= 2:
-        return _boundaries_from_positions(best_anchor_grid)
+        # Constrain to R3, but allow the binding side to extend
+        # slightly past R3 — the last column on the binding side
+        # is often narrowed by page curvature into the spine.
+        bind_slack = pitch * 0.5
+        if ctx.binding_side == "left":
+            left_limit = ctx.r3_left - bind_slack
+            right_limit = ctx.r3_right
+        else:
+            left_limit = ctx.r3_left
+            right_limit = ctx.r3_right + bind_slack
+        grid = [g for g in grid if left_limit <= g <= right_limit]
+        if len(grid) < 3:
+            continue
+
+        # Score: sum of weighted proximity to targets.
+        # Gaussian-like falloff — rewards close matches strongly
+        # but still gives partial credit up to 3% away.
+        score = 0
+        for g in grid:
+            for t_pos, t_weight in targets:
+                dist = abs(g - t_pos)
+                if dist < 3.0:
+                    score += t_weight * np.exp(-(dist * dist) / (2 * 1.0 * 1.0))
+
+        if score > best_score:
+            best_score = score
+            best_grid = grid
+
+    if best_grid:
+        return _boundaries_from_positions(best_grid)
     else:
-        # Fallback to expected
         return _boundaries_from_positions(ctx.expected_boundaries)
 
 
