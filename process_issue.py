@@ -248,6 +248,13 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
 
     print(f"  {len(pages)} pages downloaded")
 
+    # ── Clean previous ad data for this issue ───────────────────────
+    _conn = __import__("sqlite3").connect(db_path)
+    _conn.execute("DELETE FROM detected_ads WHERE year=? AND month=? AND day=?",
+                  (year, month, day))
+    _conn.commit()
+    _conn.close()
+
     # ── Ad detection (before column detection) ─────────────────────
     print("Detecting display ads...")
     page_ads = {}  # page_num → list of ad dicts
@@ -471,6 +478,24 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
                 {"pct": b["x_pct"], "score": b.get("weighted_score", 0)}
                 for b in raw
             ]
+
+        # Headline detection — multi-column headlines identified by
+        # gutter-fill analysis
+        try:
+            from detect_headlines import detect_headlines
+            boundary_pcts = [b["x_pct"] for b in raw] if raw else []
+            if len(boundary_pcts) >= 3:
+                r2 = prof.get("r2", {})
+                headlines = detect_headlines(
+                    pdf_path, boundary_pcts,
+                    ad_zones=ctx.ad_zones,
+                    r2_top_pct=r2.get("top"),
+                    r2_bottom_pct=r2.get("bottom"))
+                if headlines:
+                    analysis["headlines"] = headlines
+        except Exception:
+            pass
+
         if analysis:
             with open(os.path.join(page_out, "page_analysis.json"), "w") as f:
                 json.dump(analysis, f)

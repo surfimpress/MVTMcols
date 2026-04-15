@@ -219,17 +219,22 @@ const LAYERS = [
         desc: 'Step 4 — Ad detection. Display advertisements found by OpenCV contour analysis. Bordered rectangular regions wider than 2 columns. These exclusion zones prevent ad borders being mistaken for column rules in the next step.'
     },
     {
-        id: 'detected', name: 'Detected boundaries', num: 5,
-        color: '#00cc44', style: 'solid', default: true, chart: true,
-        desc: 'Step 5 — Boundary detection. Raw column rule detections from multi-strip consensus, with ad zones excluded. Each line was found by the valley-spike-valley detector across 7 horizontal strips, weighted by position.'
+        id: 'headlines', name: 'Headlines', num: 5,
+        color: '#00cccc', style: 'dashed', default: false,
+        desc: 'Step 5 — Headline detection. Multi-column headlines identified by gutter-fill analysis. Where column gutters have content crossing them (ink where there should be white), the text spans columns. Regions excluded from boundary detection.'
     },
     {
-        id: 'columns', name: 'Final columns', num: 6,
+        id: 'detected', name: 'Detected boundaries', num: 6,
+        color: '#00cc44', style: 'solid', default: true, chart: true,
+        desc: 'Step 6 — Boundary detection. Raw column rule detections from multi-strip consensus, with ad and headline zones excluded. Each line was found by the valley-spike-valley detector across 7 horizontal strips, weighted by position.'
+    },
+    {
+        id: 'columns', name: 'Final columns', num: 7,
         color: '#4488ff', style: 'solid', default: true,
         desc: 'Step 6 — Column placement. Final boundaries after pitch establishment and grid projection. For standard pages: clean-edge grid at pitch. For page 2 editorial: 2 wide (1.5x) + regular columns.'
     },
     {
-        id: 'expected', name: 'Expected grid', num: 7,
+        id: 'expected', name: 'Expected grid', num: 8,
         color: '#ff44ff', style: 'dashed', default: false,
         desc: 'Reference — Where columns would be if the grid were mathematically perfect, stepping at the established pitch from the clean-side text edge. Compare against the blue placed lines to see deviations.'
     },
@@ -475,6 +480,18 @@ function updateOverlay() {
                     width="${pctToX(ad.w_pct || 10, w)}" height="${pctToY(ad.h_pct || 10, h)}"
                     fill="rgba(255,204,0,0.08)" stroke="#ffcc00" stroke-width="2" stroke-dasharray="8,4" opacity="0.7"/>`;
             }
+        });
+    }
+    // Headlines: semi-transparent cyan rectangles
+    if (active.headlines && a && a.headlines) {
+        a.headlines.forEach(hl => {
+            const x1 = pctToX(hl.x1_pct, w);
+            const y1 = pctToY(hl.y1_pct, h);
+            const bw = pctToX(hl.x2_pct - hl.x1_pct, w);
+            const bh = pctToY(hl.y2_pct - hl.y1_pct, h);
+            s += `<rect x="${x1}" y="${y1}" width="${bw}" height="${bh}"
+                fill="rgba(0,204,204,0.25)" stroke="#00cccc" stroke-width="2"
+                stroke-dasharray="6,3" opacity="${0.6 + hl.confidence * 0.4}"/>`;
         });
     }
     if (active.detected && a && a.detected_boundaries) {
