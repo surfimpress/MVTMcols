@@ -279,14 +279,94 @@ def place_page2_editorial(boundaries, ctx):
     """
     Place columns for page 2 editorial layout.
 
-    Arithmetic only: start from clean-side text_area edge,
-    step by 1.5× pitch twice, then by pitch for remaining columns.
-    No detection needed — the positions come from the context.
-
-    The expected_boundaries in the context already contain
-    the correct positions. We just use them directly.
+    Pattern: 2 wide columns (1.5× pitch) + 4 regular columns.
+    Build the pattern as intervals, then slide it to best align
+    with detected boundaries, same as place_standard but with
+    non-uniform spacing.
     """
-    return _boundaries_from_positions(ctx.expected_boundaries)
+    pitch = ctx.pitch
+    wide = ctx.wide_pitch
+
+    # Build the interval pattern: [wide, wide, pitch, pitch, pitch, pitch]
+    # This gives 7 boundaries for 6 columns.
+    intervals = [wide, wide] + [pitch] * 4
+    n_boundaries = len(intervals) + 1  # 7
+
+    if not boundaries:
+        return _boundaries_from_positions(ctx.expected_boundaries)
+
+    # Estimate per-page pitch from detections (same as place_standard)
+    ref_pitch = ctx.pitch
+    page_gaps = []
+    if len(boundaries) >= 2:
+        positions = sorted(b["x_pct"] for b in boundaries)
+        for i in range(len(positions) - 1):
+            g = positions[i + 1] - positions[i]
+            if ref_pitch * 0.7 < g < ref_pitch * 1.4:
+                page_gaps.append(g)
+            elif ref_pitch * 1.4 <= g < ref_pitch * 2.5:
+                page_gaps.append(g / 2)
+    if len(page_gaps) >= 3:
+        med = float(np.median(page_gaps))
+        q1 = float(np.percentile(page_gaps, 25))
+        q3 = float(np.percentile(page_gaps, 75))
+        iqr = q3 - q1
+        filtered = [g for g in page_gaps if q1 - 1.5 * iqr <= g <= q3 + 1.5 * iqr]
+        pitch = round(float(np.median(filtered if filtered else page_gaps)), 2)
+    elif page_gaps:
+        pitch = round(float(np.median(page_gaps)), 2)
+
+    wide = round(pitch * 1.5, 2)
+    intervals = [wide, wide] + [pitch] * 4
+
+    # Build targets from detected boundaries (log-weighted)
+    targets = []
+    for b in boundaries:
+        raw_score = max(b.get("weighted_score", 1.0), 0.1)
+        weight = 1.0 + np.log2(raw_score)
+        targets.append((b["x_pct"], weight))
+
+    # Slide the pattern across R2 centre, scoring against targets
+    r2_center = (ctx.r3_left + ctx.r3_right) / 2
+    total_span = sum(intervals)
+
+    best_grid = None
+    best_score = -1
+
+    for step in range(100):
+        start = r2_center - total_span / 2 - pitch / 2 + pitch * step / 100
+
+        grid = [round(start, 2)]
+        for iv in intervals:
+            grid.append(round(grid[-1] + iv, 2))
+
+        # Allow binding slack
+        bind_slack = pitch * 0.5
+        if ctx.binding_side == "left":
+            left_limit = ctx.r3_left - bind_slack
+            right_limit = ctx.r3_right
+        else:
+            left_limit = ctx.r3_left
+            right_limit = ctx.r3_right + bind_slack
+        grid = [g for g in grid if left_limit <= g <= right_limit]
+        if len(grid) < 3:
+            continue
+
+        score = 0
+        for g in grid:
+            for t_pos, t_weight in targets:
+                dist = abs(g - t_pos)
+                if dist < 3.0:
+                    score += t_weight * np.exp(-(dist * dist) / 2.0)
+
+        if score > best_score:
+            best_score = score
+            best_grid = grid
+
+    if best_grid:
+        return _boundaries_from_positions(best_grid)
+    else:
+        return _boundaries_from_positions(ctx.expected_boundaries)
 
 
 def place_standard(boundaries, ctx):
