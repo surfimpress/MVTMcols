@@ -220,7 +220,7 @@ const LAYERS = [
     },
     {
         id: 'headlines', name: 'Headlines', num: 5,
-        color: '#00cccc', style: 'dashed', default: false,
+        color: '#00cccc', style: 'dashed', default: false, chart: true,
         desc: 'Step 5 — Headline detection. Multi-column headlines identified by gutter-fill analysis. Where column gutters have content crossing them (ink where there should be white), the text spans columns. Regions excluded from boundary detection.'
     },
     {
@@ -482,6 +482,19 @@ function updateOverlay() {
             }
         });
     }
+    // Unbordered ads: detected via gutter-fill but classified as ads
+    // (too tall, contain graphics, or low text variance)
+    if (active.ads && a && a.unbordered_ads) {
+        a.unbordered_ads.forEach(ua => {
+            const x1 = pctToX(ua.x1_pct, w);
+            const y1 = pctToY(ua.y1_pct, h);
+            const bw = pctToX(ua.x2_pct - ua.x1_pct, w);
+            const bh = pctToY(ua.y2_pct - ua.y1_pct, h);
+            s += `<rect x="${x1}" y="${y1}" width="${bw}" height="${bh}"
+                fill="rgba(255,160,0,0.1)" stroke="#ffa000" stroke-width="1.5"
+                stroke-dasharray="4,4" opacity="0.8"/>`;
+        });
+    }
     // Headlines: semi-transparent cyan rectangles
     if (active.headlines && a && a.headlines) {
         a.headlines.forEach(hl => {
@@ -651,6 +664,74 @@ function updateOverlay() {
             const threshY = stripY1 - (darkThresh / SCALE) * stripH;
             s += `<line x1="0" y1="${threshY}" x2="${w}" y2="${threshY}"
                 stroke="#ff6644" stroke-width="1" stroke-dasharray="4,3" opacity="0.8"/>`;
+        }
+    }
+
+    // Headline analysis charts: shown when headlines chart toggle is on.
+    // Each headline/unbordered ad region gets a small row-profile chart
+    // rendered to its left, showing the horizontal-blur result at full
+    // row resolution. Body text shows fine regular stripes; headlines
+    // show thick sparse peaks.
+    if (active.headlines && chartOn.headlines && a) {
+        const SCALE = 180; // body text peaks (~80-100) land at ~50% width
+        const chartW = w * 0.06;
+
+        // Render chart for each headline
+        const allRegions = [...(a.headlines || []), ...(a.unbordered_ads || [])];
+        for (const region of allRegions) {
+            const chart = region.row_chart;
+            if (!chart || chart.length < 2) continue;
+
+            const rx1 = pctToX(region.x1_pct, w);
+            const ry1 = pctToY(region.y1_pct, h);
+            const ry2 = pctToY(region.y2_pct, h);
+            const regionH = ry2 - ry1;
+            const cx = rx1 - chartW - 4; // position chart to the left of region
+
+            // Background
+            s += `<rect x="${cx}" y="${ry1}" width="${chartW}" height="${regionH}"
+                fill="rgba(0,40,40,0.6)"/>`;
+
+            // Row profile: split into body text (red) and non-body (cyan) segments
+            let curBody = chart[0]?.body || false;
+            let segStart = 0;
+            const drawSeg = (start, end, isBody) => {
+                if (end <= start) return;
+                const seg = chart.slice(start, end + 1);
+                let path = `M ${cx} ${pctToY(seg[0].y_pct, h)}`;
+                for (const p of seg) {
+                    const y = pctToY(p.y_pct, h);
+                    const x = cx + Math.min((p.val / SCALE) * chartW, chartW);
+                    path += ` L ${x} ${y}`;
+                }
+                path += ` L ${cx} ${pctToY(seg[seg.length-1].y_pct, h)} Z`;
+                const fill = 'rgba(0,220,220,0.35)';
+                const stroke = isBody ? 'rgba(255,255,255,1.0)' : 'rgba(0,255,255,0.7)';
+                s += `<path d="${path}" fill="${fill}" stroke="${stroke}" stroke-width="${isBody ? 2 : 0.5}"/>`;
+            };
+            for (let i = 1; i < chart.length; i++) {
+                const b = chart[i].body || false;
+                if (b !== curBody) {
+                    drawSeg(segStart, i - 1, curBody);
+                    segStart = i;
+                    curBody = b;
+                }
+            }
+            drawSeg(segStart, chart.length - 1, curBody);
+        }
+
+        // Gutter fill ranges
+        if (a.gutter_fills) {
+            for (const gutter of a.gutter_fills) {
+                const gx = pctToX(gutter.x_pct, w);
+                const barW = Math.max(6, w * 0.008);
+                for (const range of gutter.ranges) {
+                    const y1 = pctToY(range.y1_pct, h);
+                    const y2 = pctToY(range.y2_pct, h);
+                    s += `<rect x="${gx - barW/2}" y="${y1}" width="${barW}" height="${y2 - y1}"
+                        fill="rgba(0,255,255,0.4)" stroke="rgba(0,220,220,0.8)" stroke-width="1"/>`;
+                }
+            }
         }
     }
 

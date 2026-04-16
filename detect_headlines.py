@@ -98,7 +98,6 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
 
     # A gutter is "filled" when its darkness is well above its own
     # baseline. Use 2× baseline or baseline + 40, whichever is higher.
-    # This catches headlines on both clean and noisy pages.
     gutter_filled = np.zeros((n_blocks, n_gutters), dtype=bool)
     for gi in range(n_gutters):
         fill_thresh = max(gutter_baseline[gi] * 2, gutter_baseline[gi] + 40)
@@ -216,8 +215,34 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
         x1_pct = column_boundaries[left_bound_idx]
         x2_pct = column_boundaries[right_bound_idx]
 
-        y1_pct = round(m["b_start"] * block_h / h * 100, 1)
-        y2_pct = round(min((m["b_end"] + 1) * block_h, h) / h * 100, 1)
+        # Vertical extent: start from the gutter-fill blocks, then
+        # extend up and down to capture the full text height.
+        # Check adjacent rows for significant darkness at the same
+        # horizontal extent.
+        y1_px = m["b_start"] * block_h
+        y2_px = min((m["b_end"] + 1) * block_h, h)
+        x1_px = int(x1_pct / 100 * w)
+        x2_px = int(x2_pct / 100 * w)
+        extend_thresh = 15  # darkness above this = still part of headline
+
+        # Extend upward
+        while y1_px > 0:
+            row_above = inv[max(0, y1_px - 3):y1_px, x1_px:x2_px]
+            if row_above.size > 0 and float(row_above.mean()) > extend_thresh:
+                y1_px -= 3
+            else:
+                break
+
+        # Extend downward
+        while y2_px < h:
+            row_below = inv[y2_px:min(h, y2_px + 3), x1_px:x2_px]
+            if row_below.size > 0 and float(row_below.mean()) > extend_thresh:
+                y2_px += 3
+            else:
+                break
+
+        y1_pct = round(max(0, y1_px) / h * 100, 1)
+        y2_pct = round(min(y2_px, h) / h * 100, 1)
 
         # Skip if ANY overlap with an ad zone
         in_ad = False
@@ -273,19 +298,198 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
     y_min = r2_top_pct if r2_top_pct is not None else 0
     y_max = r2_bottom_pct if r2_bottom_pct is not None else 100
 
-    # Filter: require minimum 3 columns spanned or high confidence.
-    # Must be within the scanned image area.
-    final = []
+    # ── Content classification ────────────────────────────────────
+    # Analyse each region to classify as headline or unbordered ad.
+    #
+    # Headlines: short (< 9% of page height), text-like content
+    #   (high row-variance = alternating text/gap rows), low graphics
+    #
+    # Unbordered ads: taller, or contain illustrations (low row-variance,
+    #   dense dark areas), or mixed content types
+    max_headline_height = 9.0  # % of page
+    graphics_thresh = 0.35     # if >35% of region is very dark = graphics
+
+    classified_headlines = []
+    unbordered_ads = []
+
     for hl in kept:
         if hl["y1_pct"] < y_min or hl["y2_pct"] > y_max:
             continue
-        if hl["cols_spanned"] >= 3:
-            final.append(hl)
-        elif hl["confidence"] >= 0.8 and hl["cols_spanned"] >= 2:
-            final.append(hl)
+        if hl["cols_spanned"] < 2:
+            continue
 
-    final.sort(key=lambda hl: (hl["y1_pct"], hl["x1_pct"]))
-    return final
+        height_pct = hl["y2_pct"] - hl["y1_pct"]
+
+        # Extract the region from the image
+        ry1 = int(hl["y1_pct"] / 100 * h)
+        ry2 = int(hl["y2_pct"] / 100 * h)
+        rx1 = int(hl["x1_pct"] / 100 * w)
+        rx2 = int(hl["x2_pct"] / 100 * w)
+        region = inv[ry1:ry2, rx1:rx2]
+
+        if region.size == 0:
+            continue
+
+        # Row-variance and graphics density for illustration detection
+        row_means = region.mean(axis=1)
+        row_var = float(np.std(row_means)) if len(row_means) > 1 else 0
+        very_dark = float(np.mean(region > 150))
+
+        # ── Body text vs headline classification ──────────────────
+        # Analyse the horizontal-blur row profile in sliding windows.
+        # Two metrics distinguish body text from headlines:
+        #   Peak spacing: body text < 6px, headlines > 7px
+        #   Contrast: body text < 40, headlines > 45
+        blurred_rows = region.mean(axis=1)
+        window = 20
+        body_rows = 0
+        headline_rows = 0
+        total_rows = len(blurred_rows)
+
+        if total_rows > window:
+            for start in range(0, total_rows - window, window // 2):
+                chunk = blurred_rows[start:start + window]
+                # Find peaks and troughs
+                peaks_v, troughs_v, peak_pos = [], [], []
+                for j in range(1, len(chunk) - 1):
+                    if chunk[j] > chunk[j-1] and chunk[j] > chunk[j+1]:
+                        peaks_v.append(chunk[j])
+                        peak_pos.append(j)
+                    if chunk[j] < chunk[j-1] and chunk[j] < chunk[j+1]:
+                        troughs_v.append(chunk[j])
+
+                if len(peaks_v) >= 2 and troughs_v:
+                    mean_spacing = float(np.mean(np.diff(peak_pos)))
+                    contrast = float(np.mean(peaks_v)) - float(np.mean(troughs_v))
+
+                    if mean_spacing < 6 and contrast < 40:
+                        body_rows += window
+                    elif mean_spacing > 7 and contrast > 45:
+                        headline_rows += window
+
+        body_frac = body_rows / max(total_rows, 1)
+        headline_frac = headline_rows / max(total_rows, 1)
+
+        # Region-level decision
+        if body_frac > 0.7:
+            is_headline = False  # reject — mostly body text
+        elif height_pct >= max_headline_height:
+            is_headline = False  # too tall
+        elif very_dark >= graphics_thresh:
+            is_headline = False  # graphics/illustration
+        elif row_var <= 10:
+            is_headline = False  # low variance (illustration)
+        else:
+            is_headline = True
+
+        entry = {
+            "x1_pct": hl["x1_pct"],
+            "x2_pct": hl["x2_pct"],
+            "y1_pct": hl["y1_pct"],
+            "y2_pct": hl["y2_pct"],
+            "cols_spanned": hl["cols_spanned"],
+            "confidence": hl["confidence"],
+        }
+
+        if is_headline:
+            classified_headlines.append(entry)
+        else:
+            entry["reason"] = []
+            if body_frac > 0.7:
+                entry["reason"].append("body_text")
+            if height_pct >= max_headline_height:
+                entry["reason"].append("too_tall")
+            if very_dark >= graphics_thresh:
+                entry["reason"].append("graphics")
+            if row_var <= 10:
+                entry["reason"].append("low_variance")
+            unbordered_ads.append(entry)
+
+    classified_headlines.sort(key=lambda hl: (hl["y1_pct"], hl["x1_pct"]))
+    unbordered_ads.sort(key=lambda a: (a["y1_pct"], a["x1_pct"]))
+
+    # Build per-region analysis charts: horizontal-blur row profile
+    # within each detected region. Each row is averaged horizontally
+    # across the region's width (motion blur effect), sampled at
+    # every pixel row for full resolution to show body text rhythm.
+    # Body text: regular fine stripes. Headlines: thick sparse peaks.
+    all_regions = classified_headlines + unbordered_ads
+    for region_entry in all_regions:
+        ry1 = int(region_entry["y1_pct"] / 100 * h)
+        ry2 = int(region_entry["y2_pct"] / 100 * h)
+        rx1 = int(region_entry["x1_pct"] / 100 * w)
+        rx2 = int(region_entry["x2_pct"] / 100 * w)
+        if ry2 <= ry1 or rx2 <= rx1:
+            continue
+        # Row-wise mean within this region's horizontal extent.
+        # Raw values, no normalisation — same absolute scale for all
+        # regions so charts are directly comparable.
+        region_rows = inv[ry1:ry2, rx1:rx2].mean(axis=1)
+        # Sample every row — full resolution so body text lines are visible
+        chart = []
+        for i, val in enumerate(region_rows):
+            y_pct = round((ry1 + i) / h * 100, 2)
+            chart.append({"y_pct": y_pct, "val": round(float(val), 1)})
+
+        # Mark body text segments using peak spacing + contrast.
+        # Same method as the classification step above.
+        is_body = [False] * len(chart)
+        vals_arr = np.array([p["val"] for p in chart])
+        win = 20
+        if len(vals_arr) > win:
+            for start in range(0, len(vals_arr) - win, win // 2):
+                chunk = vals_arr[start:start + win]
+                peaks_v, peak_pos, troughs_v = [], [], []
+                for j in range(1, len(chunk) - 1):
+                    if chunk[j] > chunk[j-1] and chunk[j] > chunk[j+1]:
+                        peaks_v.append(chunk[j])
+                        peak_pos.append(j)
+                    if chunk[j] < chunk[j-1] and chunk[j] < chunk[j+1]:
+                        troughs_v.append(chunk[j])
+                if len(peaks_v) >= 2 and troughs_v:
+                    spacing = float(np.mean(np.diff(peak_pos)))
+                    contrast = float(np.mean(peaks_v)) - float(np.mean(troughs_v))
+                    if spacing < 6 and contrast < 40:
+                        for k in range(start, min(start + win, len(chart))):
+                            is_body[k] = True
+
+        for idx, b in enumerate(is_body):
+            chart[idx]["body"] = b
+
+        region_entry["row_chart"] = chart
+
+    # Also include per-gutter fill state for the overlay
+    gutter_fills = []
+    for gi in range(n_gutters):
+        gutter_pct = round(gutter_xs[gi] / w * 100, 1)
+        filled_ranges = []
+        in_fill = False
+        fill_start = 0
+        for bi in range(n_blocks):
+            if gutter_filled[bi, gi]:
+                if not in_fill:
+                    fill_start = bi * block_h
+                    in_fill = True
+            else:
+                if in_fill:
+                    filled_ranges.append({
+                        "y1_pct": round(fill_start / h * 100, 1),
+                        "y2_pct": round(bi * block_h / h * 100, 1),
+                    })
+                    in_fill = False
+        if in_fill:
+            filled_ranges.append({
+                "y1_pct": round(fill_start / h * 100, 1),
+                "y2_pct": round(min(n_blocks * block_h, h) / h * 100, 1),
+            })
+        if filled_ranges:
+            gutter_fills.append({"x_pct": gutter_pct, "ranges": filled_ranges})
+
+    analysis_data = {
+        "gutter_fills": gutter_fills,
+    }
+
+    return classified_headlines, unbordered_ads, analysis_data
 
 
 if __name__ == "__main__":
@@ -311,13 +515,18 @@ if __name__ == "__main__":
         for az in ads:
             ad_zones.append((az["x1"], az["x2"], az["y1"], az["y2"]))
 
-        headlines = detect_headlines(pdf_path, boundaries, ad_zones=ad_zones)
+        headlines, unbordered, _ = detect_headlines(pdf_path, boundaries, ad_zones=ad_zones)
 
         issue = pdf_path.split("/")[-1].rsplit("-", 1)[0]
         print(f"\n{issue}:")
-        if not headlines:
-            print("  No headlines detected")
+        if not headlines and not unbordered:
+            print("  No detections")
         for hl in headlines:
-            print(f"  x={hl['x1_pct']:.0f}-{hl['x2_pct']:.0f}% "
+            print(f"  HEADLINE: x={hl['x1_pct']:.0f}-{hl['x2_pct']:.0f}% "
                   f"y={hl['y1_pct']:.0f}-{hl['y2_pct']:.0f}% "
                   f"cols={hl['cols_spanned']} conf={hl['confidence']}")
+        for ua in unbordered:
+            reason = ','.join(ua.get('reason', []))
+            print(f"  UNBORDERED AD: x={ua['x1_pct']:.0f}-{ua['x2_pct']:.0f}% "
+                  f"y={ua['y1_pct']:.0f}-{ua['y2_pct']:.0f}% "
+                  f"cols={ua['cols_spanned']} [{reason}]")
