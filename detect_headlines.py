@@ -390,15 +390,15 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
                     if len(peaks_v) >= 2 and troughs_v:
                         mean_spacing = float(np.mean(np.diff(peak_pos)))
                         contrast = float(np.mean(peaks_v)) - float(np.mean(troughs_v))
-                        # Key body text signal: troughs reach near-zero.
-                        # Body text has complete white inter-line gaps.
-                        # Headlines have larger type that doesn't drop to zero.
                         trough_min = float(np.min(troughs_v))
                         troughs_near_zero = trough_min < 10
 
-                        if troughs_near_zero and mean_spacing < 12:
+                        # Body text: tight spacing AND troughs near zero.
+                        # Both conditions required — headlines can have
+                        # near-zero troughs too but with wider spacing.
+                        if troughs_near_zero and mean_spacing < 7:
                             body_rows += window
-                        elif mean_spacing > 12 and not troughs_near_zero:
+                        elif mean_spacing >= 7:
                             headline_rows += window
 
         total_samples = total_rows * max(len(col_centres), 1)
@@ -428,10 +428,13 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
 
         if is_headline:
             classified_headlines.append(entry)
+        elif body_frac > 0.7:
+            # Body text false positive — discard entirely, don't promote to ad
+            pass
         else:
+            # Genuine non-headline content (graphics, too tall, illustration)
+            # — promote to unbordered ad
             entry["reason"] = []
-            if body_frac > 0.7:
-                entry["reason"].append("body_text")
             if height_pct >= max_headline_height:
                 entry["reason"].append("too_tall")
             if very_dark >= graphics_thresh:
@@ -474,44 +477,46 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
             sx2 = min(rx2, ccx + sample_hw)
             if sx2 > sx1:
                 col_profiles.append(inv[ry1:ry2, sx1:sx2].mean(axis=1))
-        if col_profiles:
-            # Use the column with the clearest signal (highest std = most contrast)
-            best = max(col_profiles, key=lambda p: float(np.std(p)))
-            region_rows = best
-        else:
-            region_rows = inv[ry1:ry2, rx1:rx2].mean(axis=1)
-        # Sample every row — full resolution so body text lines are visible
-        chart = []
-        for i, val in enumerate(region_rows):
-            y_pct = round((ry1 + i) / h * 100, 2)
-            chart.append({"y_pct": y_pct, "val": round(float(val), 1)})
+        if not col_profiles:
+            col_profiles = [inv[ry1:ry2, rx1:rx2].mean(axis=1)]
+        # Build a chart per column — each column sampled independently
+        col_charts = []
+        for cp in col_profiles:
+            chart = []
+            for i, val in enumerate(cp):
+                y_pct = round((ry1 + i) / h * 100, 2)
+                chart.append({"y_pct": y_pct, "val": round(float(val), 1)})
 
-        # Mark body text segments using peak spacing + contrast.
-        # Same method as the classification step above.
-        is_body = [False] * len(chart)
-        vals_arr = np.array([p["val"] for p in chart])
-        win = 20
-        if len(vals_arr) > win:
-            for start in range(0, len(vals_arr) - win, win // 2):
-                chunk = vals_arr[start:start + win]
-                peaks_v, peak_pos, troughs_v = [], [], []
-                for j in range(1, len(chunk) - 1):
-                    if chunk[j] > chunk[j-1] and chunk[j] > chunk[j+1]:
-                        peaks_v.append(chunk[j])
-                        peak_pos.append(j)
-                    if chunk[j] < chunk[j-1] and chunk[j] < chunk[j+1]:
-                        troughs_v.append(chunk[j])
-                if len(peaks_v) >= 2 and troughs_v:
-                    spacing = float(np.mean(np.diff(peak_pos)))
-                    trough_min = float(np.min(troughs_v))
-                    if trough_min < 10 and spacing < 12:
-                        for k in range(start, min(start + win, len(chart))):
-                            is_body[k] = True
+            # Mark body text segments using near-zero trough detection
+            is_body = [False] * len(chart)
+            vals_arr = np.array([p["val"] for p in chart])
+            win = 20
+            if len(vals_arr) > win:
+                for start in range(0, len(vals_arr) - win, win // 2):
+                    chunk = vals_arr[start:start + win]
+                    peaks_v, peak_pos, troughs_v = [], [], []
+                    for j in range(1, len(chunk) - 1):
+                        if chunk[j] > chunk[j-1] and chunk[j] > chunk[j+1]:
+                            peaks_v.append(chunk[j])
+                            peak_pos.append(j)
+                        if chunk[j] < chunk[j-1] and chunk[j] < chunk[j+1]:
+                            troughs_v.append(chunk[j])
+                    if len(peaks_v) >= 2 and troughs_v:
+                        spacing = float(np.mean(np.diff(peak_pos)))
+                        trough_min = float(np.min(troughs_v))
+                        if trough_min < 10 and spacing < 7:
+                            for k in range(start, min(start + win, len(chart))):
+                                is_body[k] = True
 
-        for idx, b in enumerate(is_body):
-            chart[idx]["body"] = b
+            for idx, b in enumerate(is_body):
+                chart[idx]["body"] = b
+            col_charts.append(chart)
 
-        region_entry["row_chart"] = chart
+        # Store first column chart as row_chart (backwards compat)
+        # and all charts as col_charts
+        region_entry["row_chart"] = col_charts[0] if col_charts else []
+        if len(col_charts) > 1:
+            region_entry["col_charts"] = col_charts
 
     # Also include per-gutter fill state for the overlay
     gutter_fills = []

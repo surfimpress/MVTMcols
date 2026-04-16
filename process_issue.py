@@ -426,7 +426,10 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
 
         # Save analysis data for the viewer (profile chart + strip profiles
         # + raw detected boundary positions before placement)
-        analysis = {}
+        import time as _time
+        analysis = {
+            "run_id": int(_time.time()),  # iteration identifier
+        }
         profile_chart = prof.get("profile_chart")
         if profile_chart:
             analysis["profile_chart"] = profile_chart

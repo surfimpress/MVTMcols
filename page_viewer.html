@@ -390,6 +390,13 @@ async function loadPageMeta() {
         window._analysis = await resp.json();
     } catch(e) { window._analysis = null; }
 
+    // Show run iteration in info bar
+    if (window._analysis && window._analysis.run_id) {
+        const rid = window._analysis.run_id;
+        const infoBar = document.getElementById('info-bar');
+        infoBar.innerHTML = `<span>Run:</span> <span class="info-val">${rid}</span><br>` + infoBar.innerHTML;
+    }
+
     updateOverlay();
 }
 
