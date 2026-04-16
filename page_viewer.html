@@ -678,7 +678,9 @@ function updateOverlay() {
 
         // Render chart for each headline
         const allRegions = [...(a.headlines || []), ...(a.unbordered_ads || [])];
+        let regionIdx = 0;
         for (const region of allRegions) {
+            regionIdx++;
             const chart = region.row_chart;
             if (!chart || chart.length < 2) continue;
 
@@ -718,6 +720,13 @@ function updateOverlay() {
                 }
             }
             drawSeg(segStart, chart.length - 1, curBody);
+
+            // Reference number
+            const isHL = !region.reason;
+            const labelBg = isHL ? 'rgba(0,180,180,0.8)' : 'rgba(200,120,0,0.8)';
+            s += `<rect x="${cx}" y="${ry1 - 1}" width="14" height="13" rx="2" fill="${labelBg}"/>`;
+            s += `<text x="${cx + 7}" y="${ry1 + 9}" fill="#fff" font-size="10"
+                font-weight="bold" text-anchor="middle">${regionIdx}</text>`;
         }
 
         // Gutter fill ranges

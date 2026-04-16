@@ -61,6 +61,13 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
     h, w = grey.shape
     inv = 255.0 - grey  # dark = high
 
+    # Estimate pitch from boundary gaps
+    pitch_estimate = None
+    if len(column_boundaries) >= 2:
+        gaps = [column_boundaries[i+1] - column_boundaries[i]
+                for i in range(len(column_boundaries) - 1)]
+        pitch_estimate = float(np.median(gaps))
+
     # Convert boundary positions to pixel x coordinates
     gutter_xs = [int(b / 100 * w) for b in column_boundaries]
     # Only use interior gutters (not the outer edges)
@@ -320,11 +327,16 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
 
         height_pct = hl["y2_pct"] - hl["y1_pct"]
 
-        # Extract the region from the image
+        # Extract the region from the image, inset by 5% on each side
+        # horizontally to exclude column rules and gutter noise at edges
         ry1 = int(hl["y1_pct"] / 100 * h)
         ry2 = int(hl["y2_pct"] / 100 * h)
-        rx1 = int(hl["x1_pct"] / 100 * w)
-        rx2 = int(hl["x2_pct"] / 100 * w)
+        rx1_full = int(hl["x1_pct"] / 100 * w)
+        rx2_full = int(hl["x2_pct"] / 100 * w)
+        region_w = rx2_full - rx1_full
+        inset = max(int(region_w * 0.05), 2)
+        rx1 = rx1_full + inset
+        rx2 = rx2_full - inset
         region = inv[ry1:ry2, rx1:rx2]
 
         if region.size == 0:
@@ -336,39 +348,62 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
         very_dark = float(np.mean(region > 150))
 
         # ── Body text vs headline classification ──────────────────
-        # Analyse the horizontal-blur row profile in sliding windows.
-        # Two metrics distinguish body text from headlines:
-        #   Peak spacing: body text < 6px, headlines > 7px
-        #   Contrast: body text < 40, headlines > 45
-        blurred_rows = region.mean(axis=1)
+        # Sample from the middle zone of each column independently,
+        # not across the full width. Adjacent columns often have text
+        # lines at different vertical positions — averaging across
+        # both muddies the signal. Sampling each column's centre gives
+        # a clean single-column rhythm.
+        #
+        # Estimate column centres from the region width and pitch.
+        # Sample a strip ~30% of pitch wide from each column's centre.
+        region_w_pct = hl["x2_pct"] - hl["x1_pct"]
+        approx_pitch_px = int(pitch_estimate / 100 * w) if pitch_estimate else int(region_w_pct / hl["cols_spanned"] / 100 * w)
+        sample_hw = max(int(approx_pitch_px * 0.15), 5)  # half-width of sample strip
+
+        # Build column centre positions within the region
+        n_cols = hl["cols_spanned"]
+        col_width_px = (rx2 - rx1) // max(n_cols, 1)
+        col_centres = [rx1 + int((i + 0.5) * col_width_px) for i in range(n_cols)]
+
         window = 20
         body_rows = 0
         headline_rows = 0
-        total_rows = len(blurred_rows)
+        total_rows = ry2 - ry1
 
         if total_rows > window:
-            for start in range(0, total_rows - window, window // 2):
-                chunk = blurred_rows[start:start + window]
-                # Find peaks and troughs
-                peaks_v, troughs_v, peak_pos = [], [], []
-                for j in range(1, len(chunk) - 1):
-                    if chunk[j] > chunk[j-1] and chunk[j] > chunk[j+1]:
-                        peaks_v.append(chunk[j])
-                        peak_pos.append(j)
-                    if chunk[j] < chunk[j-1] and chunk[j] < chunk[j+1]:
-                        troughs_v.append(chunk[j])
+            for col_cx in col_centres:
+                # Extract a narrow vertical strip from this column's centre
+                sx1 = max(0, col_cx - sample_hw)
+                sx2 = min(w, col_cx + sample_hw)
+                strip = inv[ry1:ry2, sx1:sx2].mean(axis=1)
 
-                if len(peaks_v) >= 2 and troughs_v:
-                    mean_spacing = float(np.mean(np.diff(peak_pos)))
-                    contrast = float(np.mean(peaks_v)) - float(np.mean(troughs_v))
+                for start in range(0, len(strip) - window, window // 2):
+                    chunk = strip[start:start + window]
+                    peaks_v, troughs_v, peak_pos = [], [], []
+                    for j in range(1, len(chunk) - 1):
+                        if chunk[j] > chunk[j-1] and chunk[j] > chunk[j+1]:
+                            peaks_v.append(chunk[j])
+                            peak_pos.append(j)
+                        if chunk[j] < chunk[j-1] and chunk[j] < chunk[j+1]:
+                            troughs_v.append(chunk[j])
 
-                    if mean_spacing < 6 and contrast < 40:
-                        body_rows += window
-                    elif mean_spacing > 7 and contrast > 45:
-                        headline_rows += window
+                    if len(peaks_v) >= 2 and troughs_v:
+                        mean_spacing = float(np.mean(np.diff(peak_pos)))
+                        contrast = float(np.mean(peaks_v)) - float(np.mean(troughs_v))
+                        # Key body text signal: troughs reach near-zero.
+                        # Body text has complete white inter-line gaps.
+                        # Headlines have larger type that doesn't drop to zero.
+                        trough_min = float(np.min(troughs_v))
+                        troughs_near_zero = trough_min < 10
 
-        body_frac = body_rows / max(total_rows, 1)
-        headline_frac = headline_rows / max(total_rows, 1)
+                        if troughs_near_zero and mean_spacing < 12:
+                            body_rows += window
+                        elif mean_spacing > 12 and not troughs_near_zero:
+                            headline_rows += window
+
+        total_samples = total_rows * max(len(col_centres), 1)
+        body_frac = body_rows / max(total_samples, 1)
+        headline_frac = headline_rows / max(total_samples, 1)
 
         # Region-level decision
         if body_frac > 0.7:
@@ -417,14 +452,34 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
     for region_entry in all_regions:
         ry1 = int(region_entry["y1_pct"] / 100 * h)
         ry2 = int(region_entry["y2_pct"] / 100 * h)
-        rx1 = int(region_entry["x1_pct"] / 100 * w)
-        rx2 = int(region_entry["x2_pct"] / 100 * w)
+        rx1_full = int(region_entry["x1_pct"] / 100 * w)
+        rx2_full = int(region_entry["x2_pct"] / 100 * w)
+        rw = rx2_full - rx1_full
+        inset = max(int(rw * 0.05), 2)
+        rx1 = rx1_full + inset
+        rx2 = rx2_full - inset
         if ry2 <= ry1 or rx2 <= rx1:
             continue
-        # Row-wise mean within this region's horizontal extent.
-        # Raw values, no normalisation — same absolute scale for all
-        # regions so charts are directly comparable.
-        region_rows = inv[ry1:ry2, rx1:rx2].mean(axis=1)
+        # Sample from the middle zone of each column independently,
+        # then average the per-column profiles. This avoids merging
+        # misaligned text lines from adjacent columns.
+        n_cols = region_entry.get("cols_spanned", 2)
+        rw = rx2 - rx1
+        col_w = rw // max(n_cols, 1)
+        sample_hw = max(int(col_w * 0.15), 5)
+        col_profiles = []
+        for ci in range(n_cols):
+            ccx = rx1 + int((ci + 0.5) * col_w)
+            sx1 = max(rx1, ccx - sample_hw)
+            sx2 = min(rx2, ccx + sample_hw)
+            if sx2 > sx1:
+                col_profiles.append(inv[ry1:ry2, sx1:sx2].mean(axis=1))
+        if col_profiles:
+            # Use the column with the clearest signal (highest std = most contrast)
+            best = max(col_profiles, key=lambda p: float(np.std(p)))
+            region_rows = best
+        else:
+            region_rows = inv[ry1:ry2, rx1:rx2].mean(axis=1)
         # Sample every row — full resolution so body text lines are visible
         chart = []
         for i, val in enumerate(region_rows):
@@ -448,8 +503,8 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
                         troughs_v.append(chunk[j])
                 if len(peaks_v) >= 2 and troughs_v:
                     spacing = float(np.mean(np.diff(peak_pos)))
-                    contrast = float(np.mean(peaks_v)) - float(np.mean(troughs_v))
-                    if spacing < 6 and contrast < 40:
+                    trough_min = float(np.min(troughs_v))
+                    if trough_min < 10 and spacing < 12:
                         for k in range(start, min(start + win, len(chart))):
                             is_body[k] = True
 
