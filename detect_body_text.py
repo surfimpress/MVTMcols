@@ -60,6 +60,7 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
     min_region_px = int(h * min_region_pct / 100)
 
     results = []
+    charts = []
 
     for col in columns:
         left_px = int(col['left_vw'] / 100 * w)
@@ -68,9 +69,16 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
         if col_w < 10:
             continue
 
-        # Sample centre 30% of column width
+        # Sample a fixed-width strip from the column centre.
+        # Use a consistent width based on typical body text line
+        # width (~60% of the narrowest column), not proportional
+        # to each column's width. This ensures consistent detection
+        # across standard and editorial-width columns.
         cx = (left_px + right_px) // 2
-        sample_hw = max(int(col_w * 0.15), 5)
+        # Find the narrowest column width as the reference
+        min_col_w = min(int((c['right_vw'] - c['left_vw']) / 100 * w)
+                        for c in columns)
+        sample_hw = max(int(min_col_w * 0.3), 10)
         sx1 = max(0, cx - sample_hw)
         sx2 = min(w, cx + sample_hw)
 
@@ -103,6 +111,36 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
                 if (spacing < max_spacing and contrast > 20 and peak_mean > 15):
                     is_body[start:min(start + win, h)] = True
 
+        # Build chart: sample every row for full resolution sawtooth.
+        # Only include rows within R2 extent to keep data size reasonable.
+        col_chart = []
+        for yi in range(y_min_px, y_max_px):
+            col_chart.append({
+                "y_pct": round(yi / h * 100, 2),
+                "val": round(float(strip[yi]), 1),
+                "body": bool(is_body[yi]),
+            })
+        charts.append({
+            "col_idx": col['index'],
+            "x_pct": round((col['left_vw'] + col['right_vw']) / 2, 1),
+            "chart": col_chart,
+        })
+
+        # Bridge small gaps: a headline or paragraph break within body
+        # text shouldn't split the region. Fill gaps smaller than
+        # ~5% of page height.
+        max_gap_px = int(h * 0.05)
+        gap_start = None
+        for y in range(h):
+            if not is_body[y]:
+                if gap_start is None:
+                    gap_start = y
+            else:
+                if gap_start is not None:
+                    if y - gap_start <= max_gap_px:
+                        is_body[gap_start:y] = True
+                    gap_start = None
+
         # Extract contiguous body text runs
         in_run = False
         run_start = 0
@@ -131,4 +169,4 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
                 'y2_pct': round(h / h * 100, 1),
             })
 
-    return results
+    return results, charts

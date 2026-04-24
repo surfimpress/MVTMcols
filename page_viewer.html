@@ -214,7 +214,7 @@ const LAYERS = [
         desc: 'Step 3 — Page profile. The text content area within the newspaper page. Found by analysing the darkness profile for margin-to-content transitions. Column detection is clipped to this region.'
     },
     {
-        id: 'ads', name: 'Ad regions', num: 4,
+        id: 'ads', name: 'Multicolumn ads', num: 4,
         color: '#ffcc00', style: 'dashed', default: false,
         desc: 'Step 4 — Ad detection. Display advertisements found by OpenCV contour analysis. Bordered rectangular regions wider than 2 columns. These exclusion zones prevent ad borders being mistaken for column rules in the next step.'
     },
@@ -235,7 +235,7 @@ const LAYERS = [
     },
     {
         id: 'body_text', name: 'Body text', num: 8,
-        color: '#88aaff', style: 'solid', default: false,
+        color: '#88aaff', style: 'solid', default: false, chart: true,
         desc: 'Step 8 — Body text detection. Regions of standard body text identified by their characteristic row rhythm: regular tightly-spaced peaks with near-zero troughs. Detected per-column from the centre strip.'
     },
     {
@@ -467,6 +467,8 @@ function updateOverlay() {
 
     const active = {};
     document.querySelectorAll('[data-layer]').forEach(cb => { active[cb.dataset.layer] = cb.checked; });
+    const chartOn = {};
+    document.querySelectorAll('[data-chart]').forEach(cb => { chartOn[cb.dataset.chart] = cb.checked; });
 
     drawnLines = [];
     let s = '';
@@ -574,6 +576,65 @@ function updateOverlay() {
                 stroke-width="1.5" opacity="0.9"/>`;
         });
     }
+    // Body text sample zones: show exactly where the sampling strips are
+    if (active.body_text && chartOn.body_text && window._columns) {
+        // Fixed width based on narrowest column
+        const colWidths = window._columns.map(c => c.right_vw - c.left_vw);
+        const minColW = Math.min(...colWidths);
+        const hwPct = minColW * 0.3;
+        for (const col of window._columns) {
+            const cx = (col.left_vw + col.right_vw) / 2;
+            const sx1 = pctToX(cx - hwPct, w);
+            const sx2 = pctToX(cx + hwPct, w);
+            s += `<rect x="${sx1}" y="0" width="${sx2 - sx1}" height="${h}"
+                fill="none" stroke="rgba(255,0,0,0.8)" stroke-width="3"/>`;
+        }
+    }
+    // Body text analysis charts: per-column strip profiles
+    // Chart is drawn within the same zone as the red sample box.
+    if (active.body_text && chartOn.body_text && a && a.body_text_charts && window._columns) {
+        const BT_SCALE = 180;
+        const colWidths2 = window._columns.map(c => c.right_vw - c.left_vw);
+        const minColW2 = Math.min(...colWidths2);
+        const hwPct2 = minColW2 * 0.3;
+        for (const col of a.body_text_charts) {
+            const chart = col.chart;
+            if (!chart || chart.length < 2) continue;
+            const cx = pctToX(col.x_pct - hwPct2, w);
+            const btChartW = pctToX(col.x_pct + hwPct2, w) - cx;
+
+            // Background
+            s += `<rect x="${cx}" y="0" width="${btChartW}" height="${h}"
+                fill="rgba(0,0,40,0.4)"/>`;
+
+            // Draw segments: body text in white, non-body in blue
+            let curBody = chart[0]?.body || false;
+            let segStart = 0;
+            const drawBtSeg = (start, end, isBody) => {
+                if (end <= start) return;
+                const seg = chart.slice(start, end + 1);
+                let path = `M ${cx} ${pctToY(seg[0].y_pct, h)}`;
+                for (const p of seg) {
+                    const y = pctToY(p.y_pct, h);
+                    const x = cx + Math.min((p.val / BT_SCALE) * btChartW, btChartW);
+                    path += ` L ${x} ${y}`;
+                }
+                path += ` L ${cx} ${pctToY(seg[seg.length-1].y_pct, h)} Z`;
+                const fill = isBody ? 'rgba(80,130,255,0.3)' : 'rgba(50,50,50,0.2)';
+                const stroke = isBody ? 'rgba(255,255,255,0.9)' : 'rgba(80,130,255,0.4)';
+                s += `<path d="${path}" fill="${fill}" stroke="${stroke}" stroke-width="${isBody ? 1.5 : 0.5}"/>`;
+            };
+            for (let i = 1; i < chart.length; i++) {
+                const b = chart[i].body || false;
+                if (b !== curBody) {
+                    drawBtSeg(segStart, i - 1, curBody);
+                    segStart = i;
+                    curBody = b;
+                }
+            }
+            drawBtSeg(segStart, chart.length - 1, curBody);
+        }
+    }
     if (active.expected && issueData.pitch) {
         const pitch = issueData.pitch;
         if (window._columns && window._columns.length > 0) {
@@ -584,8 +645,6 @@ function updateOverlay() {
     }
 
     // ── Analysis charts ──────────────────────────────────────
-    const chartOn = {};
-    document.querySelectorAll('[data-chart]').forEach(cb => { chartOn[cb.dataset.chart] = cb.checked; });
 
     // Profile chart: shown when layer is active AND its chart toggle is on.
     // Rendered within the actual sampled band (25%-75% of page height).

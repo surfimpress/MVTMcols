@@ -515,11 +515,13 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
                     'right_vw': c.right_vw,
                 })
             r2_prof = prof.get("r2", {})
-            body_regions = detect_body_text(pdf_path, meta_cols,
+            body_regions, body_charts = detect_body_text(pdf_path, meta_cols,
                 r2_top_pct=r2_prof.get("top"),
                 r2_bottom_pct=r2_prof.get("bottom"))
             if body_regions:
                 analysis["body_text"] = body_regions
+            if body_charts:
+                analysis["body_text_charts"] = body_charts
         except Exception:
             pass
 
