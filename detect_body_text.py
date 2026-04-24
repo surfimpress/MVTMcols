@@ -11,6 +11,7 @@ Results are stored per-column as vertical runs of body text.
 
 import fitz
 import numpy as np
+from coordinates import pct_to_px, px_to_pct
 
 
 def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
@@ -50,9 +51,8 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
     inv = 255.0 - grey
 
     # Constrain to R2 vertical extent
-    y_min_px = int((r2_top_pct or 0) / 100 * h)
-    y_max_px = int((r2_bottom_pct or 100) / 100 * h)
-    y_max_px = min(y_max_px, h)
+    y_min_px = pct_to_px(r2_top_pct or 0, h)
+    y_max_px = min(pct_to_px(r2_bottom_pct or 100, h), h)
 
     # Detection parameters
     win = int(40 * dpi / 300)  # ~40px at 300 DPI, scales with resolution
@@ -63,8 +63,8 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
     charts = []
 
     for col in columns:
-        left_px = int(col['left_vw'] / 100 * w)
-        right_px = int(col['right_vw'] / 100 * w)
+        left_px = pct_to_px(col['left_vw'], w)
+        right_px = pct_to_px(col['right_vw'], w)
         col_w = right_px - left_px
         if col_w < 10:
             continue
@@ -76,9 +76,9 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
         # across standard and editorial-width columns.
         cx = (left_px + right_px) // 2
         # Find the narrowest column width as the reference
-        min_col_w = min(int((c['right_vw'] - c['left_vw']) / 100 * w)
+        min_col_w = min(pct_to_px(c['right_vw'] - c['left_vw'], w)
                         for c in columns)
-        sample_hw = max(int(min_col_w * 0.3), 10)
+        sample_hw = max(int(min_col_w * 0.24), 8)
         sx1 = max(0, cx - sample_hw)
         sx2 = min(w, cx + sample_hw)
 
@@ -116,7 +116,7 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
         col_chart = []
         for yi in range(y_min_px, y_max_px):
             col_chart.append({
-                "y_pct": round(yi / h * 100, 2),
+                "y_pct": px_to_pct(yi, h),
                 "val": round(float(strip[yi]), 1),
                 "body": bool(is_body[yi]),
             })
@@ -156,8 +156,8 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
                             'col_idx': col['index'],
                             'x1_pct': round(col['left_vw'], 1),
                             'x2_pct': round(col['right_vw'], 1),
-                            'y1_pct': round(run_start / h * 100, 1),
-                            'y2_pct': round(y / h * 100, 1),
+                            'y1_pct': px_to_pct(run_start, h),
+                            'y2_pct': px_to_pct(y, h),
                         })
                     in_run = False
         if in_run and h - run_start >= min_region_px:
@@ -165,8 +165,8 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
                 'col_idx': col['index'],
                 'x1_pct': round(col['left_vw'], 1),
                 'x2_pct': round(col['right_vw'], 1),
-                'y1_pct': round(run_start / h * 100, 1),
-                'y2_pct': round(h / h * 100, 1),
+                'y1_pct': px_to_pct(run_start, h),
+                'y2_pct': px_to_pct(h, h),
             })
 
     return results, charts

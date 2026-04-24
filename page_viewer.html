@@ -581,7 +581,7 @@ function updateOverlay() {
         // Fixed width based on narrowest column
         const colWidths = window._columns.map(c => c.right_vw - c.left_vw);
         const minColW = Math.min(...colWidths);
-        const hwPct = minColW * 0.3;
+        const hwPct = minColW * 0.24;
         for (const col of window._columns) {
             const cx = (col.left_vw + col.right_vw) / 2;
             const sx1 = pctToX(cx - hwPct, w);

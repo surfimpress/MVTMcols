@@ -224,8 +224,8 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
         # extend up and down to capture the full text height.
         # Check adjacent rows for significant darkness at the same
         # horizontal extent.
-        y1_px = m["b_start"] * block_h
-        y2_px = min((m["b_end"] + 1) * block_h, h)
+        y1_px = m["b_start"] * step
+        y2_px = min((m["b_end"] + 1) * step, h)
         x1_px = int(x1_pct / 100 * w)
         x2_px = int(x2_pct / 100 * w)
         extend_thresh = 15  # darkness above this = still part of headline
@@ -530,19 +530,19 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
         for bi in range(n_blocks):
             if gutter_filled[bi, gi]:
                 if not in_fill:
-                    fill_start = bi * block_h
+                    fill_start = bi * step
                     in_fill = True
             else:
                 if in_fill:
                     filled_ranges.append({
                         "y1_pct": round(fill_start / h * 100, 1),
-                        "y2_pct": round(bi * block_h / h * 100, 1),
+                        "y2_pct": round(bi * step / h * 100, 1),
                     })
                     in_fill = False
         if in_fill:
             filled_ranges.append({
                 "y1_pct": round(fill_start / h * 100, 1),
-                "y2_pct": round(min(n_blocks * block_h, h) / h * 100, 1),
+                "y2_pct": round(min(n_blocks * step, h) / h * 100, 1),
             })
         if filled_ranges:
             gutter_fills.append({"x_pct": gutter_pct, "ranges": filled_ranges})
