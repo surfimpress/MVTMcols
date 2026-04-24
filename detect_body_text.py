@@ -337,7 +337,16 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
                 wriggle = float(np.std(chunk))
                 # Large type: troughs don't reach zero, has wriggle,
                 # and peaks are significant ink
-                if trough_min > 25 and wriggle > 45 and peak_mean > 50:
+                spacing = float(np.mean(np.diff(peak_pos))) if len(peak_pos) >= 2 else 0
+                # Large type: troughs don't reach zero, has wriggle,
+                # peaks are significant, AND spacing is wider than
+                # body text (which has spacing < max_spacing).
+                # Bold body text has same spacing as regular — it's
+                # just darker. Large type has physically bigger letters
+                # so the peaks are further apart.
+                min_large_spacing = max_spacing * 0.8  # must be near or above body text spacing
+                if (trough_min > 25 and wriggle > 45 and
+                        peak_mean > 50 and spacing >= min_large_spacing):
                     is_large[start:min(start + lt_win, h)] = True
 
         # Extract contiguous large type runs
@@ -358,6 +367,7 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
                             'x2_pct': round(col['right_vw'], 1),
                             'y1_pct': px_to_pct(run_start, h),
                             'y2_pct': px_to_pct(y_row, h),
+                            'method': 'window',
                         })
                     in_run = False
         if in_run and h - run_start >= min_lt_px:
@@ -367,6 +377,74 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
                 'x2_pct': round(col['right_vw'], 1),
                 'y1_pct': px_to_pct(run_start, h),
                 'y2_pct': px_to_pct(h, h),
+                'method': 'window',
             })
 
-    return results, charts, blur_img, h_rules, large_type
+    # ── Large type detection (bar width method) ──────────────────
+    # Scan the blur image directly for bright bars that are wider
+    # than body text lines. Body text bars are ~3-5px at 150 DPI
+    # (~6-10px at 300 DPI). Large type bars are 2x+ wider.
+    # This is more direct than the sliding window — it measures
+    # the actual bar width rather than inferring from peak spacing.
+    large_type_bars = []
+    body_line_height = int(5 * dpi / 150)  # ~5px at 150 DPI
+    min_large_width = body_line_height * 2  # must be 2x body text height
+
+    for col in columns:
+        left_px = pct_to_px(col['left_vw'], w)
+        right_px = pct_to_px(col['right_vw'], w)
+        col_w_px = right_px - left_px
+        if col_w_px < 10:
+            continue
+        cx = (left_px + right_px) // 2
+        min_cw = min(pct_to_px(c['right_vw'] - c['left_vw'], w)
+                     for c in columns)
+        shw = max(int(min_cw * 0.24), 8)
+        s1 = max(0, cx - shw)
+        s2 = min(w, cx + shw)
+        strip_data = inv[:, s1:s2].mean(axis=1)
+
+        # Find bright bars: contiguous runs above a brightness threshold
+        bar_thresh = 30  # minimum brightness to be "in a bar"
+        in_bar = False
+        bar_start = 0
+        for y_row in range(y_min_px, y_max_px):
+            if strip_data[y_row] > bar_thresh:
+                if not in_bar:
+                    bar_start = y_row
+                    in_bar = True
+            else:
+                if in_bar:
+                    bar_width = y_row - bar_start
+                    if bar_width >= min_large_width:
+                        # This bar is wider than body text — large type
+                        bar_mean = float(strip_data[bar_start:y_row].mean())
+                        # Must also be brighter than typical body text
+                        if bar_mean > 40:
+                            large_type_bars.append({
+                                'col_idx': col['index'],
+                                'x1_pct': round(col['left_vw'], 1),
+                                'x2_pct': round(col['right_vw'], 1),
+                                'y1_pct': px_to_pct(bar_start, h),
+                                'y2_pct': px_to_pct(y_row, h),
+                                'method': 'bar_width',
+                            })
+                    in_bar = False
+        if in_bar:
+            bar_width = y_max_px - bar_start
+            if bar_width >= min_large_width:
+                bar_mean = float(strip_data[bar_start:y_max_px].mean())
+                if bar_mean > 40:
+                    large_type_bars.append({
+                        'col_idx': col['index'],
+                        'x1_pct': round(col['left_vw'], 1),
+                        'x2_pct': round(col['right_vw'], 1),
+                        'y1_pct': px_to_pct(bar_start, h),
+                        'y2_pct': px_to_pct(y_max_px, h),
+                        'method': 'bar_width',
+                    })
+
+    # Merge both methods — bar_width detections plus sliding window
+    all_large_type = large_type + large_type_bars
+
+    return results, charts, blur_img, h_rules, all_large_type

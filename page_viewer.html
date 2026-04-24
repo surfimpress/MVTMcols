@@ -698,10 +698,17 @@ function updateOverlay() {
             const bw = pctToX(region.x2_pct - region.x1_pct, w);
             const bh = pctToY(region.y2_pct - region.y1_pct, h);
             const isMatched = matched.has(idx);
+            const isBar = region.method === 'bar_width';
+            // bar_width method: solid orange; window method: dashed green
+            const fill = isMatched
+                ? (isBar ? 'rgba(255,120,0,0.3)' : 'rgba(0,200,100,0.2)')
+                : (isBar ? 'rgba(220,100,0,0.2)' : 'rgba(0,180,80,0.15)');
+            const stroke = isBar ? (isMatched ? '#ff6600' : '#cc6600')
+                                 : (isMatched ? '#00cc66' : '#009944');
+            const dash = isBar ? '' : 'stroke-dasharray="4,3"';
             s += `<rect x="${x1}" y="${y1}" width="${bw}" height="${bh}"
-                fill="${isMatched ? 'rgba(255,120,0,0.3)' : 'rgba(220,100,0,0.2)'}"
-                stroke="${isMatched ? '#ff6600' : '#cc6600'}"
-                stroke-width="${isMatched ? 3 : 1.5}" opacity="0.9"/>`;
+                fill="${fill}" stroke="${stroke}"
+                stroke-width="${isMatched ? 3 : 1.5}" ${dash} opacity="0.9"/>`;
         });
     }
     // Horizontal rules: yellow lines, with matched cross-column rules highlighted
