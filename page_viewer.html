@@ -234,7 +234,12 @@ const LAYERS = [
         desc: 'Step 6 — Column placement. Final boundaries after pitch establishment and grid projection. For standard pages: clean-edge grid at pitch. For page 2 editorial: 2 wide (1.5x) + regular columns.'
     },
     {
-        id: 'expected', name: 'Expected grid', num: 8,
+        id: 'body_text', name: 'Body text', num: 8,
+        color: '#88aaff', style: 'solid', default: false,
+        desc: 'Step 8 — Body text detection. Regions of standard body text identified by their characteristic row rhythm: regular tightly-spaced peaks with near-zero troughs. Detected per-column from the centre strip.'
+    },
+    {
+        id: 'expected', name: 'Expected grid', num: 9,
         color: '#ff44ff', style: 'dashed', default: false,
         desc: 'Reference — Where columns would be if the grid were mathematically perfect, stepping at the established pitch from the clean-side text edge. Compare against the blue placed lines to see deviations.'
     },
@@ -502,6 +507,22 @@ function updateOverlay() {
                 stroke-dasharray="4,4" opacity="0.8"/>`;
         });
     }
+    // Headline detection zone: show the gutters being monitored
+    if (active.headlines && a && a.gutter_fills) {
+        // Draw thin vertical lines at each gutter position being checked
+        for (const gutter of a.gutter_fills) {
+            const gx = pctToX(gutter.x_pct, w);
+            s += `<line x1="${gx}" y1="0" x2="${gx}" y2="${h}"
+                stroke="rgba(0,200,200,0.2)" stroke-width="1" stroke-dasharray="2,4"/>`;
+        }
+        // Also show the detected boundaries used as gutters
+        if (a.detected_boundaries) {
+            for (const b of a.detected_boundaries) {
+                const bx = pctToX(b.pct, w);
+                s += `<circle cx="${bx}" cy="${h * 0.02}" r="3" fill="rgba(0,200,200,0.6)"/>`;
+            }
+        }
+    }
     // Headlines: semi-transparent cyan rectangles
     if (active.headlines && a && a.headlines) {
         a.headlines.forEach(hl => {
@@ -512,6 +533,21 @@ function updateOverlay() {
             s += `<rect x="${x1}" y="${y1}" width="${bw}" height="${bh}"
                 fill="rgba(0,204,204,0.25)" stroke="#00cccc" stroke-width="2"
                 stroke-dasharray="6,3" opacity="${0.6 + hl.confidence * 0.4}"/>`;
+        });
+    }
+    // Rejected regions (body_text etc) — show dimmed so we can see what was found
+    if (active.headlines && a && a.unbordered_ads) {
+        a.unbordered_ads.forEach(ua => {
+            const x1 = pctToX(ua.x1_pct, w);
+            const y1 = pctToY(ua.y1_pct, h);
+            const bw = pctToX(ua.x2_pct - ua.x1_pct, w);
+            const bh = pctToY(ua.y2_pct - ua.y1_pct, h);
+            const isBody = (ua.reason || []).includes('body_text');
+            const fill = isBody ? 'rgba(100,100,100,0.1)' : 'rgba(255,160,0,0.1)';
+            const stroke = isBody ? 'rgba(150,150,150,0.5)' : '#ffa000';
+            s += `<rect x="${x1}" y="${y1}" width="${bw}" height="${bh}"
+                fill="${fill}" stroke="${stroke}" stroke-width="1"
+                stroke-dasharray="4,4" opacity="0.6"/>`;
         });
     }
     if (active.detected && a && a.detected_boundaries) {
@@ -525,6 +561,18 @@ function updateOverlay() {
         const positions = new Set();
         window._columns.forEach(col => { positions.add(col.left_vw); positions.add(col.right_vw); });
         positions.forEach(pct => { s += svgLine(pct, w, h, '#4488ff', 2, 'solid', 'Final columns'); });
+    }
+    // Body text regions
+    if (active.body_text && a && a.body_text) {
+        a.body_text.forEach(bt => {
+            const x1 = pctToX(bt.x1_pct, w);
+            const y1 = pctToY(bt.y1_pct, h);
+            const bw = pctToX(bt.x2_pct - bt.x1_pct, w);
+            const bh = pctToY(bt.y2_pct - bt.y1_pct, h);
+            s += `<rect x="${x1}" y="${y1}" width="${bw}" height="${bh}"
+                fill="rgba(80,130,255,0.3)" stroke="rgba(80,130,255,0.7)"
+                stroke-width="1.5" opacity="0.9"/>`;
+        });
     }
     if (active.expected && issueData.pitch) {
         const pitch = issueData.pitch;

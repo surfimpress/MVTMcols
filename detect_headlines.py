@@ -68,13 +68,12 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
                 for i in range(len(column_boundaries) - 1)]
         pitch_estimate = float(np.median(gaps))
 
-    # Convert boundary positions to pixel x coordinates
+    # Convert boundary positions to pixel x coordinates.
+    # These are all detected column rules — every one is a gutter
+    # between adjacent columns. Use all of them.
     gutter_xs = [int(b / 100 * w) for b in column_boundaries]
-    # Only use interior gutters (not the outer edges)
-    if len(gutter_xs) >= 2:
-        gutter_xs = gutter_xs[1:-1]  # drop first and last
     if not gutter_xs:
-        return []
+        return [], [], {}
 
     ad_z = ad_zones or []
 
@@ -87,24 +86,26 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
     n_gutters = len(gutter_xs)
 
     # First pass: measure gutter darkness at every block
+    # Use half-block step to double the vertical resolution.
+    # This catches fills that straddle block boundaries.
+    step = block_h // 2
+    n_blocks = (h - block_h) // step + 1
     gutter_dark = np.zeros((n_blocks, n_gutters))
+
     for bi in range(n_blocks):
-        y1 = bi * block_h
-        y2 = min((bi + 1) * block_h, h)
+        y1 = bi * step
+        y2 = min(y1 + block_h, h)
         band = inv[y1:y2, :]
         for gi, gx in enumerate(gutter_xs):
             x1 = max(0, gx - gutter_hw)
             x2 = min(w, gx + gutter_hw)
             gutter_dark[bi, gi] = float(band[:, x1:x2].mean())
 
-    # Compute per-gutter baseline: the median darkness when NOT in a
-    # headline. Use the 25th percentile — gutters are white most of
-    # the time, so the lower values represent the normal state.
+    # Compute per-gutter baseline
     gutter_baseline = np.percentile(gutter_dark, 25, axis=0)
-    gutter_baseline = np.maximum(gutter_baseline, 5)  # floor at 5
+    gutter_baseline = np.maximum(gutter_baseline, 5)
 
-    # A gutter is "filled" when its darkness is well above its own
-    # baseline. Use 2× baseline or baseline + 40, whichever is higher.
+    # Fill threshold
     gutter_filled = np.zeros((n_blocks, n_gutters), dtype=bool)
     for gi in range(n_gutters):
         fill_thresh = max(gutter_baseline[gi] * 2, gutter_baseline[gi] + 40)
@@ -115,7 +116,7 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
     # Build a map of "spanning" blocks: blocks where consecutive gutters
     # are filled, indicating text crossing those column boundaries.
     headlines = []
-    min_span_blocks = max(2, int(h * 0.01) // block_h)  # at least ~1% of page
+    min_span_blocks = 2
 
     # For each pair of adjacent gutters, find vertical runs where both
     # or a contiguous group are filled
@@ -199,28 +200,25 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
 
     # Convert merged regions to output format
     for m in merged:
-        # Horizontal extent: from the column boundary before g_min
-        # to the column boundary after g_max
-        # g_min is index into gutter_xs (interior gutters)
-        # The headline spans from column g_min to column g_max + 2
-        # (because each gutter separates two columns)
-        x1_idx = m["g_min"]  # gutter index
+        # Horizontal extent: the headline spans from one pitch before
+        # the first filled gutter to one pitch after the last.
+        # gutter_xs indices map directly to column_boundaries indices.
+        x1_idx = m["g_min"]
         x2_idx = m["g_max"]
-        cols_spanned = x2_idx - x1_idx + 2  # +2 because spanning across gutters
+        cols_spanned = x2_idx - x1_idx + 2
 
-        # Convert to page percentages
-        # The headline extends from one boundary before the first filled gutter
-        # to one boundary after the last filled gutter
-        all_boundaries = [int(b / 100 * w) for b in column_boundaries]
-        # gutter_xs are interior boundaries (indices 1..n-2 of all_boundaries)
-        # So gutter_xs[gi] corresponds to all_boundaries[gi + 1]
-        left_bound_idx = x1_idx + 1 - 1  # boundary before the first filled gutter
-        right_bound_idx = x2_idx + 1 + 1  # boundary after the last filled gutter
-        left_bound_idx = max(0, left_bound_idx)
-        right_bound_idx = min(len(all_boundaries) - 1, right_bound_idx)
+        # Extend one column width outward on each side.
+        # If there's a boundary to the left/right, use it.
+        # Otherwise, extend by one pitch from the outermost filled gutter.
+        if x1_idx > 0:
+            x1_pct = column_boundaries[x1_idx - 1]
+        else:
+            x1_pct = max(0, column_boundaries[x1_idx] - (pitch_estimate or 11))
 
-        x1_pct = column_boundaries[left_bound_idx]
-        x2_pct = column_boundaries[right_bound_idx]
+        if x2_idx < len(column_boundaries) - 1:
+            x2_pct = column_boundaries[x2_idx + 1]
+        else:
+            x2_pct = min(100, column_boundaries[x2_idx] + (pitch_estimate or 11))
 
         # Vertical extent: start from the gutter-fill blocks, then
         # extend up and down to capture the full text height.
@@ -389,16 +387,15 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
 
                     if len(peaks_v) >= 2 and troughs_v:
                         mean_spacing = float(np.mean(np.diff(peak_pos)))
-                        contrast = float(np.mean(peaks_v)) - float(np.mean(troughs_v))
-                        trough_min = float(np.min(troughs_v))
-                        troughs_near_zero = trough_min < 10
+                        # Body text has MULTIPLE troughs near zero at
+                        # regular intervals. A single zero in a headline
+                        # (word gap) should not trigger body text.
+                        near_zero_troughs = sum(1 for t in troughs_v if t < 10)
+                        most_troughs_zero = near_zero_troughs >= len(troughs_v) * 0.6
 
-                        # Body text: tight spacing AND troughs near zero.
-                        # Both conditions required — headlines can have
-                        # near-zero troughs too but with wider spacing.
-                        if troughs_near_zero and mean_spacing < 7:
+                        if most_troughs_zero and mean_spacing < 7:
                             body_rows += window
-                        elif mean_spacing >= 7:
+                        elif mean_spacing >= 7 and not most_troughs_zero:
                             headline_rows += window
 
         total_samples = total_rows * max(len(col_centres), 1)
@@ -429,19 +426,24 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
         if is_headline:
             classified_headlines.append(entry)
         elif body_frac > 0.7:
-            # Body text false positive — discard entirely, don't promote to ad
+            # Body text — discard, don't promote to ad
             pass
         else:
-            # Genuine non-headline content (graphics, too tall, illustration)
-            # — promote to unbordered ad
-            entry["reason"] = []
-            if height_pct >= max_headline_height:
-                entry["reason"].append("too_tall")
-            if very_dark >= graphics_thresh:
-                entry["reason"].append("graphics")
-            if row_var <= 10:
-                entry["reason"].append("low_variance")
-            unbordered_ads.append(entry)
+            # Only promote to unbordered ad if it's a reasonable size.
+            # A region covering more than 30% of the page is not an ad.
+            width_pct = hl["x2_pct"] - hl["x1_pct"]
+            area_pct = width_pct * height_pct / 100
+            if area_pct > 30:
+                pass  # too large — discard
+            else:
+                entry["reason"] = []
+                if height_pct >= max_headline_height:
+                    entry["reason"].append("too_tall")
+                if very_dark >= graphics_thresh:
+                    entry["reason"].append("graphics")
+                if row_var <= 10:
+                    entry["reason"].append("low_variance")
+                unbordered_ads.append(entry)
 
     classified_headlines.sort(key=lambda hl: (hl["y1_pct"], hl["x1_pct"]))
     unbordered_ads.sort(key=lambda a: (a["y1_pct"], a["x1_pct"]))
@@ -503,8 +505,8 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
                             troughs_v.append(chunk[j])
                     if len(peaks_v) >= 2 and troughs_v:
                         spacing = float(np.mean(np.diff(peak_pos)))
-                        trough_min = float(np.min(troughs_v))
-                        if trough_min < 10 and spacing < 7:
+                        near_zero = sum(1 for t in troughs_v if t < 10)
+                        if near_zero >= len(troughs_v) * 0.6 and spacing < 7:
                             for k in range(start, min(start + win, len(chart))):
                                 is_body[k] = True
 

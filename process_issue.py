@@ -504,6 +504,25 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         except Exception:
             pass
 
+        # Body text detection — runs after column placement
+        try:
+            from detect_body_text import detect_body_text
+            meta_cols = []
+            for c in result.columns:
+                meta_cols.append({
+                    'index': c.index,
+                    'left_vw': c.left_vw,
+                    'right_vw': c.right_vw,
+                })
+            r2_prof = prof.get("r2", {})
+            body_regions = detect_body_text(pdf_path, meta_cols,
+                r2_top_pct=r2_prof.get("top"),
+                r2_bottom_pct=r2_prof.get("bottom"))
+            if body_regions:
+                analysis["body_text"] = body_regions
+        except Exception:
+            pass
+
         if analysis:
             with open(os.path.join(page_out, "page_analysis.json"), "w") as f:
                 json.dump(analysis, f)
