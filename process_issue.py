@@ -515,13 +515,22 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
                     'right_vw': c.right_vw,
                 })
             r2_prof = prof.get("r2", {})
-            body_regions, body_charts = detect_body_text(pdf_path, meta_cols,
-                r2_top_pct=r2_prof.get("top"),
-                r2_bottom_pct=r2_prof.get("bottom"))
+            body_regions, body_charts, blur_img, h_rules, large_type = \
+                detect_body_text(pdf_path, meta_cols,
+                    r2_top_pct=r2_prof.get("top"),
+                    r2_bottom_pct=r2_prof.get("bottom"))
             if body_regions:
                 analysis["body_text"] = body_regions
             if body_charts:
                 analysis["body_text_charts"] = body_charts
+            if h_rules:
+                analysis["h_rules"] = h_rules
+            if large_type:
+                analysis["large_type"] = large_type
+            if blur_img is not None:
+                from PIL import Image as _PILImg
+                blur_path = os.path.join(page_out, "body_blur.png")
+                _PILImg.fromarray(blur_img).save(blur_path)
         except Exception:
             pass
 

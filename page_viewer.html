@@ -239,7 +239,17 @@ const LAYERS = [
         desc: 'Step 8 — Body text detection. Regions of standard body text identified by their characteristic row rhythm: regular tightly-spaced peaks with near-zero troughs. Detected per-column from the centre strip.'
     },
     {
-        id: 'expected', name: 'Expected grid', num: 9,
+        id: 'large_type', name: 'Large type', num: 9,
+        color: '#ee6600', style: 'solid', default: false,
+        desc: 'Step 9 — Large type detection. Headlines, mastheads and sub-headlines identified by wide dark peaks that don\'t drop to zero between strokes, with complex wriggle from letterforms.'
+    },
+    {
+        id: 'h_rules', name: 'Horizontal rules', num: 10,
+        color: '#ffdd00', style: 'solid', default: false,
+        desc: 'Step 9 — Horizontal rule detection. Thin horizontal separators between articles, identified by isolated sharp spikes in the column strip profile. Very narrow (1-4 rows) with low values on both sides.'
+    },
+    {
+        id: 'expected', name: 'Expected grid', num: 10,
         color: '#ff44ff', style: 'dashed', default: false,
         desc: 'Reference — Where columns would be if the grid were mathematically perfect, stepping at the established pitch from the clean-side text edge. Compare against the blue placed lines to see deviations.'
     },
@@ -667,6 +677,56 @@ function updateOverlay() {
             }
             drawBtSeg(segStart, chart.length - 1, curBody);
         }
+    }
+    // Large type regions: orange rectangles, with cross-column matches highlighted
+    if (active.large_type && a && a.large_type) {
+        const lt = a.large_type;
+        // Find regions that align across adjacent columns (overlapping y ranges)
+        const matched = new Set();
+        for (let i = 0; i < lt.length; i++) {
+            for (let j = i + 1; j < lt.length; j++) {
+                if (Math.abs(lt[i].col_idx - lt[j].col_idx) === 1 &&
+                    lt[i].y1_pct < lt[j].y2_pct && lt[i].y2_pct > lt[j].y1_pct) {
+                    matched.add(i);
+                    matched.add(j);
+                }
+            }
+        }
+        lt.forEach((region, idx) => {
+            const x1 = pctToX(region.x1_pct, w);
+            const y1 = pctToY(region.y1_pct, h);
+            const bw = pctToX(region.x2_pct - region.x1_pct, w);
+            const bh = pctToY(region.y2_pct - region.y1_pct, h);
+            const isMatched = matched.has(idx);
+            s += `<rect x="${x1}" y="${y1}" width="${bw}" height="${bh}"
+                fill="${isMatched ? 'rgba(255,120,0,0.3)' : 'rgba(220,100,0,0.2)'}"
+                stroke="${isMatched ? '#ff6600' : '#cc6600'}"
+                stroke-width="${isMatched ? 3 : 1.5}" opacity="0.9"/>`;
+        });
+    }
+    // Horizontal rules: yellow lines, with matched cross-column rules highlighted
+    if (active.h_rules && a && a.h_rules) {
+        const rules = a.h_rules;
+        // Find rules that align across adjacent columns (within 0.3% y tolerance)
+        const matched = new Set();
+        for (let i = 0; i < rules.length; i++) {
+            for (let j = i + 1; j < rules.length; j++) {
+                if (Math.abs(rules[i].col_idx - rules[j].col_idx) === 1 &&
+                    Math.abs(rules[i].y_pct - rules[j].y_pct) < 0.3) {
+                    matched.add(i);
+                    matched.add(j);
+                }
+            }
+        }
+        rules.forEach((rule, idx) => {
+            const x1 = pctToX(rule.x1_pct, w);
+            const x2 = pctToX(rule.x2_pct, w);
+            const y = pctToY(rule.y_pct, h);
+            const isMatched = matched.has(idx);
+            s += `<line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}"
+                stroke="${isMatched ? '#ddaa00' : '#ffdd00'}"
+                stroke-width="${isMatched ? 3 : 2}" opacity="0.9"/>`;
+        });
     }
     if (active.expected && issueData.pitch) {
         const pitch = issueData.pitch;

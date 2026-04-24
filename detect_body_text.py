@@ -162,6 +162,9 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
             "chart": col_chart,
         })
 
+        # Save pre-bridge state for horizontal rule detection
+        is_body_prebridge = is_body.copy()
+
         # Bridge small gaps: a headline or paragraph break within body
         # text shouldn't split the region. Fill gaps smaller than
         # ~5% of page height.
@@ -240,4 +243,130 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
     else:
         blur_img = blur_img_hires
 
-    return results, charts, blur_img
+    # ── Horizontal rule detection ────────────────────────────────
+    # Scan each column strip for thin isolated spikes: high peak value,
+    # very narrow (1-4 rows at 300 DPI), with low values on both sides.
+    # These are column-width horizontal separators between articles.
+    h_rules = []
+    for col in columns:
+        left_px = pct_to_px(col['left_vw'], w)
+        right_px = pct_to_px(col['right_vw'], w)
+        col_w_px = right_px - left_px
+        if col_w_px < 10:
+            continue
+        cx = (left_px + right_px) // 2
+        min_cw = min(pct_to_px(c['right_vw'] - c['left_vw'], w)
+                     for c in columns)
+        shw = max(int(min_cw * 0.24), 8)
+        s1 = max(0, cx - shw)
+        s2 = min(w, cx + shw)
+        strip_data = inv[:, s1:s2].mean(axis=1)
+
+        for i in range(5, len(strip_data) - 5):
+            v = strip_data[i]
+            if v < 40:
+                continue
+            # Context: mean of 5 rows either side
+            left_ctx = float(strip_data[max(0, i - 5):i].mean())
+            right_ctx = float(strip_data[i + 1:min(len(strip_data), i + 6)].mean())
+            # Must be a sharp isolated spike
+            if left_ctx > v * 0.3 or right_ctx > v * 0.3:
+                continue
+            # Measure width at half-peak
+            half_peak = v * 0.5
+            width = 1
+            for j in range(i - 1, max(0, i - 6), -1):
+                if strip_data[j] > half_peak:
+                    width += 1
+                else:
+                    break
+            for j in range(i + 1, min(len(strip_data), i + 6)):
+                if strip_data[j] > half_peak:
+                    width += 1
+                else:
+                    break
+            # Horizontal rules are very thin: 1-4 rows at 300 DPI
+            max_rule_width = max(4, int(6 * dpi / 300))
+            if width <= max_rule_width:
+                y_pct = px_to_pct(i, h)
+                # Avoid duplicates from adjacent peaks
+                if not h_rules or h_rules[-1]['col_idx'] != col['index'] or \
+                   abs(h_rules[-1]['y_pct'] - y_pct) > 0.3:
+                    h_rules.append({
+                        'col_idx': col['index'],
+                        'x1_pct': round(col['left_vw'], 1),
+                        'x2_pct': round(col['right_vw'], 1),
+                        'y_pct': y_pct,
+                        'strength': round(float(v), 1),
+                    })
+
+    # ── Large type detection ─────────────────────────────────────
+    # Scan each column for regions with thick dark peaks that don't
+    # drop to zero (trough_min > 10) and have complex wriggle (std > 40).
+    # These are headlines, mastheads, and sub-headlines.
+    large_type = []
+    for col in columns:
+        left_px = pct_to_px(col['left_vw'], w)
+        right_px = pct_to_px(col['right_vw'], w)
+        col_w_px = right_px - left_px
+        if col_w_px < 10:
+            continue
+        cx = (left_px + right_px) // 2
+        min_cw = min(pct_to_px(c['right_vw'] - c['left_vw'], w)
+                     for c in columns)
+        shw = max(int(min_cw * 0.24), 8)
+        s1 = max(0, cx - shw)
+        s2 = min(w, cx + shw)
+        strip_data = inv[:, s1:s2].mean(axis=1)
+
+        is_large = np.zeros(h, dtype=bool)
+        lt_win = int(40 * dpi / 300)
+        for start in range(y_min_px, min(y_max_px, h) - lt_win, lt_win // 2):
+            chunk = strip_data[start:start + lt_win]
+            peaks_v, peak_pos, troughs_v = [], [], []
+            for j in range(1, len(chunk) - 1):
+                if chunk[j] > chunk[j - 1] and chunk[j] > chunk[j + 1]:
+                    peaks_v.append(chunk[j])
+                    peak_pos.append(j)
+                if chunk[j] < chunk[j - 1] and chunk[j] < chunk[j + 1]:
+                    troughs_v.append(chunk[j])
+
+            if len(peaks_v) >= 1 and troughs_v:
+                peak_mean = float(np.mean(peaks_v))
+                trough_min = float(np.min(troughs_v))
+                wriggle = float(np.std(chunk))
+                # Large type: troughs don't reach zero, has wriggle,
+                # and peaks are significant ink
+                if trough_min > 25 and wriggle > 45 and peak_mean > 50:
+                    is_large[start:min(start + lt_win, h)] = True
+
+        # Extract contiguous large type runs
+        in_run = False
+        run_start = 0
+        min_lt_px = int(h * 0.01)  # at least 1% of page
+        for y_row in range(h):
+            if is_large[y_row]:
+                if not in_run:
+                    run_start = y_row
+                    in_run = True
+            else:
+                if in_run:
+                    if y_row - run_start >= min_lt_px:
+                        large_type.append({
+                            'col_idx': col['index'],
+                            'x1_pct': round(col['left_vw'], 1),
+                            'x2_pct': round(col['right_vw'], 1),
+                            'y1_pct': px_to_pct(run_start, h),
+                            'y2_pct': px_to_pct(y_row, h),
+                        })
+                    in_run = False
+        if in_run and h - run_start >= min_lt_px:
+            large_type.append({
+                'col_idx': col['index'],
+                'x1_pct': round(col['left_vw'], 1),
+                'x2_pct': round(col['right_vw'], 1),
+                'y1_pct': px_to_pct(run_start, h),
+                'y2_pct': px_to_pct(h, h),
+            })
+
+    return results, charts, blur_img, h_rules, large_type
