@@ -852,6 +852,66 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
                     continue
                 promoted_by_col[col_idx].add(ri)
 
+        # ── Sandwich pass — second promotion path ──────────────────
+        # A weak chart run sandwiched between two same-column accepted
+        # runs (passes_strength OR already promoted via subbar+partner)
+        # is strong structural evidence of a multi-line headline. The
+        # cross-column partner gate fails when the headline is single-
+        # column or when the partner column is blank/ads, but the
+        # sandwich pattern itself confirms the layout: three lines of
+        # tightly-spaced large type in one column.
+        #
+        # Same false-positive guards as primary promotion (per-col
+        # h_rule, ad-zone, subbar strength). Spacing gates use the
+        # same line_height_multiplier as Step B's gap-merge — if the
+        # sandwich gaps are too wide for gap-merge, they're too wide
+        # for sandwich admission.
+        for col_idx, raw_runs in raw_runs_by_col.items():
+            if not raw_runs:
+                continue
+            adaptive = adaptive_by_col[col_idx]
+            chart = chart_by_col[col_idx]
+            x_sample = x_sample_by_col[col_idx]
+            promoted = promoted_by_col[col_idx]
+            accepted = {ri for ri, r in enumerate(raw_runs)
+                        if passes_strength(r, *adaptive) or ri in promoted}
+
+            for ri, r in enumerate(raw_runs):
+                if ri in accepted:
+                    continue
+                # Find nearest accepted before and after.
+                before = max((j for j in accepted if j < ri), default=None)
+                after = min((j for j in accepted if j > ri), default=None)
+                if before is None or after is None:
+                    continue
+
+                # Gap-tightness: same gate as Step B gap-merge.
+                rh = r['e'] - r['s'] + 1
+                rb = raw_runs[before]
+                ra = raw_runs[after]
+                gap_b = r['s'] - rb['e']
+                gap_a = ra['s'] - r['e']
+                allowed_b = max(int(min(rb['e'] - rb['s'] + 1, rh) *
+                                    line_height_multiplier), 12)
+                allowed_a = max(int(min(ra['e'] - ra['s'] + 1, rh) *
+                                    line_height_multiplier), 12)
+                if gap_b > allowed_b or gap_a > allowed_a:
+                    continue
+
+                # Standard guards (h_rule, ad-zone, subbar strength).
+                ry1 = chart[r['s']]['y_pct']
+                ry2 = chart[r['e']]['y_pct']
+                if _hits_h_rule(col_idx, ry1, ry2):
+                    continue
+                cy = (ry1 + ry2) / 2
+                if any(az[0] <= x_sample <= az[1] and
+                       az[2] <= cy <= az[3] for az in ad_z):
+                    continue
+                if not _has_subbar_in_col(col_idx, ry1, ry2):
+                    continue
+
+                promoted_by_col[col_idx].add(ri)
+
     # ── Steps A (filter) + B (gap-merge) per column ───────────────
     per_col_blocks = []
     for col_idx, raw_runs in raw_runs_by_col.items():
