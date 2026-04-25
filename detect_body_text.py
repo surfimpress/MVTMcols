@@ -60,29 +60,44 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
     min_region_pct = 2.5  # minimum region height as % of page
     min_region_px = int(h * min_region_pct / 100)
 
+    n_cols = len(columns)
+    min_col_w_px = min(pct_to_px(c['right_vw'] - c['left_vw'], w)
+                       for c in columns)
+
+    def sample_strip_bounds(col):
+        """
+        Per-column horizontal sample strip used by the chart, blur,
+        large-type, and h-rule detectors. Edge columns (index 0 and
+        n_cols-1) widen the strip by 1.5× so that text shifted toward
+        the page interior — common in justified columns near the
+        edge — still falls inside the sample. The widened strip is
+        capped so it never crosses the column's own boundaries.
+        """
+        left_px = pct_to_px(col['left_vw'], w)
+        right_px = pct_to_px(col['right_vw'], w)
+        cx = (left_px + right_px) // 2
+        is_edge = (col['index'] == 0 or col['index'] == n_cols - 1)
+        edge_factor = 1.5 if is_edge else 1.0
+        shw = max(int(min_col_w_px * 0.24 * edge_factor), 8)
+        # Stay inside the column itself (with a small margin).
+        col_hw = max(8, (right_px - left_px) // 2 - 2)
+        shw = min(shw, col_hw)
+        s1 = max(0, cx - shw)
+        s2 = min(w, cx + shw)
+        return s1, s2, cx, left_px, right_px
+
     results = []
     charts = []
 
     for col in columns:
-        left_px = pct_to_px(col['left_vw'], w)
-        right_px = pct_to_px(col['right_vw'], w)
+        sx1, sx2, cx, left_px, right_px = sample_strip_bounds(col)
         col_w = right_px - left_px
         if col_w < 10:
             continue
 
         # Sample a fixed-width strip from the column centre.
-        # Use a consistent width based on typical body text line
-        # width (~60% of the narrowest column), not proportional
-        # to each column's width. This ensures consistent detection
-        # across standard and editorial-width columns.
-        cx = (left_px + right_px) // 2
-        # Find the narrowest column width as the reference
-        min_col_w = min(pct_to_px(c['right_vw'] - c['left_vw'], w)
-                        for c in columns)
-        sample_hw = max(int(min_col_w * 0.24), 8)
-        sx1 = max(0, cx - sample_hw)
-        sx2 = min(w, cx + sample_hw)
-
+        # Width is normally ~24% of the narrowest column width; edge
+        # columns widen the strip (see sample_strip_bounds).
         strip = inv[:, sx1:sx2].mean(axis=1)
 
         # Scan in overlapping windows, classify each as body text
@@ -214,17 +229,9 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
     # Downscale to 150 DPI afterwards to match page_raw.png for display.
     blur_img_hires = np.zeros((h, w), dtype=np.uint8)
     for col in columns:
-        left_px = pct_to_px(col['left_vw'], w)
-        right_px = pct_to_px(col['right_vw'], w)
-        col_w_px = right_px - left_px
-        if col_w_px < 10:
+        s1, s2, cx, left_px, right_px = sample_strip_bounds(col)
+        if right_px - left_px < 10:
             continue
-        cx = (left_px + right_px) // 2
-        min_cw = min(pct_to_px(c['right_vw'] - c['left_vw'], w)
-                     for c in columns)
-        shw = max(int(min_cw * 0.24), 8)
-        s1 = max(0, cx - shw)
-        s2 = min(w, cx + shw)
         col_strip = inv[:, s1:s2].mean(axis=1)
         enhanced = np.minimum(col_strip * 2, 255).astype(np.uint8)
         for x in range(s1, s2):
@@ -249,17 +256,9 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
     # These are column-width horizontal separators between articles.
     h_rules = []
     for col in columns:
-        left_px = pct_to_px(col['left_vw'], w)
-        right_px = pct_to_px(col['right_vw'], w)
-        col_w_px = right_px - left_px
-        if col_w_px < 10:
+        s1, s2, cx, left_px, right_px = sample_strip_bounds(col)
+        if right_px - left_px < 10:
             continue
-        cx = (left_px + right_px) // 2
-        min_cw = min(pct_to_px(c['right_vw'] - c['left_vw'], w)
-                     for c in columns)
-        shw = max(int(min_cw * 0.24), 8)
-        s1 = max(0, cx - shw)
-        s2 = min(w, cx + shw)
         strip_data = inv[:, s1:s2].mean(axis=1)
 
         for i in range(5, len(strip_data) - 5):
@@ -306,17 +305,9 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
     # These are headlines, mastheads, and sub-headlines.
     large_type = []
     for col in columns:
-        left_px = pct_to_px(col['left_vw'], w)
-        right_px = pct_to_px(col['right_vw'], w)
-        col_w_px = right_px - left_px
-        if col_w_px < 10:
+        s1, s2, cx, left_px, right_px = sample_strip_bounds(col)
+        if right_px - left_px < 10:
             continue
-        cx = (left_px + right_px) // 2
-        min_cw = min(pct_to_px(c['right_vw'] - c['left_vw'], w)
-                     for c in columns)
-        shw = max(int(min_cw * 0.24), 8)
-        s1 = max(0, cx - shw)
-        s2 = min(w, cx + shw)
         strip_data = inv[:, s1:s2].mean(axis=1)
 
         is_large = np.zeros(h, dtype=bool)
@@ -391,17 +382,9 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
     min_large_width = body_line_height * 2  # must be 2x body text height
 
     for col in columns:
-        left_px = pct_to_px(col['left_vw'], w)
-        right_px = pct_to_px(col['right_vw'], w)
-        col_w_px = right_px - left_px
-        if col_w_px < 10:
+        s1, s2, cx, left_px, right_px = sample_strip_bounds(col)
+        if right_px - left_px < 10:
             continue
-        cx = (left_px + right_px) // 2
-        min_cw = min(pct_to_px(c['right_vw'] - c['left_vw'], w)
-                     for c in columns)
-        shw = max(int(min_cw * 0.24), 8)
-        s1 = max(0, cx - shw)
-        s2 = min(w, cx + shw)
         strip_data = inv[:, s1:s2].mean(axis=1)
 
         # Find bright bars: contiguous runs above a brightness threshold
@@ -444,7 +427,23 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
                         'method': 'bar_width',
                     })
 
-    # Merge both methods — bar_width detections plus sliding window
-    all_large_type = large_type + large_type_bars
+    # ── Large type detection (chart-assembly method) ─────────────
+    # Drive assembly directly off the per-column charts: find bright
+    # runs (val>80, ≥11 rows), filter by signal strength, merge
+    # multi-line groups within a column, then merge cross-column
+    # blocks whose y-extents align. Catches multi-line and single-
+    # column headlines that the bar_width method misses, and merges
+    # the lines of a 2-line headline into one block.
+    large_type_chart = []
+    try:
+        from detect_headlines import assemble_headlines_from_charts
+        large_type_chart = assemble_headlines_from_charts(charts, columns)
+        for lt in large_type_chart:
+            lt['method'] = 'chart'
+    except Exception:
+        large_type_chart = []
+
+    # Merge all three methods — sliding window, bar_width, and chart
+    all_large_type = large_type + large_type_bars + large_type_chart
 
     return results, charts, blur_img, h_rules, all_large_type

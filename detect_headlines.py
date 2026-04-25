@@ -554,6 +554,278 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
     return classified_headlines, unbordered_ads, analysis_data
 
 
+def assemble_headlines_from_charts(body_text_charts, columns_meta,
+                                    ad_zones=None,
+                                    val_threshold=80,
+                                    min_run_rows=11,
+                                    run_mean_min=130,
+                                    run_max_min=200,
+                                    line_height_multiplier=1.6,
+                                    y_overlap_min=0.5,
+                                    rescue_overlap_min=0.3):
+    """
+    Build headline regions directly from per-column body_text_charts.
+
+    Replaces the gutter-fill primitive with an evidence-based approach:
+      Step A — for each column's chart, find contiguous rows where the
+        horizontal-blur value exceeds val_threshold. Body text rhythms
+        produce bursts ≤ 2-3 rows; large-type lines produce sustained
+        runs ≥ ~7 rows. min_run_rows separates them.
+      Strength filter — tiered by run length:
+        • short runs (<30 rows) overlap body-text territory, so they
+          must clear the strict absolute thresholds (run_mean_min /
+          run_max_min). No adaptation here — admitting body-text
+          bursts is the failure mode.
+        • medium / long runs (≥30 rows) cannot be body text. Their
+          threshold relaxes against the column's own brightness
+          distribution (per-column adaptive). A multi-line headline
+          fused into one 90-row run with mean ~125 still passes.
+      Step B — within a column, merge runs separated by gaps that are
+        smaller than ~1.6× the run height. This collapses a 2-line
+        headline (line / inter-line gap / line) into one block.
+      Step C — across adjacent columns, merge blocks whose y-extents
+        overlap by ≥ 50% of the shorter block. This produces multi-
+        column headlines. Single-column blocks survive as 1-col
+        headlines (newspapers contain many of these).
+      Step D (rescue) — for each assembled block, look at adjacent
+        columns for any *raw* run (regardless of strength) whose
+        y-range overlaps the block by ≥ rescue_overlap_min. If found,
+        extend the block into that column. Catches faint partners
+        like an edge column whose ink is dim but rhythmically aligned
+        with a stronger neighbour.
+
+    Args:
+        body_text_charts: list of {col_idx, x_pct, chart: [{y_pct, val,
+            body}, ...]} as produced by detect_body_text.
+        columns_meta: list of {index, left_vw, right_vw}.
+        ad_zones: list of (x1, x2, y1, y2) to skip.
+        val_threshold: brightness above which a row is "bright".
+        min_run_rows: minimum contiguous bright rows for a candidate.
+            Body-text peaks are 7-9 rows; large-type lines are 14+.
+        run_mean_min: strict absolute mean threshold for short runs.
+            Long runs use a per-column adaptive baseline scaled down.
+        run_max_min: strict absolute peak threshold for short runs.
+        line_height_multiplier: maximum gap between two bright runs in
+            the same column (relative to the larger run's height) for
+            them to be treated as one headline block.
+        y_overlap_min: minimum y-overlap (as fraction of shorter block)
+            required for two adjacent-column blocks to merge.
+        rescue_overlap_min: weaker overlap threshold used in step D.
+
+    Returns:
+        list of {x1_pct, x2_pct, y1_pct, y2_pct, cols_spanned,
+                 source: 'chart'} sorted top-to-bottom, left-to-right.
+    """
+    col_by_idx = {c['index']: c for c in columns_meta}
+    ad_z = ad_zones or []
+
+    # ── First pass: collect raw runs and per-column distribution ──
+    # Per-column adaptive baseline. The midpoint between p50 (the
+    # paper / inter-line level) and p90 (the column's typical peak)
+    # gives a column-aware "this is bright for this column" bar that
+    # accommodates dim edge columns and dense interior columns alike.
+    raw_runs_by_col = {}     # col_idx -> [{s,e,n,mean,max}, ...]
+    chart_by_col = {}
+    x_sample_by_col = {}
+    adaptive_by_col = {}     # col_idx -> (adaptive_mean, adaptive_max)
+
+    for chart_obj in body_text_charts:
+        col_idx = chart_obj['col_idx']
+        chart = chart_obj['chart']
+        if not chart:
+            continue
+        chart_by_col[col_idx] = chart
+        x_sample_by_col[col_idx] = chart_obj.get('x_pct', 0)
+
+        vals_sorted = sorted(pt['val'] for pt in chart)
+        nv = len(vals_sorted)
+        col_p50 = vals_sorted[nv // 2]
+        col_p90 = vals_sorted[min(nv - 1, int(nv * 0.9))]
+        # Floors prevent quiet/blank columns from dropping thresholds
+        # too far. Ceilings prevent very bright columns from raising
+        # them above what real headlines can clear.
+        adaptive_mean = max(80, min(140, (col_p50 + col_p90) / 2))
+        adaptive_max = max(150, min(220, col_p90 * 0.95))
+        adaptive_by_col[col_idx] = (adaptive_mean, adaptive_max)
+
+        raw_runs = []
+        in_run = False
+        run_start = 0
+
+        def _push(s, e):
+            vals = [chart[i]['val'] for i in range(s, e + 1)]
+            raw_runs.append({
+                's': s, 'e': e,
+                'n': e - s + 1,
+                'mean': sum(vals) / len(vals),
+                'max': max(vals),
+            })
+
+        for i, pt in enumerate(chart):
+            bright = pt['val'] > val_threshold
+            if bright and not in_run:
+                run_start = i
+                in_run = True
+            elif not bright and in_run:
+                if i - run_start >= min_run_rows:
+                    _push(run_start, i - 1)
+                in_run = False
+        if in_run and len(chart) - run_start >= min_run_rows:
+            _push(run_start, len(chart) - 1)
+
+        raw_runs_by_col[col_idx] = raw_runs
+
+    def passes_strength(run, adaptive_mean, adaptive_max):
+        n = run['n']
+        if n < 30:
+            # Short runs overlap body-text territory: strict absolutes.
+            return run['mean'] >= run_mean_min or run['max'] >= run_max_min
+        if n < 60:
+            # Medium: per-column-aware, slightly relaxed.
+            return (run['mean'] >= adaptive_mean * 0.95 or
+                    run['max'] >= adaptive_max * 0.95)
+        # Long (≥60 rows): cannot be body text. Multi-line headlines
+        # fuse here when inter-line gaps don't drop below val_threshold.
+        return (run['mean'] >= adaptive_mean * 0.7 or
+                run['max'] >= adaptive_max * 0.85)
+
+    # ── Steps A (filter) + B (gap-merge) per column ───────────────
+    per_col_blocks = []
+    for col_idx, raw_runs in raw_runs_by_col.items():
+        adaptive = adaptive_by_col[col_idx]
+        chart = chart_by_col[col_idx]
+        x_sample = x_sample_by_col[col_idx]
+
+        runs = [(r['s'], r['e']) for r in raw_runs
+                if passes_strength(r, *adaptive)]
+
+        # Merge vertically-adjacent runs whose gap is small relative
+        # to the line height — this is the multi-line headline case.
+        merged = []
+        for r in runs:
+            r_h = r[1] - r[0] + 1
+            if merged:
+                prev = merged[-1]
+                prev_h = prev[1] - prev[0] + 1
+                gap = r[0] - prev[1]
+                allowed = int(max(prev_h, r_h) * line_height_multiplier)
+                if gap <= allowed:
+                    merged[-1] = (prev[0], r[1])
+                    continue
+            merged.append(r)
+
+        for ms, me in merged:
+            y1 = chart[ms]['y_pct']
+            y2 = chart[me]['y_pct']
+            # Skip blocks whose centre falls inside an ad zone
+            cy = (y1 + y2) / 2
+            in_ad = any(az[0] <= x_sample <= az[1] and
+                        az[2] <= cy <= az[3] for az in ad_z)
+            if in_ad:
+                continue
+            per_col_blocks.append({
+                'col_idx': col_idx,
+                'y1_pct': y1,
+                'y2_pct': y2,
+            })
+
+    # ── Step C: cross-column alignment merge ──────────────────────
+    per_col_blocks.sort(key=lambda b: (b['col_idx'], b['y1_pct']))
+
+    assembled = []  # {col_min, col_max, y1, y2}
+    for b in per_col_blocks:
+        merged_flag = False
+        for a in assembled:
+            adjacent = (b['col_idx'] == a['col_max'] + 1 or
+                        b['col_idx'] == a['col_min'] - 1)
+            if not adjacent:
+                continue
+            y_lo = max(a['y1'], b['y1_pct'])
+            y_hi = min(a['y2'], b['y2_pct'])
+            overlap = y_hi - y_lo
+            min_h = min(a['y2'] - a['y1'], b['y2_pct'] - b['y1_pct'])
+            if min_h <= 0 or overlap / min_h < y_overlap_min:
+                continue
+            a['col_min'] = min(a['col_min'], b['col_idx'])
+            a['col_max'] = max(a['col_max'], b['col_idx'])
+            a['y1'] = min(a['y1'], b['y1_pct'])
+            a['y2'] = max(a['y2'], b['y2_pct'])
+            merged_flag = True
+            break
+        if not merged_flag:
+            assembled.append({
+                'col_min': b['col_idx'],
+                'col_max': b['col_idx'],
+                'y1': b['y1_pct'],
+                'y2': b['y2_pct'],
+            })
+
+    # ── Step D: cross-column rescue ───────────────────────────────
+    # The strength filter is intentionally strict to keep body text
+    # out. That sometimes drops a faint but rhythmically-correct run
+    # in an edge column that should belong to a neighbour's headline.
+    # For each assembled block, look one column outward on each side
+    # for a raw run that meaningfully overlaps the block's y-extent
+    # in BOTH directions (the run is mostly inside the block AND the
+    # block is mostly inside the run). That dual constraint keeps
+    # body-text bursts and unrelated headlines out — they may brush
+    # the block at one edge but rarely fill it. No iteration: a
+    # single hop on each side is enough to reach a faint partner
+    # without chaining into adjacent unrelated content.
+    for a in assembled:
+        block_h = a['y2'] - a['y1']
+        for adj in (a['col_min'] - 1, a['col_max'] + 1):
+            if adj not in raw_runs_by_col:
+                continue
+            if a['col_min'] <= adj <= a['col_max']:
+                continue
+            chart = chart_by_col[adj]
+            best = None
+            for r in raw_runs_by_col[adj]:
+                ry1 = chart[r['s']]['y_pct']
+                ry2 = chart[r['e']]['y_pct']
+                y_lo = max(a['y1'], ry1)
+                y_hi = min(a['y2'], ry2)
+                overlap = y_hi - y_lo
+                rh = ry2 - ry1
+                if rh <= 0 or block_h <= 0:
+                    continue
+                # Require the run to be substantially inside the block
+                # AND the block to be substantially covered by the run.
+                if (overlap / rh < 0.5 or
+                        overlap / block_h < rescue_overlap_min):
+                    continue
+                if best is None or overlap > best['overlap']:
+                    best = {'overlap': overlap, 'y1': ry1, 'y2': ry2}
+            if best is None:
+                continue
+            if adj < a['col_min']:
+                a['col_min'] = adj
+            else:
+                a['col_max'] = adj
+            a['y1'] = min(a['y1'], best['y1'])
+            a['y2'] = max(a['y2'], best['y2'])
+
+    # Build output using column metadata for x extents
+    headlines = []
+    for a in assembled:
+        col_min_meta = col_by_idx.get(a['col_min'])
+        col_max_meta = col_by_idx.get(a['col_max'])
+        if not col_min_meta or not col_max_meta:
+            continue
+        headlines.append({
+            'x1_pct': round(col_min_meta['left_vw'], 1),
+            'x2_pct': round(col_max_meta['right_vw'], 1),
+            'y1_pct': round(a['y1'], 2),
+            'y2_pct': round(a['y2'], 2),
+            'cols_spanned': a['col_max'] - a['col_min'] + 1,
+            'source': 'chart',
+        })
+
+    headlines.sort(key=lambda h: (h['y1_pct'], h['x1_pct']))
+    return headlines
+
+
 if __name__ == "__main__":
     import json, sys
 

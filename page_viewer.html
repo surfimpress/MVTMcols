@@ -408,9 +408,13 @@ async function loadPageMeta() {
         window._ads = (issueData.ads || []).filter(a => a.page == pageNum);
     } catch(e) {}
 
-    // Load analysis data (profile chart + strip profiles)
+    // Load analysis data (profile chart + strip profiles).
+    // Cache-buster: page_analysis.json is rewritten on each pipeline
+    // run, so bypass the browser cache.
     try {
-        const resp = await fetch(`${BASE}/${issueDir}/p${pageNum}/page_analysis.json`);
+        const cb = Date.now();
+        const resp = await fetch(`${BASE}/${issueDir}/p${pageNum}/page_analysis.json?v=${cb}`,
+                                 { cache: 'no-store' });
         window._analysis = await resp.json();
     } catch(e) { window._analysis = null; }
 
@@ -698,17 +702,29 @@ function updateOverlay() {
             const bw = pctToX(region.x2_pct - region.x1_pct, w);
             const bh = pctToY(region.y2_pct - region.y1_pct, h);
             const isMatched = matched.has(idx);
-            const isBar = region.method === 'bar_width';
-            // bar_width method: solid orange; window method: dashed green
-            const fill = isMatched
-                ? (isBar ? 'rgba(255,120,0,0.3)' : 'rgba(0,200,100,0.2)')
-                : (isBar ? 'rgba(220,100,0,0.2)' : 'rgba(0,180,80,0.15)');
-            const stroke = isBar ? (isMatched ? '#ff6600' : '#cc6600')
-                                 : (isMatched ? '#00cc66' : '#009944');
-            const dash = isBar ? '' : 'stroke-dasharray="4,3"';
+            const method = region.method || 'window';
+            // Three methods: bar_width=orange solid, window=green dashed,
+            // chart=magenta solid (per-column or multi-column spans).
+            let fill, stroke, dash;
+            if (method === 'chart') {
+                const isMulti = (region.cols_spanned || 1) > 1;
+                fill = isMulti ? 'rgba(255,68,170,0.3)' : 'rgba(255,68,170,0.18)';
+                stroke = '#ff44aa';
+                dash = '';
+            } else if (method === 'bar_width') {
+                fill = isMatched ? 'rgba(255,120,0,0.3)' : 'rgba(220,100,0,0.2)';
+                stroke = isMatched ? '#ff6600' : '#cc6600';
+                dash = '';
+            } else {
+                fill = isMatched ? 'rgba(0,200,100,0.2)' : 'rgba(0,180,80,0.15)';
+                stroke = isMatched ? '#00cc66' : '#009944';
+                dash = 'stroke-dasharray="4,3"';
+            }
+            const sw = (method === 'chart' && (region.cols_spanned || 1) > 1) ? 2.5
+                       : (isMatched ? 3 : 1.5);
             s += `<rect x="${x1}" y="${y1}" width="${bw}" height="${bh}"
                 fill="${fill}" stroke="${stroke}"
-                stroke-width="${isMatched ? 3 : 1.5}" ${dash} opacity="0.9"/>`;
+                stroke-width="${sw}" ${dash} opacity="0.9"/>`;
         });
     }
     // Horizontal rules: yellow lines, with matched cross-column rules highlighted
