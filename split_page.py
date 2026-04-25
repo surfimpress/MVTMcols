@@ -781,6 +781,20 @@ def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
             draw = ImageDraw.Draw(img)
 
             for ad in ads_with_ids:
+                # Sliver guard: a real ad occupies ~the full column width
+                # or none of it. If the ad's intersection with this
+                # column (unbuffered) is less than half a column wide,
+                # the ad lives in a neighbouring column and is leaking
+                # in via its bbox edge — skip rather than punch a hole
+                # through legitimate body text.
+                col_ox1 = max(ad["x_pct"], left)
+                col_ox2 = min(ad["x_end_pct"], right)
+                if col_ox2 <= col_ox1:
+                    continue
+                col_xov = (col_ox2 - col_ox1) / width
+                if col_xov < 0.5:
+                    continue
+
                 # Convert ad pct coords to this column's pixel coords
                 # using the buffered crop window.
                 ax_pct_in_col = ad["x_pct"] - crop_left
