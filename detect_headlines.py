@@ -739,7 +739,14 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
                 prev = merged[-1]
                 prev_h = prev[1] - prev[0] + 1
                 gap = r[0] - prev[1]
-                allowed = int(max(prev_h, r_h) * line_height_multiplier)
+                # Use MIN rather than MAX of the two run heights so that
+                # a tiny isolated run can't be glommed onto a far-away
+                # giant fused block. Floor at ~one body-text line height
+                # (12 rows ≈ 0.36% page) so genuine multi-line headlines
+                # with a kicker line still merge across normal inter-line
+                # gaps.
+                allowed = max(int(min(prev_h, r_h) * line_height_multiplier),
+                              12)
                 if gap <= allowed:
                     merged[-1] = (prev[0], r[1])
                     continue
