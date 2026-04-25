@@ -615,6 +615,12 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
     # while columns_meta reflects post-validation placed columns — the
     # x positions are close but rarely identical.
     gutter_map = {}
+    # `gutter_check_active` controls whether the vertical-rule rule is
+    # enforced. True if the caller supplied gutter_fills (even an empty
+    # list — that means "detect_headlines ran and found no fills",
+    # so cross-column merges should be blocked). None means the caller
+    # didn't have gutter data; fall back to legacy y-overlap-only merge.
+    gutter_check_active = gutter_fills is not None
     if gutter_fills:
         cols_sorted = sorted(columns_meta, key=lambda c: c['left_vw'])
         boundaries = [(
@@ -636,7 +642,13 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
 
     def _gutter_supports(col_a, col_b, y1, y2):
         """True if a gutter_fill at the boundary between col_a and col_b
-        covers more than half of the block y-range [y1, y2]."""
+        covers more than half of the block y-range [y1, y2].
+
+        Encodes the rule: a vertical column rule between two columns
+        is a sure-stop signal — content cannot span across an intact
+        rule. gutter_fills mark where the rule is broken (content
+        crossing the gutter); only there can a cross-column merge
+        happen."""
         key = (min(col_a, col_b), max(col_a, col_b))
         fills = gutter_map.get(key)
         if not fills:
@@ -768,6 +780,12 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
             })
 
     # ── Step C: cross-column alignment merge ──────────────────────
+    # When gutter_fills are supplied, a cross-column merge is only
+    # allowed if the gutter between the two columns has a fill
+    # covering the candidate merge y-range. An intact vertical column
+    # rule is a sure-stop signal that the content does NOT span. When
+    # gutter_fills aren't available (caller didn't supply), fall back
+    # to legacy y-overlap-only behaviour.
     per_col_blocks.sort(key=lambda b: (b['col_idx'], b['y1_pct']))
 
     assembled = []  # {col_min, col_max, y1, y2}
@@ -784,6 +802,18 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
             min_h = min(a['y2'] - a['y1'], b['y2_pct'] - b['y1_pct'])
             if min_h <= 0 or overlap / min_h < y_overlap_min:
                 continue
+            # Vertical-rule check: the gutter between the two columns
+            # must have a fill at the proposed merge y-range, otherwise
+            # the rule is intact and the merge is forbidden.
+            if gutter_check_active:
+                # Anchor on the assembled block's near-side col, partner
+                # on the candidate col.
+                anchor = a['col_max'] if b['col_idx'] > a['col_max'] else a['col_min']
+                merge_y1 = min(a['y1'], b['y1_pct'])
+                merge_y2 = max(a['y2'], b['y2_pct'])
+                if not _gutter_supports(anchor, b['col_idx'],
+                                        merge_y1, merge_y2):
+                    continue
             a['col_min'] = min(a['col_min'], b['col_idx'])
             a['col_max'] = max(a['col_max'], b['col_idx'])
             a['y1'] = min(a['y1'], b['y1_pct'])
@@ -803,13 +833,13 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
     # out. That sometimes drops a faint but rhythmically-correct run
     # in an edge column that should belong to a neighbour's headline.
     # For each assembled block, look one column outward on each side
-    # for a raw run that meaningfully overlaps the block's y-extent
-    # in BOTH directions (the run is mostly inside the block AND the
-    # block is mostly inside the run). That dual constraint keeps
-    # body-text bursts and unrelated headlines out — they may brush
-    # the block at one edge but rarely fill it. No iteration: a
-    # single hop on each side is enough to reach a faint partner
-    # without chaining into adjacent unrelated content.
+    # for a raw run that meaningfully overlaps the block's y-extent.
+    #
+    # When gutter_fills are supplied, the rescue REQUIRES gutter-fill
+    # support across the boundary — same vertical-rule rule as Step C.
+    # When gutter_fills aren't available, fall back to the historical
+    # dual-constraint check (run mostly inside block AND block mostly
+    # inside run).
     for a in assembled:
         block_h = a['y2'] - a['y1']
         for adj in (a['col_min'] - 1, a['col_max'] + 1):
@@ -817,12 +847,11 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
                 continue
             if a['col_min'] <= adj <= a['col_max']:
                 continue
-            # Gutter fill at this boundary directly confirms a multi-
-            # column structure, so we relax the per-run coverage check
-            # (overlap/run_height) and trust block-coverage alone.
             anchor = adj if adj < a['col_min'] else a['col_max']
             partner = a['col_min'] if adj < a['col_min'] else adj
-            gutter_ok = _gutter_supports(anchor, partner, a['y1'], a['y2'])
+            if gutter_check_active and not _gutter_supports(
+                    anchor, partner, a['y1'], a['y2']):
+                continue
             chart = chart_by_col[adj]
             best = None
             for r in raw_runs_by_col[adj]:
@@ -837,8 +866,9 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
                 # Block-coverage is the always-required floor.
                 if overlap / block_h < rescue_overlap_min:
                     continue
-                # Run-coverage is required UNLESS the gutter confirms.
-                if not gutter_ok and overlap / rh < 0.5:
+                # If gutter check isn't active, the legacy dual-constraint
+                # check still requires the run to mostly cover the block.
+                if not gutter_check_active and overlap / rh < 0.5:
                     continue
                 if best is None or overlap > best['overlap']:
                     best = {'overlap': overlap, 'y1': ry1, 'y2': ry2}
