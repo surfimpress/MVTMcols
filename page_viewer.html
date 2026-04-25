@@ -522,19 +522,6 @@ function updateOverlay() {
             }
         });
     }
-    // Unbordered ads: detected via gutter-fill but classified as ads
-    // (too tall, contain graphics, or low text variance)
-    if (active.ads && a && a.unbordered_ads) {
-        a.unbordered_ads.forEach(ua => {
-            const x1 = pctToX(ua.x1_pct, w);
-            const y1 = pctToY(ua.y1_pct, h);
-            const bw = pctToX(ua.x2_pct - ua.x1_pct, w);
-            const bh = pctToY(ua.y2_pct - ua.y1_pct, h);
-            s += `<rect x="${x1}" y="${y1}" width="${bw}" height="${bh}"
-                fill="rgba(255,160,0,0.1)" stroke="#ffa000" stroke-width="1.5"
-                stroke-dasharray="4,4" opacity="0.8"/>`;
-        });
-    }
     // Headline detection zone: show the gutters being monitored
     if (active.headlines && a && a.gutter_fills) {
         // Draw thin vertical lines at each gutter position being checked
@@ -563,21 +550,8 @@ function updateOverlay() {
                 stroke-dasharray="6,3" opacity="${0.6 + hl.confidence * 0.4}"/>`;
         });
     }
-    // Rejected regions (body_text etc) — show dimmed so we can see what was found
-    if (active.headlines && a && a.unbordered_ads) {
-        a.unbordered_ads.forEach(ua => {
-            const x1 = pctToX(ua.x1_pct, w);
-            const y1 = pctToY(ua.y1_pct, h);
-            const bw = pctToX(ua.x2_pct - ua.x1_pct, w);
-            const bh = pctToY(ua.y2_pct - ua.y1_pct, h);
-            const isBody = (ua.reason || []).includes('body_text');
-            const fill = isBody ? 'rgba(100,100,100,0.1)' : 'rgba(255,160,0,0.1)';
-            const stroke = isBody ? 'rgba(150,150,150,0.5)' : '#ffa000';
-            s += `<rect x="${x1}" y="${y1}" width="${bw}" height="${bh}"
-                fill="${fill}" stroke="${stroke}" stroke-width="1"
-                stroke-dasharray="4,4" opacity="0.6"/>`;
-        });
-    }
+    // (unbordered_ads layer removed: detect_headlines no longer
+    // promotes regions to ads — large_type is now the headline authority.)
     if (active.detected && a && a.detected_boundaries) {
         // Raw detected positions from clustering — what the detector
         // actually found, before pitch projection or grid placement.
@@ -898,16 +872,15 @@ function updateOverlay() {
     }
 
     // Headline analysis charts: shown when headlines chart toggle is on.
-    // Each headline/unbordered ad region gets a small row-profile chart
-    // rendered to its left, showing the horizontal-blur result at full
-    // row resolution. Body text shows fine regular stripes; headlines
-    // show thick sparse peaks.
+    // Each headline region gets a small row-profile chart rendered to
+    // its left, showing the horizontal-blur result at full row resolution.
+    // Body text shows fine regular stripes; headlines show thick sparse peaks.
     if (active.headlines && chartOn.headlines && a) {
         const SCALE = 180; // body text peaks (~80-100) land at ~50% width
         const chartW = w * 0.06;
 
         // Render chart for each headline
-        const allRegions = [...(a.headlines || []), ...(a.unbordered_ads || [])];
+        const allRegions = [...(a.headlines || [])];
         let regionIdx = 0;
         for (const region of allRegions) {
             regionIdx++;

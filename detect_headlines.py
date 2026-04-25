@@ -304,18 +304,17 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
     y_max = r2_bottom_pct if r2_bottom_pct is not None else 100
 
     # ── Content classification ────────────────────────────────────
-    # Analyse each region to classify as headline or unbordered ad.
+    # Analyse each gutter-fill region to decide whether it looks like
+    # a headline. Rejects (too-tall, graphics, low-variance, body-text-
+    # dominated) are simply discarded — large_type is the authority on
+    # "is this a headline" and consumes gutter_fills as a separate signal.
     #
     # Headlines: short (< 9% of page height), text-like content
     #   (high row-variance = alternating text/gap rows), low graphics
-    #
-    # Unbordered ads: taller, or contain illustrations (low row-variance,
-    #   dense dark areas), or mixed content types
     max_headline_height = 9.0  # % of page
     graphics_thresh = 0.35     # if >35% of region is very dark = graphics
 
     classified_headlines = []
-    unbordered_ads = []
 
     for hl in kept:
         if hl["y1_pct"] < y_min or hl["y2_pct"] > y_max:
@@ -425,36 +424,18 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
 
         if is_headline:
             classified_headlines.append(entry)
-        elif body_frac > 0.7:
-            # Body text — discard, don't promote to ad
-            pass
-        else:
-            # Only promote to unbordered ad if it's a reasonable size.
-            # A region covering more than 30% of the page is not an ad.
-            width_pct = hl["x2_pct"] - hl["x1_pct"]
-            area_pct = width_pct * height_pct / 100
-            if area_pct > 30:
-                pass  # too large — discard
-            else:
-                entry["reason"] = []
-                if height_pct >= max_headline_height:
-                    entry["reason"].append("too_tall")
-                if very_dark >= graphics_thresh:
-                    entry["reason"].append("graphics")
-                if row_var <= 10:
-                    entry["reason"].append("low_variance")
-                unbordered_ads.append(entry)
+        # else: discard. Ad promotion was removed — large_type is the
+        # authority on "is this a headline"; gutter-fill is just a signal
+        # the caller can use, FPs are tolerated and filtered downstream.
 
     classified_headlines.sort(key=lambda hl: (hl["y1_pct"], hl["x1_pct"]))
-    unbordered_ads.sort(key=lambda a: (a["y1_pct"], a["x1_pct"]))
 
     # Build per-region analysis charts: horizontal-blur row profile
     # within each detected region. Each row is averaged horizontally
     # across the region's width (motion blur effect), sampled at
     # every pixel row for full resolution to show body text rhythm.
     # Body text: regular fine stripes. Headlines: thick sparse peaks.
-    all_regions = classified_headlines + unbordered_ads
-    for region_entry in all_regions:
+    for region_entry in classified_headlines:
         ry1 = int(region_entry["y1_pct"] / 100 * h)
         ry2 = int(region_entry["y2_pct"] / 100 * h)
         rx1_full = int(region_entry["x1_pct"] / 100 * w)
@@ -551,7 +532,7 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
         "gutter_fills": gutter_fills,
     }
 
-    return classified_headlines, unbordered_ads, analysis_data
+    return classified_headlines, analysis_data
 
 
 def assemble_headlines_from_charts(body_text_charts, columns_meta,
@@ -849,18 +830,13 @@ if __name__ == "__main__":
         for az in ads:
             ad_zones.append((az["x1"], az["x2"], az["y1"], az["y2"]))
 
-        headlines, unbordered, _ = detect_headlines(pdf_path, boundaries, ad_zones=ad_zones)
+        headlines, _ = detect_headlines(pdf_path, boundaries, ad_zones=ad_zones)
 
         issue = pdf_path.split("/")[-1].rsplit("-", 1)[0]
         print(f"\n{issue}:")
-        if not headlines and not unbordered:
+        if not headlines:
             print("  No detections")
         for hl in headlines:
             print(f"  HEADLINE: x={hl['x1_pct']:.0f}-{hl['x2_pct']:.0f}% "
                   f"y={hl['y1_pct']:.0f}-{hl['y2_pct']:.0f}% "
                   f"cols={hl['cols_spanned']} conf={hl['confidence']}")
-        for ua in unbordered:
-            reason = ','.join(ua.get('reason', []))
-            print(f"  UNBORDERED AD: x={ua['x1_pct']:.0f}-{ua['x2_pct']:.0f}% "
-                  f"y={ua['y1_pct']:.0f}-{ua['y2_pct']:.0f}% "
-                  f"cols={ua['cols_spanned']} [{reason}]")

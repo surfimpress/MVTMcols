@@ -501,15 +501,13 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
             boundary_pcts = [b["x_pct"] for b in raw] if raw else []
             if len(boundary_pcts) >= 3:
                 r2 = prof.get("r2", {})
-                headlines, unbordered_ads, hl_analysis = detect_headlines(
+                headlines, hl_analysis = detect_headlines(
                     pdf_path, boundary_pcts,
                     ad_zones=ctx.ad_zones,
                     r2_top_pct=r2.get("top"),
                     r2_bottom_pct=r2.get("bottom"))
                 if headlines:
                     analysis["headlines"] = headlines
-                if unbordered_ads:
-                    analysis["unbordered_ads"] = unbordered_ads
                 if hl_analysis:
                     analysis["headline_chart"] = hl_analysis.get("headline_chart")
                     analysis["gutter_fills"] = hl_analysis.get("gutter_fills")
