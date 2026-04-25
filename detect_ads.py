@@ -36,6 +36,7 @@ def _open_clean(pdf_path):
 
 def detect_ads(pdf_path, page_number=0, render_dpi=150,
                min_width_pct=15, min_height_pct=5,
+               gather_min_height_pct=3.0,
                min_rect_ratio=0.85, column_pitch=None,
                page_profile=None):
     """
@@ -49,7 +50,14 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
         page_number:     Zero-indexed page within the PDF.
         render_dpi:      DPI for rendering (150 is sufficient for ad detection).
         min_width_pct:   Minimum ad width as % of page width.
-        min_height_pct:  Minimum ad height as % of page height.
+        min_height_pct:  Minimum ad height as % of page height for emission.
+        gather_min_height_pct: Lower height floor for the sibling-merge pass.
+                         Candidates between gather_min_height_pct and
+                         min_height_pct are only emitted if they merge with
+                         a full-height ad sharing a horizontal boundary
+                         (e.g. an ad cut off at the top because a full-width
+                         internal rule produced a shorter sub-blob, like
+                         "Karl's Grocery" on 1947-11-06 P4).
         min_rect_ratio:  Minimum rectangularity (contour area / bounding rect area).
         column_pitch:    If known, used to estimate column span of each ad.
 
@@ -93,6 +101,7 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
     min_area = w * h * 0.005  # at least 0.5% of page area
     min_w = int(w * min_width_pct / 100)
     min_h = int(h * min_height_pct / 100)
+    gather_min_h = int(h * gather_min_height_pct / 100)
     pitch = column_pitch or 12.0  # default guess if not provided
 
     ads = []
@@ -106,9 +115,11 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
         if rect_area == 0:
             continue
 
-        # Size filters
-        if bw < min_w or bh < min_h:
+        # Size filters. Use gather_min_h here so short PROD-grade
+        # candidates can survive into the sibling-merge pass below.
+        if bw < min_w or bh < gather_min_h:
             continue
+        is_short = bh < min_h
         # Not the whole page, and not a page border
         if bw > w * 0.85 and bh > h * 0.85:
             continue
@@ -120,8 +131,12 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
         rect_ratio = area / rect_area
         aspect = bw / bh if bh > 0 else 0
 
-        # Rectangularity filter
+        # Rectangularity filter. Short candidates (below min_height_pct)
+        # must be PROD-grade rect_ratio — they're only kept for the
+        # sibling-merge pass and we don't want noise.
         if rect_ratio < 0.40:
+            continue
+        if is_short and rect_ratio < min_rect_ratio:
             continue
         # Aspect ratio filter: not a thin horizontal rule
         if aspect > 10.0 or aspect < 0.1:
@@ -200,6 +215,13 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
             "cols": cols,
             "has_children": has_children,
             "confidence": confidence,
+            "_is_short": is_short,
+            # Raw pixel-space bounds, used by sibling-merge to avoid
+            # rounding-noise false positives at the boundary tolerance.
+            "_y1_px": y,
+            "_y2_px": y + bh,
+            "_x1_px": x,
+            "_x2_px": x + bw,
         })
 
     # Sort by area (largest first)
@@ -226,7 +248,55 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
         if not is_contained:
             deduped.append(ad)
 
-    return deduped
+    # ── Sibling-merge pass for short PROD-grade extras ──────────────
+    # Catches the "internal full-width rule cuts the contour short"
+    # case (e.g. Karl's Grocery on 1947-11-06 P4): a short, crisp
+    # candidate sits directly above or below a full-height ad, sharing
+    # an exact horizontal boundary (i.e. the rule between them is the
+    # SAME rule, not separate top/bottom borders with a gutter between).
+    # Extend the full ad to absorb the short extra. Unmatched short
+    # extras are dropped — they don't survive on their own.
+    #
+    # Tolerance of 6 px in pixel space (~0.34% at 150 DPI on a typical
+    # 1754-row page) admits a single shared rule with a small bbox
+    # jitter, but rejects a real gutter between two distinct ads.
+    # Empirical anchors on 1947-11-06: Karl's Grocery + tallest 2col
+    # on P4 have a 5-px contour overlap (shared rule); R. P. Egerton +
+    # Comba's Furniture on P3 have a 10-px gutter (separate ads).
+    SHARE_TOL_PX = 6
+    XOVL_THRESH = 0.70
+    full = [a for a in deduped if not a.get("_is_short")]
+    short = [a for a in deduped if a.get("_is_short")]
+    for s in short:
+        s_w_px = s["_x2_px"] - s["_x1_px"]
+        for f in full:
+            f_w_px = f["_x2_px"] - f["_x1_px"]
+            ox1 = max(s["_x1_px"], f["_x1_px"])
+            ox2 = min(s["_x2_px"], f["_x2_px"])
+            if ox2 <= ox1:
+                continue
+            if (ox2 - ox1) / min(s_w_px, f_w_px) < XOVL_THRESH:
+                continue
+            # Short extra ABOVE full (extra's bottom == full's top)
+            if abs(s["_y2_px"] - f["_y1_px"]) <= SHARE_TOL_PX:
+                f["_y1_px"] = s["_y1_px"]
+                f["y_pct"] = round(s["_y1_px"] / h * 100, 1)
+                f["h_pct"] = round(f["y_end_pct"] - f["y_pct"], 1)
+                f["extended"] = True
+                break
+            # Short extra BELOW full (extra's top == full's bottom)
+            if abs(s["_y1_px"] - f["_y2_px"]) <= SHARE_TOL_PX:
+                f["_y2_px"] = s["_y2_px"]
+                f["y_end_pct"] = round(s["_y2_px"] / h * 100, 1)
+                f["h_pct"] = round(f["y_end_pct"] - f["y_pct"], 1)
+                f["extended"] = True
+                break
+
+    # Strip internal fields and emit only full-height ads.
+    for a in full:
+        for k in ("_is_short", "_y1_px", "_y2_px", "_x1_px", "_x2_px"):
+            a.pop(k, None)
+    return full
 
 
 def detect_single_col_ads(pdf_path, multi_col_ads=None, page_number=0,
