@@ -531,7 +531,8 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
                 detect_body_text(pdf_path, meta_cols,
                     r2_top_pct=r2_prof.get("top"),
                     r2_bottom_pct=r2_prof.get("bottom"),
-                    gutter_fills=gutter_fills_for_lt)
+                    gutter_fills=gutter_fills_for_lt,
+                    ad_zones=ctx.ad_zones)
             if body_regions:
                 analysis["body_text"] = body_regions
             if body_charts:
