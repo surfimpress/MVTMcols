@@ -26,7 +26,8 @@ import numpy as np
 
 from split_page import split_page, PageResult, extract_columns, _save_metadata
 from page_profile import profile_page
-from detect_ads import detect_ads, extract_ad_images, store_ads, get_ad_exclusion_zones
+from detect_ads import (detect_ads, detect_single_col_ads,
+                        extract_ad_images, store_ads, get_ad_exclusion_zones)
 from page_context import build_context
 from column_pipeline import detect_strips, cluster_boundaries, place_columns
 
@@ -258,6 +259,7 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     # ── Ad detection (before column detection) ─────────────────────
     print("Detecting display ads...")
     page_ads = {}  # page_num → list of ad dicts
+    page_single_col_ads = {}  # page_num → list of single-col ad dicts
     total_ads = 0
 
     ads_dir = os.path.join(output_dir, "ads")
@@ -274,6 +276,15 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
             total_ads += len(ads)
             ad_desc = ", ".join(str(a["cols"]) + "col" for a in ads)
             print(f"  P{page_num}: {len(ads)} ads ({ad_desc})")
+
+        # Single-column display ads — sibling pass to multi-col.
+        # Not stored in DB or used as ad_zones for boundary detection;
+        # surfaced only for the viewer.
+        sc_ads = detect_single_col_ads(pdf_path, multi_col_ads=ads,
+                                       page_profile=prof)
+        if sc_ads:
+            page_single_col_ads[page_num] = sc_ads
+            print(f"  P{page_num}: {len(sc_ads)} single-col ads")
 
     if total_ads:
         print(f"  Total: {total_ads} ads catalogued")
@@ -547,6 +558,11 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
                 _PILImg.fromarray(blur_img).save(blur_path)
         except Exception:
             pass
+
+        # Single-column display ads (sibling layer to multi-col ads)
+        sc = page_single_col_ads.get(page_num, [])
+        if sc:
+            analysis["single_col_ads"] = sc
 
         if analysis:
             with open(os.path.join(page_out, "page_analysis.json"), "w") as f:

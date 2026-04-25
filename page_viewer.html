@@ -219,6 +219,11 @@ const LAYERS = [
         desc: 'Step 4 — Ad detection. Display advertisements found by OpenCV contour analysis. Bordered rectangular regions wider than 2 columns. These exclusion zones prevent ad borders being mistaken for column rules in the next step.'
     },
     {
+        id: 'single_col_ads', name: 'Single column ads', num: 5,
+        color: '#ff8800', style: 'dashed', default: false,
+        desc: 'Step 4b — Single-column display ads. Bordered single-column ads detected by contour analysis with sibling-merge (for ads with broken-rule junctions) and outward boundary-search (for ads whose internal large-type cuts the contour short). Excludes regions already inside multi-column ads.'
+    },
+    {
         id: 'detected', name: 'Detected boundaries', num: 6,
         color: '#00cc44', style: 'solid', default: true, chart: true,
         desc: 'Step 6 — Boundary detection. Raw column rule detections from multi-strip consensus, with ad and headline zones excluded. Each line was found by the valley-spike-valley detector across 7 horizontal strips, weighted by position.'
@@ -514,6 +519,16 @@ function updateOverlay() {
                 s += `<rect x="${pctToX(ad.x_pct, w)}" y="${pctToY(ad.y_pct, h)}"
                     width="${pctToX(ad.w_pct || 10, w)}" height="${pctToY(ad.h_pct || 10, h)}"
                     fill="rgba(255,204,0,0.08)" stroke="#ffcc00" stroke-width="2" stroke-dasharray="8,4" opacity="0.7"/>`;
+            }
+        });
+    }
+    if (active.single_col_ads && a && a.single_col_ads) {
+        a.single_col_ads.forEach(ad => {
+            if (ad.x_pct != null && ad.y_pct != null) {
+                s += `<rect x="${pctToX(ad.x_pct, w)}" y="${pctToY(ad.y_pct, h)}"
+                    width="${pctToX(ad.w_pct, w)}" height="${pctToY(ad.h_pct, h)}"
+                    fill="rgba(255,136,0,0.06)" stroke="#ff8800" stroke-width="2"
+                    stroke-dasharray="6,3" opacity="0.75"/>`;
             }
         });
     }

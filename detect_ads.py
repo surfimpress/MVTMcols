@@ -229,6 +229,427 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
     return deduped
 
 
+def detect_single_col_ads(pdf_path, multi_col_ads=None, page_number=0,
+                          render_dpi=150,
+                          min_width_pct=5, max_width_pct=15,
+                          min_height_pct=4,
+                          min_rect_ratio=0.70,
+                          edge_margin_pct=3.0,
+                          page_profile=None):
+    """
+    Detect bordered single-column display advertisements on a PDF page.
+
+    A complement to detect_ads(): same image pipeline (adaptive threshold +
+    morph close + contour analysis), but tuned for the single-column case
+    where contour borders often have small printer-rule junctions that the
+    morph close cannot bridge. Two refinement passes recover ads whose
+    initial contour is fragmented or truncated:
+
+    - Sibling-merge: stacked or side-by-side sub-blobs sharing an x or y
+      range and tight gap merge into one ad.
+    - Boundary-search: a candidate's top/bottom y is extended outward to
+      the outermost horizontal rule found in the binary mask within 6%.
+
+    Args:
+        pdf_path:        Path to the PDF.
+        multi_col_ads:   List of multi-column ad dicts from detect_ads();
+                         single-col candidates >= 50% inside any of these
+                         are dropped (multi takes precedence).
+        page_number:     Zero-indexed page within the PDF.
+        render_dpi:      DPI for rendering (matches detect_ads default).
+        min_width_pct:   Minimum ad width as % of page width (5).
+        max_width_pct:   Maximum ad width as % of page width (15).
+        min_height_pct:  Minimum ad height as % of page height (4).
+        min_rect_ratio:  Minimum rectangularity for initial admission
+                         (0.70 — admits sub-blobs from fragmented borders).
+        edge_margin_pct: Reject contours within this % of any page edge.
+
+    Returns:
+        List of ad dicts with the same shape as detect_ads(), plus
+        'cols' always = 1.
+    """
+    multi_col_ads = multi_col_ads or []
+
+    # ── A) Common preprocessing — identical to detect_ads ──────────────
+    doc = _open_clean(pdf_path)
+    page = doc[page_number]
+    pix = page.get_pixmap(dpi=render_dpi)
+    img = np.frombuffer(pix.samples, dtype=np.uint8)
+    if pix.n >= 3:
+        img = img.reshape(pix.h, pix.w, pix.n)[:, :, :3]
+    else:
+        img = img.reshape(pix.h, pix.w)
+    doc.close()
+
+    if img.ndim == 3:
+        grey = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    else:
+        grey = img
+
+    h, w = grey.shape
+
+    binary = cv2.adaptiveThreshold(
+        grey, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV, 21, 10,
+    )
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=2)
+
+    contours, hierarchy = cv2.findContours(
+        closed, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE,
+    )
+
+    # ── B) Initial contour scan with single-col filters ────────────────
+    min_area = w * h * 0.005
+    min_w_px = int(w * min_width_pct / 100)
+    max_w_px = int(w * max_width_pct / 100)
+    min_h_px = int(h * min_height_pct / 100)
+
+    def _overlap_pct(a_x1, a_y1, a_x2, a_y2, b_x1, b_y1, b_x2, b_y2):
+        ox = max(0.0, min(a_x2, b_x2) - max(a_x1, b_x1))
+        oy = max(0.0, min(a_y2, b_y2) - max(a_y1, b_y1))
+        return ox * oy
+
+    def _inside_multi(x_pct, y_pct, x_end_pct, y_end_pct):
+        if not multi_col_ads:
+            return False
+        area = (x_end_pct - x_pct) * (y_end_pct - y_pct)
+        if area <= 0:
+            return False
+        for m in multi_col_ads:
+            mx1 = m["x_pct"]; my1 = m["y_pct"]
+            mx2 = m.get("x_end_pct", mx1 + m["w_pct"])
+            my2 = m.get("y_end_pct", my1 + m["h_pct"])
+            ov = _overlap_pct(x_pct, y_pct, x_end_pct, y_end_pct,
+                              mx1, my1, mx2, my2)
+            if ov / area > 0.5:
+                return True
+        return False
+
+    raw_candidates = []  # list of dicts
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if area < min_area:
+            continue
+        x, y, bw, bh = cv2.boundingRect(cnt)
+        if bw == 0 or bh == 0:
+            continue
+        if bw < min_w_px or bw > max_w_px:
+            continue
+        if bh < min_h_px:
+            continue
+        rect_area = bw * bh
+        rect_ratio = area / rect_area
+        if rect_ratio < min_rect_ratio:
+            continue
+        x_pct = x / w * 100
+        y_pct = y / h * 100
+        x_end_pct = (x + bw) / w * 100
+        y_end_pct = (y + bh) / h * 100
+        # Edge margin
+        if (x_pct < edge_margin_pct or
+            x_end_pct > 100 - edge_margin_pct or
+            y_pct < edge_margin_pct or
+            y_end_pct > 100 - edge_margin_pct):
+            continue
+        # R2 photograph-edge match (mirrors detect_ads:167-176)
+        if page_profile and "r2" in page_profile:
+            r2 = page_profile["r2"]
+            matches = 0
+            if abs(x_pct - r2["left"]) < 3: matches += 1
+            if abs(x_end_pct - r2["right"]) < 3: matches += 1
+            if abs(y_pct - r2["top"]) < 5: matches += 1
+            if abs(y_end_pct - r2["bottom"]) < 5: matches += 1
+            if matches >= 2:
+                continue
+        # Drop if mostly inside an existing multi-col ad
+        if _inside_multi(x_pct, y_pct, x_end_pct, y_end_pct):
+            continue
+
+        raw_candidates.append({
+            "x_pct": x_pct, "y_pct": y_pct,
+            "x_end_pct": x_end_pct, "y_end_pct": y_end_pct,
+            "rect_ratio": rect_ratio,
+            "fill_area_px": area,        # for sibling-merge math
+            "rect_area_px": rect_area,
+            "merged": False,
+            "extended": False,
+        })
+
+    # ── C) Sibling-merge: fragmented perimeters into one rectangle ─────
+    # Iterate until a pass produces no merge. Cap at 4 iterations.
+    def _try_merge(a, b):
+        ax1, ay1, ax2, ay2 = a["x_pct"], a["y_pct"], a["x_end_pct"], a["y_end_pct"]
+        bx1, by1, bx2, by2 = b["x_pct"], b["y_pct"], b["x_end_pct"], b["y_end_pct"]
+        aw_p = ax2 - ax1; ah_p = ay2 - ay1
+        bw_p = bx2 - bx1; bh_p = by2 - by1
+        # union extent
+        ux1, uy1 = min(ax1, bx1), min(ay1, by1)
+        ux2, uy2 = max(ax2, bx2), max(ay2, by2)
+        uw_p = ux2 - ux1; uh_p = uy2 - uy1
+        # union must remain single-col-width
+        if uw_p < min_width_pct or uw_p > max_width_pct:
+            return None
+        # x-overlap fraction over narrower
+        ovx = max(0.0, min(ax2, bx2) - max(ax1, bx1))
+        narrower_w = min(aw_p, bw_p)
+        # y-overlap fraction over shorter
+        ovy = max(0.0, min(ay2, by2) - max(ay1, by1))
+        shorter_h = min(ah_p, bh_p)
+        # vertical alignment: stacked, x-cols overlap
+        v_ok = (narrower_w > 0 and ovx / narrower_w >= 0.70)
+        v_gap = max(0.0, max(ay1, by1) - min(ay2, by2))
+        # horizontal alignment: side-by-side, y-rows overlap
+        h_ok = (shorter_h > 0 and ovy / shorter_h >= 0.70)
+        h_gap = max(0.0, max(ax1, bx1) - min(ax2, bx2))
+
+        is_vert = v_ok and v_gap <= 1.5
+        is_horz = h_ok and h_gap <= 1.5
+        if not (is_vert or is_horz):
+            return None
+
+        # Only merge if BOTH are fragments. A fully-formed contour
+        # (rect_ratio >= 0.85) is an intact ad on its own and must not
+        # absorb stacked neighbours.
+        if a["rect_ratio"] >= 0.85 or b["rect_ratio"] >= 0.85:
+            return None
+
+        # bridge area estimate (conservative — assume slit is half-filled)
+        if is_vert:
+            gap_h_pct = v_gap
+            gap_h_px = gap_h_pct / 100 * h
+            bridge = (uw_p / 100 * w) * gap_h_px * 0.5
+        else:
+            gap_w_pct = h_gap
+            gap_w_px = gap_w_pct / 100 * w
+            bridge = (uh_p / 100 * h) * gap_w_px * 0.5
+        union_rect_px = (uw_p / 100 * w) * (uh_p / 100 * h)
+        if union_rect_px <= 0:
+            return None
+        combined = (a["fill_area_px"] + b["fill_area_px"] + bridge) / union_rect_px
+        if combined < 0.70:
+            return None
+
+        return {
+            "x_pct": ux1, "y_pct": uy1,
+            "x_end_pct": ux2, "y_end_pct": uy2,
+            "rect_ratio": min(combined, 1.0),
+            "fill_area_px": a["fill_area_px"] + b["fill_area_px"] + bridge,
+            "rect_area_px": union_rect_px,
+            "merged": True,
+            "extended": a.get("extended", False) or b.get("extended", False),
+        }
+
+    candidates = list(raw_candidates)
+    for _ in range(4):
+        merged_any = False
+        i = 0
+        while i < len(candidates):
+            j = i + 1
+            merged_here = False
+            while j < len(candidates):
+                m = _try_merge(candidates[i], candidates[j])
+                if m is not None:
+                    candidates[i] = m
+                    candidates.pop(j)
+                    merged_any = True
+                    merged_here = True
+                    continue
+                j += 1
+            i += 1
+            if merged_here:
+                # restart inner sweep is unnecessary; outer loop handles chains
+                pass
+        if not merged_any:
+            break
+
+    # ── D) Boundary-search refinement: extend y to outermost rules ─────
+    # Use the ORIGINAL binary (not closed) so we find real rules, not
+    # close-bridged content.
+    SEARCH_PCT = 6.0
+    RULE_FILL_FRAC = 0.80
+    MAX_HEIGHT_PCT = 25.0
+    MIN_RECT_AFTER_EXTEND = 0.50
+
+    def _row_is_rule(row_idx, x1_px, x2_px):
+        if row_idx < 0 or row_idx >= h or x2_px <= x1_px:
+            return False
+        row = binary[row_idx, x1_px:x2_px]
+        if row.size == 0:
+            return False
+        # binary is 0/255; ink is 255 (THRESH_BINARY_INV)
+        return (row > 0).mean() >= RULE_FILL_FRAC
+
+    def _multi_blocks_extension(x1, x2, y_old, y_new, going_up):
+        """True if extending in [y_old <-> y_new] would cross a multi-col ad
+        boundary that overlaps our x-range."""
+        for m in multi_col_ads:
+            mx1 = m["x_pct"]; my1 = m["y_pct"]
+            mx2 = m.get("x_end_pct", mx1 + m["w_pct"])
+            my2 = m.get("y_end_pct", my1 + m["h_pct"])
+            # x must overlap to be relevant
+            ovx = max(0.0, min(x2, mx2) - max(x1, mx1))
+            if ovx <= 0:
+                continue
+            if going_up:
+                # extending y_old -> y_new (y_new < y_old)
+                # if any horizontal edge of the multi ad sits in [y_new, y_old]
+                if y_new < my1 < y_old or y_new < my2 < y_old:
+                    return True
+            else:
+                if y_old < my1 < y_new or y_old < my2 < y_new:
+                    return True
+        return False
+
+    for c in candidates:
+        x1_px = int(c["x_pct"] / 100 * w)
+        x2_px = int(c["x_end_pct"] / 100 * w)
+        y1_px = int(c["y_pct"] / 100 * h)
+        y2_px = int(c["y_end_pct"] / 100 * h)
+
+        new_y1_px = y1_px
+        new_y2_px = y2_px
+
+        # search top: scan [y1 - 6%, y1] from y1 upward — the rule
+        # closest to the candidate is the real top border. Going farther
+        # risks hitting unrelated content above.
+        top_lo = max(int(edge_margin_pct / 100 * h),
+                     y1_px - int(SEARCH_PCT / 100 * h))
+        for r in range(y1_px - 1, top_lo - 1, -1):
+            if _row_is_rule(r, x1_px, x2_px):
+                new_y1_px = r
+                break
+
+        # search bottom: scan [y2, y2 + 6%] from y2 downward — closest
+        # rule is the real bottom border.
+        bot_hi = min(int((100 - edge_margin_pct) / 100 * h),
+                     y2_px + int(SEARCH_PCT / 100 * h))
+        for r in range(y2_px, bot_hi):
+            if _row_is_rule(r, x1_px, x2_px):
+                new_y2_px = r + 1  # exclusive end
+                break
+
+        # apply guards
+        new_y1_pct = new_y1_px / h * 100
+        new_y2_pct = new_y2_px / h * 100
+        new_h_pct = new_y2_pct - new_y1_pct
+
+        # height cap
+        if new_h_pct > MAX_HEIGHT_PCT:
+            continue
+        # multi-col boundary crossing
+        if (new_y1_pct < c["y_pct"] and
+            _multi_blocks_extension(c["x_pct"], c["x_end_pct"],
+                                    c["y_pct"], new_y1_pct, going_up=True)):
+            new_y1_px = y1_px
+            new_y1_pct = c["y_pct"]
+        if (new_y2_pct > c["y_end_pct"] and
+            _multi_blocks_extension(c["x_pct"], c["x_end_pct"],
+                                    c["y_end_pct"], new_y2_pct, going_up=False)):
+            new_y2_px = y2_px
+            new_y2_pct = c["y_end_pct"]
+
+        # was anything actually extended?
+        if new_y1_px == y1_px and new_y2_px == y2_px:
+            continue
+
+        # Don't extend across another single-col candidate's bbox in the
+        # same x-range — that would merge two distinct ads.
+        for other in candidates:
+            if other is c:
+                continue
+            ox1 = max(c["x_pct"], other["x_pct"])
+            ox2 = min(c["x_end_pct"], other["x_end_pct"])
+            if ox2 <= ox1:
+                continue
+            ovx_frac = (ox2 - ox1) / (c["x_end_pct"] - c["x_pct"])
+            if ovx_frac < 0.5:
+                continue
+            # extending up across other's bottom?
+            if (new_y1_pct < other["y_end_pct"] <= c["y_pct"] and
+                new_y1_pct < other["y_end_pct"]):
+                new_y1_px = y1_px
+                new_y1_pct = c["y_pct"]
+            # extending down across other's top?
+            if (c["y_end_pct"] <= other["y_pct"] < new_y2_pct):
+                new_y2_px = y2_px
+                new_y2_pct = c["y_end_pct"]
+
+        # was anything still extended after the cross-candidate guard?
+        if new_y1_px == y1_px and new_y2_px == y2_px:
+            continue
+
+        new_w_px = x2_px - x1_px
+        new_h_px = new_y2_px - new_y1_px
+        if new_w_px <= 0 or new_h_px <= 0:
+            continue
+
+        c["y_pct"] = new_y1_pct
+        c["y_end_pct"] = new_y2_pct
+        c["rect_area_px"] = new_w_px * new_h_px
+        # The strong-rule discovery validates the extension; rect_ratio
+        # stays at its pre-extension value (it was computed on the contour
+        # that opened the extension, and the new region doesn't have its
+        # own contour metric).
+        c["extended"] = True
+
+    # ── E) Final dedup: drop any ad mostly inside another ──────────────
+    candidates.sort(
+        key=lambda c: (c["x_end_pct"] - c["x_pct"]) * (c["y_end_pct"] - c["y_pct"]),
+        reverse=True,
+    )
+    deduped = []
+    for c in candidates:
+        contained = False
+        c_area = (c["x_end_pct"] - c["x_pct"]) * (c["y_end_pct"] - c["y_pct"])
+        if c_area <= 0:
+            continue
+        for d in deduped:
+            ov = _overlap_pct(c["x_pct"], c["y_pct"],
+                              c["x_end_pct"], c["y_end_pct"],
+                              d["x_pct"], d["y_pct"],
+                              d["x_end_pct"], d["y_end_pct"])
+            if ov / c_area > 0.8:
+                contained = True
+                break
+        if not contained:
+            deduped.append(c)
+
+    # ── F) Output shape — match detect_ads() ───────────────────────────
+    out = []
+    for c in deduped:
+        bw_p = c["x_end_pct"] - c["x_pct"]
+        bh_p = c["y_end_pct"] - c["y_pct"]
+        if bh_p <= 0:
+            continue
+        aspect = bw_p / bh_p
+        rr = c["rect_ratio"]
+        merged = c.get("merged", False)
+        extended = c.get("extended", False)
+        if rr >= 0.85 and not merged and not extended:
+            confidence = "high"
+        elif rr >= 0.78 or merged:
+            confidence = "medium"
+        else:
+            confidence = "low"
+        out.append({
+            "x_pct": round(c["x_pct"], 1),
+            "y_pct": round(c["y_pct"], 1),
+            "w_pct": round(bw_p, 1),
+            "h_pct": round(bh_p, 1),
+            "x_end_pct": round(c["x_end_pct"], 1),
+            "y_end_pct": round(c["y_end_pct"], 1),
+            "rect_ratio": round(rr, 3),
+            "aspect": round(aspect, 2),
+            "cols": 1,
+            "has_children": False,
+            "confidence": confidence,
+            "merged": merged,
+            "extended": extended,
+        })
+    return out
+
+
 def get_ad_exclusion_zones(ads, min_confidence="medium"):
     """
     Convert detected ads into x-range exclusion zones for column detection.
