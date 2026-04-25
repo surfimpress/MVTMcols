@@ -29,6 +29,7 @@ from pathlib import Path
 
 import fitz
 import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
 from find_columns import find_column_boundaries, ColumnBoundary, _open_clean
 from page_profile import profile_page
@@ -687,7 +688,7 @@ def _validate(boundaries):
 
 
 def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
-                    buffer_vw=BUFFER_VW):
+                    buffer_vw=BUFFER_VW, ads_with_ids=None):
     """
     Extract each column as a PNG using the detected boundaries.
 
@@ -697,6 +698,13 @@ def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
     Anything outside those is margin/binding/facing page bleed.
 
     With N boundaries you get N-1 columns.
+
+    If ads_with_ids is provided (list of dicts with id, x_pct, y_pct,
+    x_end_pct, y_end_pct), each column PNG is written as RGBA with
+    the overlapping ad region punched out (alpha=0) and labelled with
+    the ad id at the centre of the clipped hole. The buffered crop
+    window is preserved so labels and holes line up with the visible
+    PNG content.
 
     Returns list of ColumnResult.
     """
@@ -709,6 +717,18 @@ def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
 
     columns = []
     col_num = 0
+
+    ads_with_ids = ads_with_ids or []
+
+    # Load font once for all columns. Arial 24pt is already used
+    # elsewhere in the codebase for ad annotations.
+    label_font = None
+    if ads_with_ids:
+        try:
+            label_font = ImageFont.truetype(
+                "/System/Library/Fonts/Supplemental/Arial.ttf", 24)
+        except (OSError, IOError):
+            label_font = ImageFont.load_default()
 
     for i in range(len(boundaries) - 1):
         left = boundaries[i]["x_pct"]
@@ -741,11 +761,67 @@ def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
         clip = fitz.Rect(x0, y0, x1, y1)
         pix = page.get_pixmap(clip=clip, dpi=dpi)
 
-        # Save
         stem = Path(pdf_path).stem
         col_filename = f"{stem}_col{col_num}.png"
         col_path = os.path.join(output_dir, col_filename)
-        pix.save(col_path)
+
+        if not ads_with_ids:
+            # No ads: keep original opaque-PNG fast path.
+            pix.save(col_path)
+        else:
+            # Round-trip pixmap through PIL to get RGBA. PyMuPDF's
+            # get_pixmap doesn't expose alpha=True in this version,
+            # so build the alpha plane ourselves.
+            img = Image.frombytes("RGB", (pix.width, pix.height),
+                                  pix.samples).convert("RGBA")
+            arr = np.array(img)
+            iw, ih = pix.width, pix.height
+
+            col_w_pct = crop_right - crop_left
+            draw = ImageDraw.Draw(img)
+
+            for ad in ads_with_ids:
+                # Convert ad pct coords to this column's pixel coords
+                # using the buffered crop window.
+                ax_pct_in_col = ad["x_pct"] - crop_left
+                ax_end_pct_in_col = ad["x_end_pct"] - crop_left
+
+                if col_w_pct <= 0:
+                    continue
+                ax1 = int(round(ax_pct_in_col / col_w_pct * iw))
+                ax2 = int(round(ax_end_pct_in_col / col_w_pct * iw))
+                ay1 = int(round(ad["y_pct"] / 100.0 * ih))
+                ay2 = int(round(ad["y_end_pct"] / 100.0 * ih))
+
+                # Clip to image bounds.
+                ax1c = max(0, min(iw, ax1))
+                ax2c = max(0, min(iw, ax2))
+                ay1c = max(0, min(ih, ay1))
+                ay2c = max(0, min(ih, ay2))
+                if ax2c <= ax1c or ay2c <= ay1c:
+                    continue
+
+                # Punch hole: zero the alpha channel.
+                arr[ay1c:ay2c, ax1c:ax2c, 3] = 0
+
+                # Re-build PIL image from the modified array so the
+                # text we draw next sits on top of the transparent
+                # region (otherwise draw uses the stale img buffer).
+                img = Image.fromarray(arr, mode="RGBA")
+                draw = ImageDraw.Draw(img)
+
+                cx = (ax1c + ax2c) // 2
+                cy = (ay1c + ay2c) // 2
+                draw.text(
+                    (cx, cy), f"#{ad['id']}",
+                    fill=(80, 80, 80, 255),
+                    font=label_font, anchor="mm",
+                    stroke_width=1,
+                    stroke_fill=(255, 255, 255, 255),
+                )
+                arr = np.array(img)
+
+            img.save(col_path)
 
         columns.append(ColumnResult(
             index=col_num - 1,

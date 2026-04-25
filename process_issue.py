@@ -271,8 +271,11 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         if ads:
             ad_out = os.path.join(ads_dir, f"p{page_num}")
             ads_with_images = extract_ad_images(pdf_path, ads, ad_out, dpi=dpi)
-            store_ads(db_path, year, month, day, page_num, ads_with_images)
-            page_ads[page_num] = ads
+            multi_ids = store_ads(db_path, year, month, day, page_num,
+                                  ads_with_images)
+            for ad, _id in zip(ads_with_images, multi_ids):
+                ad["id"] = _id
+            page_ads[page_num] = ads_with_images
             total_ads += len(ads)
             ad_desc = ", ".join(str(a["cols"]) + "col" for a in ads)
             print(f"  P{page_num}: {len(ads)} ads ({ad_desc})")
@@ -288,7 +291,10 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
             ad_out = os.path.join(ads_dir, f"p{page_num}")
             sc_with_images = extract_ad_images(pdf_path, sc_ads, ad_out,
                                                dpi=dpi, name_prefix="sc_ad")
-            store_ads(db_path, year, month, day, page_num, sc_with_images)
+            sc_ids = store_ads(db_path, year, month, day, page_num,
+                               sc_with_images)
+            for sc, _id in zip(sc_with_images, sc_ids):
+                sc["id"] = _id
             page_single_col_ads[page_num] = sc_with_images
             print(f"  P{page_num}: {len(sc_ads)} single-col ads")
 
@@ -443,7 +449,15 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
                     os.remove(os.path.join(page_out, f))
         os.makedirs(page_out, exist_ok=True)
 
-        columns = extract_columns(pdf_path, final, 0, dpi, page_out)
+        ads_with_ids = [
+            {"id": a["id"], "x_pct": a["x_pct"], "y_pct": a["y_pct"],
+             "x_end_pct": a["x_end_pct"], "y_end_pct": a["y_end_pct"]}
+            for a in (page_ads.get(page_num, []) +
+                      page_single_col_ads.get(page_num, []))
+            if "id" in a
+        ]
+        columns = extract_columns(pdf_path, final, 0, dpi, page_out,
+                                  ads_with_ids=ads_with_ids)
         result = PageResult(
             pdf_path=pdf_path, page_number=0, dpi=dpi,
             page_width_px=0, page_height_px=0,
@@ -629,7 +643,15 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
                             os.remove(os.path.join(page_out, f))
                 os.makedirs(page_out, exist_ok=True)
 
-                new_columns = extract_columns(pdf_path, final, 0, dpi, page_out)
+                ads_with_ids = [
+                    {"id": a["id"], "x_pct": a["x_pct"], "y_pct": a["y_pct"],
+                     "x_end_pct": a["x_end_pct"], "y_end_pct": a["y_end_pct"]}
+                    for a in (page_ads.get(page_num, []) +
+                              page_single_col_ads.get(page_num, []))
+                    if "id" in a
+                ]
+                new_columns = extract_columns(pdf_path, final, 0, dpi, page_out,
+                                              ads_with_ids=ads_with_ids)
                 new_result = PageResult(
                     pdf_path=pdf_path, page_number=0, dpi=dpi,
                     page_width_px=0, page_height_px=0,
@@ -885,18 +907,19 @@ def _update_viewer_data(db_path, columns_dir):
             return (total_overlap / ad_area) > 0.5 and len(cols_overlapping) >= 2
 
         ad_rows = conn.execute("""
-            SELECT page, cols, confidence, image_filename,
+            SELECT id, page, cols, confidence, image_filename,
                    x_pct, y_pct, w_pct, h_pct
             FROM detected_ads WHERE year=? AND month=? AND day=?
-            ORDER BY page
+            ORDER BY page, id
         """, (year, month, day)).fetchall()
 
         ad_list = []
-        for p, c, cf, fn, x, y, w, bh in ad_rows:
+        for ad_id, p, c, cf, fn, x, y, w, bh in ad_rows:
             if _is_body_text_fp(p, cf, x, y, w, bh):
                 continue
-            ad_list.append({"page": p, "cols": c, "confidence": cf,
-                            "file": fn, "x_pct": x, "y_pct": y,
+            ad_list.append({"id": ad_id, "page": p, "cols": c,
+                            "confidence": cf, "file": fn,
+                            "x_pct": x, "y_pct": y,
                             "w_pct": w, "h_pct": bh})
 
         issue_dir = f"{year}-{month:02d}-{day:02d}"

@@ -866,12 +866,18 @@ def store_ads(db_path, year, month, day, page, ads_with_images):
         year, month, day: Issue date.
         page:             Page number.
         ads_with_images:  List of ad dicts (from extract_ad_images).
+
+    Returns:
+        List of inserted detected_ads.id values, in the same order
+        as ads_with_images.
     """
     import sqlite3
     init_ads_table(db_path)
     conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    ids = []
     for ad in ads_with_images:
-        conn.execute("""
+        cur.execute("""
             INSERT INTO detected_ads
             (year, month, day, page, x_pct, y_pct, w_pct, h_pct,
              x_end_pct, y_end_pct, rect_ratio, aspect, cols,
@@ -884,8 +890,10 @@ def store_ads(db_path, year, month, day, page, ads_with_images):
             ad.get("rect_ratio"), ad.get("aspect"), ad.get("cols"),
             ad.get("confidence"), ad.get("image_filename"),
         ))
+        ids.append(cur.lastrowid)
     conn.commit()
     conn.close()
+    return ids
 
 
 if __name__ == "__main__":

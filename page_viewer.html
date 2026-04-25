@@ -249,9 +249,9 @@ const LAYERS = [
         desc: 'Step 9 — Horizontal rule detection. Thin horizontal separators between articles, identified by isolated sharp spikes in the column strip profile. Very narrow (1-4 rows) with low values on both sides.'
     },
     {
-        id: 'expected', name: 'Expected grid', num: 10,
-        color: '#ff44ff', style: 'dashed', default: false,
-        desc: 'Reference — Where columns would be if the grid were mathematically perfect, stepping at the established pitch from the clean-side text edge. Compare against the blue placed lines to see deviations.'
+        id: 'content_by_column', name: 'Content by column', num: 10,
+        color: '#7d3c98', style: 'dashed', default: false,
+        desc: 'Step 10 — Content export preview. What gets written to disk per column: full-height column rect with detected-ad regions punched out (transparent in the PNG), labelled with the detected_ads.id. Use this to verify what the re-linker will see.'
     },
 ];
 
@@ -546,6 +546,35 @@ function updateOverlay() {
         window._columns.forEach(col => { positions.add(col.left_vw); positions.add(col.right_vw); });
         positions.forEach(pct => { s += svgLine(pct, w, h, '#4488ff', 2, 'solid', 'Final columns'); });
     }
+    // Content by column: dashed column rects with ad cutouts + ids.
+    // Mirrors what extract_columns() writes to disk per column.
+    if (active.content_by_column && window._columns) {
+        window._columns.forEach(col => {
+            const cx = pctToX(col.left_vw, w);
+            const cw = pctToX(col.right_vw - col.left_vw, w);
+            s += `<rect x="${cx}" y="0" width="${cw}" height="${h}"
+                fill="rgba(125,60,152,0.04)" stroke="#7d3c98"
+                stroke-width="1" stroke-dasharray="4,2" opacity="0.6"/>`;
+        });
+        const allAds = [
+            ...((window._ads || [])),
+            ...((a && a.single_col_ads) || [])
+        ];
+        allAds.forEach(ad => {
+            if (ad.id == null || ad.x_pct == null) return;
+            const ax = pctToX(ad.x_pct, w);
+            const ay = pctToY(ad.y_pct, h);
+            const aw = pctToX(ad.w_pct, w);
+            const ah = pctToY(ad.h_pct, h);
+            s += `<rect x="${ax}" y="${ay}" width="${aw}" height="${ah}"
+                fill="rgba(255,255,255,0.65)" stroke="#7d3c98"
+                stroke-width="1.5" stroke-dasharray="3,2"/>`;
+            s += `<text x="${ax + aw/2}" y="${ay + ah/2}"
+                text-anchor="middle" dominant-baseline="middle"
+                font-size="13" font-weight="bold"
+                fill="#7d3c98">#${ad.id}</text>`;
+        });
+    }
     // Body text regions
     if (active.body_text && a && a.body_text) {
         a.body_text.forEach(bt => {
@@ -706,14 +735,6 @@ function updateOverlay() {
                 stroke="${isMatched ? '#ddaa00' : '#ffdd00'}"
                 stroke-width="${isMatched ? 3 : 2}" opacity="0.9"/>`;
         });
-    }
-    if (active.expected && issueData.pitch) {
-        const pitch = issueData.pitch;
-        if (window._columns && window._columns.length > 0) {
-            const start = window._columns[0].left_vw;
-            for (let x = start; x < 100; x += pitch)
-                s += svgLine(x, w, h, '#ff44ff', 1.5, 'dashed', 'Expected grid');
-        }
     }
 
     // ── Analysis charts ──────────────────────────────────────
