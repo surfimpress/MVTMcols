@@ -16,7 +16,8 @@ from coordinates import pct_to_px, px_to_pct
 
 
 def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
-                     r2_top_pct=None, r2_bottom_pct=None):
+                     r2_top_pct=None, r2_bottom_pct=None,
+                     gutter_fills=None):
     """
     Detect body text regions within placed columns.
 
@@ -437,7 +438,8 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
     large_type_chart = []
     try:
         from detect_headlines import assemble_headlines_from_charts
-        large_type_chart = assemble_headlines_from_charts(charts, columns)
+        large_type_chart = assemble_headlines_from_charts(
+            charts, columns, gutter_fills=gutter_fills)
         for lt in large_type_chart:
             lt['method'] = 'chart'
     except Exception:

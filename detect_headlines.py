@@ -537,6 +537,7 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
 
 def assemble_headlines_from_charts(body_text_charts, columns_meta,
                                     ad_zones=None,
+                                    gutter_fills=None,
                                     val_threshold=80,
                                     min_run_rows=11,
                                     run_mean_min=130,
@@ -573,13 +574,21 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
         y-range overlaps the block by ≥ rescue_overlap_min. If found,
         extend the block into that column. Catches faint partners
         like an edge column whose ink is dim but rhythmically aligned
-        with a stronger neighbour.
+        with a stronger neighbour. When `gutter_fills` is supplied,
+        a fill at the rescue boundary covering the block y-extent
+        relaxes the per-run-coverage requirement: gutter ink crossing
+        the boundary is independent evidence the structure spans
+        both columns, so a weaker raw run is accepted.
 
     Args:
         body_text_charts: list of {col_idx, x_pct, chart: [{y_pct, val,
             body}, ...]} as produced by detect_body_text.
         columns_meta: list of {index, left_vw, right_vw}.
         ad_zones: list of (x1, x2, y1, y2) to skip.
+        gutter_fills: optional list of {x_pct, ranges:[{y1_pct,y2_pct}]}
+            from detect_headlines, used as a confirmation signal in
+            Step D rescue (FPs are tolerated — chart evidence still
+            required, gutter just relaxes thresholds).
         val_threshold: brightness above which a row is "bright".
         min_run_rows: minimum contiguous bright rows for a candidate.
             Body-text peaks are 7-9 rows; large-type lines are 14+.
@@ -599,6 +608,47 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
     """
     col_by_idx = {c['index']: c for c in columns_meta}
     ad_z = ad_zones or []
+
+    # Map each gutter_fill to the placed-column boundary it sits at.
+    # Returns dict {(low_col_idx, high_col_idx): [(y1_pct, y2_pct), ...]}.
+    # Tolerance is needed because detect_headlines runs on raw boundaries
+    # while columns_meta reflects post-validation placed columns — the
+    # x positions are close but rarely identical.
+    gutter_map = {}
+    if gutter_fills:
+        cols_sorted = sorted(columns_meta, key=lambda c: c['left_vw'])
+        boundaries = [(
+            (cols_sorted[i]['right_vw'] + cols_sorted[i + 1]['left_vw']) / 2,
+            cols_sorted[i]['index'],
+            cols_sorted[i + 1]['index'],
+        ) for i in range(len(cols_sorted) - 1)]
+        for gf in gutter_fills:
+            gx = gf.get('x_pct')
+            if gx is None or not boundaries:
+                continue
+            best = min(boundaries, key=lambda b: abs(b[0] - gx))
+            if abs(best[0] - gx) > 2.0:  # tolerance: 2% of page width
+                continue
+            key = (min(best[1], best[2]), max(best[1], best[2]))
+            ranges = [(r['y1_pct'], r['y2_pct'])
+                      for r in gf.get('ranges', [])]
+            gutter_map.setdefault(key, []).extend(ranges)
+
+    def _gutter_supports(col_a, col_b, y1, y2):
+        """True if a gutter_fill at the boundary between col_a and col_b
+        covers more than half of the block y-range [y1, y2]."""
+        key = (min(col_a, col_b), max(col_a, col_b))
+        fills = gutter_map.get(key)
+        if not fills:
+            return False
+        block_h = y2 - y1
+        if block_h <= 0:
+            return False
+        for fy1, fy2 in fills:
+            ov = min(y2, fy2) - max(y1, fy1)
+            if ov > 0 and ov / block_h > 0.5:
+                return True
+        return False
 
     # ── First pass: collect raw runs and per-column distribution ──
     # Per-column adaptive baseline. The midpoint between p50 (the
@@ -760,6 +810,12 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
                 continue
             if a['col_min'] <= adj <= a['col_max']:
                 continue
+            # Gutter fill at this boundary directly confirms a multi-
+            # column structure, so we relax the per-run coverage check
+            # (overlap/run_height) and trust block-coverage alone.
+            anchor = adj if adj < a['col_min'] else a['col_max']
+            partner = a['col_min'] if adj < a['col_min'] else adj
+            gutter_ok = _gutter_supports(anchor, partner, a['y1'], a['y2'])
             chart = chart_by_col[adj]
             best = None
             for r in raw_runs_by_col[adj]:
@@ -771,10 +827,11 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
                 rh = ry2 - ry1
                 if rh <= 0 or block_h <= 0:
                     continue
-                # Require the run to be substantially inside the block
-                # AND the block to be substantially covered by the run.
-                if (overlap / rh < 0.5 or
-                        overlap / block_h < rescue_overlap_min):
+                # Block-coverage is the always-required floor.
+                if overlap / block_h < rescue_overlap_min:
+                    continue
+                # Run-coverage is required UNLESS the gutter confirms.
+                if not gutter_ok and overlap / rh < 0.5:
                     continue
                 if best is None or overlap > best['overlap']:
                     best = {'overlap': overlap, 'y1': ry1, 'y2': ry2}
