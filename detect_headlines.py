@@ -538,13 +538,18 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
 def assemble_headlines_from_charts(body_text_charts, columns_meta,
                                     ad_zones=None,
                                     gutter_fills=None,
+                                    bar_subbars=None,
+                                    h_rules=None,
                                     val_threshold=80,
                                     min_run_rows=11,
                                     run_mean_min=130,
                                     run_max_min=200,
                                     line_height_multiplier=1.6,
                                     y_overlap_min=0.5,
-                                    rescue_overlap_min=0.3):
+                                    rescue_overlap_min=0.3,
+                                    promote_subbar_mean_min=40,
+                                    promote_overlap_min=0.5,
+                                    h_rule_strength_min=80):
     """
     Build headline regions directly from per-column body_text_charts.
 
@@ -732,6 +737,116 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
         return (run['mean'] >= adaptive_mean * 0.7 or
                 run['max'] >= adaptive_max * 0.85)
 
+    # ── Promotion step (between A and B) ──────────────────────────
+    # A chart raw run that fails the strength filter may still represent
+    # a real headline line if (a) the bar_width strip has ink at this y
+    # in this column (mean>40 in any width) AND (b) an adjacent column
+    # has independent evidence of a headline at the same y (a chart raw
+    # run, or a bar_width sub-bar). The strength filter is fragile to
+    # asymmetric letter layout that fragments the narrow central strip
+    # mean below the threshold even though chart's val>80,n≥11 caught
+    # the line cleanly.
+    #
+    # False-positive guards (each independently necessary):
+    #   1. h_rule barrier — reject if any h_rule (strength≥threshold)
+    #      sits inside the candidate run's y-range. Also applied to the
+    #      partner. Rules are the recurring failure mode for promotions
+    #      like this.
+    #   2. ad-zone skip — candidate's centre must not fall inside an ad.
+    #   3. bar_width sub-bar in THIS col with mean>40 covering ≥50% of
+    #      the candidate run — confirms ink density (rules out chart
+    #      noise, blurred edges, overscan artefacts).
+    #   4. cross-col aligned partner — adjacent col has a chart raw run
+    #      OR bar sub-bar (mean>40) overlapping ≥50% of shorter run, and
+    #      the partner is not itself an h_rule.
+    h_rule_y_pcts = []
+    if h_rules:
+        for hr in h_rules:
+            if hr.get('strength', 0) >= h_rule_strength_min:
+                h_rule_y_pcts.append(hr['y_pct'])
+
+    def _hits_h_rule(y1, y2):
+        return any(y1 <= ypc <= y2 for ypc in h_rule_y_pcts)
+
+    bar_subbars_safe = bar_subbars or {}
+
+    def _has_subbar_in_col(col_idx, y1, y2):
+        subs = bar_subbars_safe.get(col_idx, [])
+        rh = y2 - y1
+        if rh <= 0:
+            return False
+        for sb in subs:
+            if sb.get('mean', 0) < promote_subbar_mean_min:
+                continue
+            ov = min(y2, sb['y2_pct']) - max(y1, sb['y1_pct'])
+            if ov > 0 and ov / rh >= promote_overlap_min:
+                return True
+        return False
+
+    def _has_aligned_partner(col_idx, y1, y2):
+        rh = y2 - y1
+        if rh <= 0:
+            return False
+        for adj in (col_idx - 1, col_idx + 1):
+            if adj not in raw_runs_by_col:
+                continue
+            adj_chart = chart_by_col[adj]
+            # Partner type 1: chart raw run in adjacent col
+            for r in raw_runs_by_col[adj]:
+                ay1 = adj_chart[r['s']]['y_pct']
+                ay2 = adj_chart[r['e']]['y_pct']
+                ah = ay2 - ay1
+                if ah <= 0:
+                    continue
+                ov = min(y2, ay2) - max(y1, ay1)
+                if ov <= 0:
+                    continue
+                if ov / min(rh, ah) < promote_overlap_min:
+                    continue
+                if _hits_h_rule(ay1, ay2):
+                    continue
+                return True
+            # Partner type 2: bar_width sub-bar in adjacent col
+            for sb in bar_subbars_safe.get(adj, []):
+                if sb.get('mean', 0) < promote_subbar_mean_min:
+                    continue
+                ay1, ay2 = sb['y1_pct'], sb['y2_pct']
+                ah = ay2 - ay1
+                if ah <= 0:
+                    continue
+                ov = min(y2, ay2) - max(y1, ay1)
+                if ov <= 0:
+                    continue
+                if ov / min(rh, ah) < promote_overlap_min:
+                    continue
+                if _hits_h_rule(ay1, ay2):
+                    continue
+                return True
+        return False
+
+    promoted_by_col = {ci: set() for ci in raw_runs_by_col}
+    if bar_subbars is not None:
+        for col_idx, raw_runs in raw_runs_by_col.items():
+            adaptive = adaptive_by_col[col_idx]
+            chart = chart_by_col[col_idx]
+            x_sample = x_sample_by_col[col_idx]
+            for ri, r in enumerate(raw_runs):
+                if passes_strength(r, *adaptive):
+                    continue
+                ry1 = chart[r['s']]['y_pct']
+                ry2 = chart[r['e']]['y_pct']
+                if _hits_h_rule(ry1, ry2):
+                    continue
+                cy = (ry1 + ry2) / 2
+                if any(az[0] <= x_sample <= az[1] and
+                       az[2] <= cy <= az[3] for az in ad_z):
+                    continue
+                if not _has_subbar_in_col(col_idx, ry1, ry2):
+                    continue
+                if not _has_aligned_partner(col_idx, ry1, ry2):
+                    continue
+                promoted_by_col[col_idx].add(ri)
+
     # ── Steps A (filter) + B (gap-merge) per column ───────────────
     per_col_blocks = []
     for col_idx, raw_runs in raw_runs_by_col.items():
@@ -739,8 +854,9 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
         chart = chart_by_col[col_idx]
         x_sample = x_sample_by_col[col_idx]
 
-        runs = [(r['s'], r['e']) for r in raw_runs
-                if passes_strength(r, *adaptive)]
+        promoted = promoted_by_col.get(col_idx, set())
+        runs = [(r['s'], r['e']) for ri, r in enumerate(raw_runs)
+                if passes_strength(r, *adaptive) or ri in promoted]
 
         # Merge vertically-adjacent runs whose gap is small relative
         # to the line height — this is the multi-line headline case.

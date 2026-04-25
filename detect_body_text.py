@@ -381,12 +381,45 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
     large_type_bars = []
     body_line_height = int(5 * dpi / 150)  # ~5px at 150 DPI
     min_large_width = body_line_height * 2  # must be 2x body text height
+    # Sub-bars: relaxed width threshold (= body_line_height, half of
+    # min_large_width). Used by the chart-method assembly as cross-col-
+    # confirmed strength evidence when chart runs align across columns
+    # but the strip is fragmented by asymmetric letter layout.
+    min_subbar_width = body_line_height
+    bar_subbars_by_col = {}
 
     for col in columns:
         s1, s2, cx, left_px, right_px = sample_strip_bounds(col)
         if right_px - left_px < 10:
             continue
         strip_data = inv[:, s1:s2].mean(axis=1)
+
+        col_subbars = []
+
+        def _record_bar(start_px, end_px):
+            """Common emission for both strict bars and sub-bars."""
+            w_px = end_px - start_px
+            if w_px <= 0:
+                return
+            mean_v = float(strip_data[start_px:end_px].mean())
+            if mean_v <= 40:
+                return
+            if w_px >= min_large_width:
+                large_type_bars.append({
+                    'col_idx': col['index'],
+                    'x1_pct': round(col['left_vw'], 1),
+                    'x2_pct': round(col['right_vw'], 1),
+                    'y1_pct': px_to_pct(start_px, h),
+                    'y2_pct': px_to_pct(end_px, h),
+                    'method': 'bar_width',
+                })
+            if w_px >= min_subbar_width:
+                col_subbars.append({
+                    'y1_pct': px_to_pct(start_px, h),
+                    'y2_pct': px_to_pct(end_px, h),
+                    'mean': mean_v,
+                    'width_px': w_px,
+                })
 
         # Find bright bars: contiguous runs above a brightness threshold
         bar_thresh = 30  # minimum brightness to be "in a bar"
@@ -399,34 +432,12 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
                     in_bar = True
             else:
                 if in_bar:
-                    bar_width = y_row - bar_start
-                    if bar_width >= min_large_width:
-                        # This bar is wider than body text — large type
-                        bar_mean = float(strip_data[bar_start:y_row].mean())
-                        # Must also be brighter than typical body text
-                        if bar_mean > 40:
-                            large_type_bars.append({
-                                'col_idx': col['index'],
-                                'x1_pct': round(col['left_vw'], 1),
-                                'x2_pct': round(col['right_vw'], 1),
-                                'y1_pct': px_to_pct(bar_start, h),
-                                'y2_pct': px_to_pct(y_row, h),
-                                'method': 'bar_width',
-                            })
+                    _record_bar(bar_start, y_row)
                     in_bar = False
         if in_bar:
-            bar_width = y_max_px - bar_start
-            if bar_width >= min_large_width:
-                bar_mean = float(strip_data[bar_start:y_max_px].mean())
-                if bar_mean > 40:
-                    large_type_bars.append({
-                        'col_idx': col['index'],
-                        'x1_pct': round(col['left_vw'], 1),
-                        'x2_pct': round(col['right_vw'], 1),
-                        'y1_pct': px_to_pct(bar_start, h),
-                        'y2_pct': px_to_pct(y_max_px, h),
-                        'method': 'bar_width',
-                    })
+            _record_bar(bar_start, y_max_px)
+
+        bar_subbars_by_col[col['index']] = col_subbars
 
     # ── Large type detection (chart-assembly method) ─────────────
     # Drive assembly directly off the per-column charts: find bright
@@ -440,7 +451,9 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
         from detect_headlines import assemble_headlines_from_charts
         large_type_chart = assemble_headlines_from_charts(
             charts, columns, gutter_fills=gutter_fills,
-            ad_zones=ad_zones)
+            ad_zones=ad_zones,
+            bar_subbars=bar_subbars_by_col,
+            h_rules=h_rules)
         for lt in large_type_chart:
             lt['method'] = 'chart'
     except Exception:
