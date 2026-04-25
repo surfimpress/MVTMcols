@@ -733,29 +733,39 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         raw_path = os.path.join(page_out, "page_raw.png")
         pil.convert("RGB").save(raw_path)
 
-        ol = Image.new("RGBA", pil.size, (0, 0, 0, 0))
-        draw = ImageDraw.Draw(ol)
-        ih, iw = pil.size[1], pil.size[0]
-
-        def _vl(x_pct, color, width=2):
-            x = int(x_pct / 100 * iw)
-            draw.line([(x, 0), (x, ih)], fill=color, width=width)
-
-        ta = prof.get("text_area", {})
-        if ta:
-            _vl(ta.get("left", 0), (255, 140, 0, 255), 3)
-            _vl(ta.get("right", 100), (255, 140, 0, 255), 3)
-
-        meta_path = os.path.join(page_out, "page_meta.json")
-        if os.path.exists(meta_path):
-            with open(meta_path) as f:
-                meta = json.load(f)
-            for col in meta["columns"]:
-                _vl(col["left_vw"], (0, 100, 255, 200), 2)
-                _vl(col["right_vw"], (0, 100, 255, 200), 2)
-
-        overlay_path = os.path.join(page_out, "overlay.png")
-        Image.alpha_composite(pil, ol).convert("RGB").save(overlay_path)
+        # ── overlay.png generation (disabled) ──────────────────────
+        # Pre-SVG-viewer dev-validation artifact: a baked-in raster of
+        # text-area edges and column rules drawn on top of page_raw.png.
+        # The page_viewer now renders these dynamically as toggleable SVG
+        # layers over page_raw.png, so the static raster is redundant —
+        # ~1.9MB and ~190ms per page for a fallback that never triggers
+        # (page_viewer.html only refs overlay.png in an `imgEl.onerror`
+        # branch). Kept commented for re-enabling if a static overlay
+        # image is ever needed offline (e.g. emailing a quick visual to
+        # a non-viewer audience).
+        # ol = Image.new("RGBA", pil.size, (0, 0, 0, 0))
+        # draw = ImageDraw.Draw(ol)
+        # ih, iw = pil.size[1], pil.size[0]
+        #
+        # def _vl(x_pct, color, width=2):
+        #     x = int(x_pct / 100 * iw)
+        #     draw.line([(x, 0), (x, ih)], fill=color, width=width)
+        #
+        # ta = prof.get("text_area", {})
+        # if ta:
+        #     _vl(ta.get("left", 0), (255, 140, 0, 255), 3)
+        #     _vl(ta.get("right", 100), (255, 140, 0, 255), 3)
+        #
+        # meta_path = os.path.join(page_out, "page_meta.json")
+        # if os.path.exists(meta_path):
+        #     with open(meta_path) as f:
+        #         meta = json.load(f)
+        #     for col in meta["columns"]:
+        #         _vl(col["left_vw"], (0, 100, 255, 200), 2)
+        #         _vl(col["right_vw"], (0, 100, 255, 200), 2)
+        #
+        # overlay_path = os.path.join(page_out, "overlay.png")
+        # Image.alpha_composite(pil, ol).convert("RGB").save(overlay_path)
 
     print("  Done")
 
