@@ -34,66 +34,25 @@ def _open_clean(pdf_path):
     return doc
 
 
-def detect_ads(pdf_path, page_number=0, render_dpi=150,
-               min_width_pct=15, min_height_pct=5,
-               gather_min_height_pct=3.0,
-               min_rect_ratio=0.85, column_pitch=None,
-               page_profile=None):
+def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
+                     min_width_pct, min_height_pct, gather_min_height_pct,
+                     min_rect_ratio, pitch, page_profile):
     """
-    Detect bordered display advertisements on a PDF page.
+    One threshold-and-contour pass. Returns the per-contour-filtered ad
+    candidate list (still carrying the internal _y1_px / _is_short fields
+    that the dedup + sibling-merge stages consume).
 
-    Uses adaptive thresholding and contour analysis to find
-    rectangular bordered regions that span 2+ columns.
-
-    Args:
-        pdf_path:        Path to the PDF.
-        page_number:     Zero-indexed page within the PDF.
-        render_dpi:      DPI for rendering (150 is sufficient for ad detection).
-        min_width_pct:   Minimum ad width as % of page width.
-        min_height_pct:  Minimum ad height as % of page height for emission.
-        gather_min_height_pct: Lower height floor for the sibling-merge pass.
-                         Candidates between gather_min_height_pct and
-                         min_height_pct are only emitted if they merge with
-                         a full-height ad sharing a horizontal boundary
-                         (e.g. an ad cut off at the top because a full-width
-                         internal rule produced a shorter sub-blob, like
-                         "Karl's Grocery" on 1947-11-06 P4).
-        min_rect_ratio:  Minimum rectangularity (contour area / bounding rect area).
-        column_pitch:    If known, used to estimate column span of each ad.
-
-    Returns:
-        List of ad dicts, sorted by area (largest first).
-        Each dict has: x_pct, y_pct, w_pct, h_pct, rect_ratio,
-        aspect, cols (estimated column span), confidence.
+    Pulled out of detect_ads so a second, looser pass can run on
+    low-contrast pages (Tier 1 adaptive thresholds) without duplicating
+    the per-contour filter logic.
     """
-    doc = _open_clean(pdf_path)
-    page = doc[page_number]
-    pix = page.get_pixmap(dpi=render_dpi)
-    img = np.frombuffer(pix.samples, dtype=np.uint8)
-    if pix.n >= 3:
-        img = img.reshape(pix.h, pix.w, pix.n)[:, :, :3]
-    else:
-        img = img.reshape(pix.h, pix.w)
-    doc.close()
-
-    if img.ndim == 3:
-        grey = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    else:
-        grey = img
-
-    h, w = grey.shape
-
-    # Adaptive threshold to handle varying scan darkness
     binary = cv2.adaptiveThreshold(
         grey, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY_INV, 21, 10,
+        cv2.THRESH_BINARY_INV, block_size, C,
     )
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size))
+    closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=iterations)
 
-    # Morphological close to connect broken border lines
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=2)
-
-    # Find contours with hierarchy
     contours, hierarchy = cv2.findContours(
         closed, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE,
     )
@@ -102,7 +61,6 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
     min_w = int(w * min_width_pct / 100)
     min_h = int(h * min_height_pct / 100)
     gather_min_h = int(h * gather_min_height_pct / 100)
-    pitch = column_pitch or 12.0  # default guess if not provided
 
     ads = []
     for i, cnt in enumerate(contours):
@@ -223,6 +181,109 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
             "_x1_px": x,
             "_x2_px": x + bw,
         })
+
+    return ads
+
+
+def detect_ads(pdf_path, page_number=0, render_dpi=150,
+               min_width_pct=15, min_height_pct=5,
+               gather_min_height_pct=3.0,
+               min_rect_ratio=0.85, column_pitch=None,
+               page_profile=None):
+    """
+    Detect bordered display advertisements on a PDF page.
+
+    Uses adaptive thresholding and contour analysis to find
+    rectangular bordered regions that span 2+ columns.
+
+    Args:
+        pdf_path:        Path to the PDF.
+        page_number:     Zero-indexed page within the PDF.
+        render_dpi:      DPI for rendering (150 is sufficient for ad detection).
+        min_width_pct:   Minimum ad width as % of page width.
+        min_height_pct:  Minimum ad height as % of page height for emission.
+        gather_min_height_pct: Lower height floor for the sibling-merge pass.
+                         Candidates between gather_min_height_pct and
+                         min_height_pct are only emitted if they merge with
+                         a full-height ad sharing a horizontal boundary
+                         (e.g. an ad cut off at the top because a full-width
+                         internal rule produced a shorter sub-blob, like
+                         "Karl's Grocery" on 1947-11-06 P4).
+        min_rect_ratio:  Minimum rectangularity (contour area / bounding rect area).
+        column_pitch:    If known, used to estimate column span of each ad.
+        page_profile:    Optional dict from page_profile.profile_page().
+                         Used both for R2 photograph-edge rejection and to
+                         decide whether to run a looser second contour pass
+                         on low-contrast pages (Tier 1 adaptive thresholds).
+
+    Returns:
+        List of ad dicts, sorted by area (largest first).
+        Each dict has: x_pct, y_pct, w_pct, h_pct, rect_ratio,
+        aspect, cols (estimated column span), confidence.
+    """
+    doc = _open_clean(pdf_path)
+    page = doc[page_number]
+    pix = page.get_pixmap(dpi=render_dpi)
+    img = np.frombuffer(pix.samples, dtype=np.uint8)
+    if pix.n >= 3:
+        img = img.reshape(pix.h, pix.w, pix.n)[:, :, :3]
+    else:
+        img = img.reshape(pix.h, pix.w)
+    doc.close()
+
+    if img.ndim == 3:
+        grey = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    else:
+        grey = img
+
+    h, w = grey.shape
+    pitch = column_pitch or 12.0  # default guess if not provided
+
+    pass_kwargs = dict(
+        min_width_pct=min_width_pct,
+        min_height_pct=min_height_pct,
+        gather_min_height_pct=gather_min_height_pct,
+        min_rect_ratio=min_rect_ratio,
+        pitch=pitch,
+        page_profile=page_profile,
+    )
+
+    # ── Pass 1 — standard params (the working default) ──────────────
+    ads = _detect_ads_pass(
+        grey, h, w,
+        block_size=21, C=10, kernel_size=3, iterations=2,
+        **pass_kwargs,
+    )
+
+    # ── Pass 2 — looser params for low-contrast pages (Tier 1) ──────
+    # Triggered when the page profile says contrast is low. The looser
+    # threshold (block 31, C=8) catches faint borders that the strict
+    # 21/10 misses; the bigger close kernel (5×5, 3 iters) bridges the
+    # broken stretches that result from light ink. Empirically validated
+    # on 1898-10-07: P4 0→1 candidate, P5 0→3 candidates with a PROD,
+    # P6 2→4 candidates. Dense pages (1947 P4/P6, 1920 P8) show no
+    # regression because the trigger doesn't fire on them.
+    #
+    # Trigger: either the profile flagged 'low_contrast' (dynamic_range
+    # < 100, set in page_profile.py), OR the empirical paper/ink gap is
+    # below 145. The latter catches pages where dynamic_range happens to
+    # be wide because of dark imagery but the running text is still
+    # printed lightly — observed on 1898-10-07 P5/P6.
+    if page_profile:
+        # ink_mean is computed on the *inverted* image in page_profile.py
+        # (line 444: ink_mask = body > 128 where body = inv[...]), so a
+        # large ink_mean means dark ink. paper_mean is the paper darkness
+        # baseline (small for clean white paper). contrast = ink_mean -
+        # paper_mean is therefore positive, with larger = more contrast.
+        contrast = (page_profile.get("ink_mean", 255.0) -
+                    page_profile.get("paper_mean", 0.0))
+        flags = page_profile.get("quality_flags") or []
+        if contrast < 145 or "low_contrast" in flags:
+            ads.extend(_detect_ads_pass(
+                grey, h, w,
+                block_size=31, C=8, kernel_size=5, iterations=3,
+                **pass_kwargs,
+            ))
 
     # Sort by area (largest first)
     ads.sort(key=lambda a: a["w_pct"] * a["h_pct"], reverse=True)
