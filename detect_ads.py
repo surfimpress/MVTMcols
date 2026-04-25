@@ -757,7 +757,7 @@ def print_ads(ads):
 
 
 def extract_ad_images(pdf_path, ads, output_dir, page_number=0, dpi=450,
-                      margin_pct=2.0):
+                      margin_pct=2.0, name_prefix="ad"):
     """
     Extract each detected ad as a separate PNG image with margin.
 
@@ -772,6 +772,10 @@ def extract_ad_images(pdf_path, ads, output_dir, page_number=0, dpi=450,
         page_number: Zero-indexed page within the PDF.
         dpi:         Render resolution for extraction.
         margin_pct:  Margin as % of ad dimensions (default 2%).
+        name_prefix: Filename prefix between page stem and index
+                     (default "ad" → "{stem}_ad1.png"). Use a
+                     different prefix for single-col extraction so
+                     filenames don't collide.
 
     Returns:
         List of dicts with ad metadata + image_path.
@@ -806,7 +810,7 @@ def extract_ad_images(pdf_path, ads, output_dir, page_number=0, dpi=450,
         clip = fitz.Rect(x0, y0, x1, y1)
         pix = page.get_pixmap(clip=clip, dpi=dpi)
 
-        filename = f"{stem}_ad{i + 1}.png"
+        filename = f"{stem}_{name_prefix}{i + 1}.png"
         filepath = os.path.join(output_dir, filename)
         pix.save(filepath)
 

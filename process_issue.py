@@ -278,12 +278,18 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
             print(f"  P{page_num}: {len(ads)} ads ({ad_desc})")
 
         # Single-column display ads — sibling pass to multi-col.
-        # Not stored in DB or used as ad_zones for boundary detection;
-        # surfaced only for the viewer.
+        # Extracted as images alongside multi-col ads (with sc_ad
+        # filename prefix to avoid collision) and stored in the same
+        # detected_ads table (cols=1 distinguishes them). Not used as
+        # ad_zones for boundary detection.
         sc_ads = detect_single_col_ads(pdf_path, multi_col_ads=ads,
                                        page_profile=prof)
         if sc_ads:
-            page_single_col_ads[page_num] = sc_ads
+            ad_out = os.path.join(ads_dir, f"p{page_num}")
+            sc_with_images = extract_ad_images(pdf_path, sc_ads, ad_out,
+                                               dpi=dpi, name_prefix="sc_ad")
+            store_ads(db_path, year, month, day, page_num, sc_with_images)
+            page_single_col_ads[page_num] = sc_with_images
             print(f"  P{page_num}: {len(sc_ads)} single-col ads")
 
     if total_ads:
