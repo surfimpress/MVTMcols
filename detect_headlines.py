@@ -538,13 +538,16 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
 def assemble_headlines_from_charts(body_text_charts, columns_meta,
                                     ad_zones=None,
                                     gutter_fills=None,
+                                    bar_widths=None,
+                                    h_rules=None,
                                     val_threshold=80,
                                     min_run_rows=11,
                                     run_mean_min=130,
                                     run_max_min=200,
                                     line_height_multiplier=1.6,
                                     y_overlap_min=0.5,
-                                    rescue_overlap_min=0.3):
+                                    rescue_overlap_min=0.3,
+                                    h_rule_strength_min=80):
     """
     Build headline regions directly from per-column body_text_charts.
 
@@ -579,6 +582,25 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
         relaxes the per-run-coverage requirement: gutter ink crossing
         the boundary is independent evidence the structure spans
         both columns, so a weaker raw run is accepted.
+      Step E (vertical extension) — chart-method runs catch the
+        brightest line of a multi-line headline cleanly but often
+        miss the lines below where val drops between 30–80 (descender
+        zones, narrower kerned stretches). bar_width detections in
+        the SAME column tend to span the full multi-line headline
+        because they accumulate over a wider band. For each assembled
+        block, look at bar_width detections in the block's columns
+        whose y-range overlaps the block; extend block.y1/y2 to the
+        bar_width's bounds. Clamp to the nearest h_rule above/below
+        — a horizontal rule is a sure-stop signal between sections,
+        the block must not cross one.
+      Step F (bar_width-driven cross-col extension) — analogous to
+        Step D but using bar_width as the partner-column signal
+        instead of a raw chart run. For each block, look at the
+        adjacent column on each side: require gutter support (when
+        gutter_fills supplied), require no h_rule inside the block's
+        y-range in the adjacent column, and require a bar_width in
+        the adjacent column overlapping the block by ≥ rescue_overlap_min
+        of block height.
 
     Args:
         body_text_charts: list of {col_idx, x_pct, chart: [{y_pct, val,
@@ -589,6 +611,15 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
             from detect_headlines, used as a confirmation signal in
             Step D rescue (FPs are tolerated — chart evidence still
             required, gutter just relaxes thresholds).
+        bar_widths: optional list of {col_idx, y1_pct, y2_pct, ...}
+            bar_width detections from detect_body_text. Used in Step E
+            (vertical extension) and Step F (cross-col extension).
+        h_rules: optional list of {col_idx, y_pct, strength}. Used as
+            hard barriers — block extension must not cross a rule with
+            strength ≥ h_rule_strength_min.
+        h_rule_strength_min: minimum strength for an h_rule to count
+            as a barrier. Lower values are typically scan artefacts
+            and ignored.
         val_threshold: brightness above which a row is "bright".
         min_run_rows: minimum contiguous bright rows for a candidate.
             Body-text peaks are 7-9 rows; large-type lines are 14+.
@@ -880,6 +911,140 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
                 a['col_max'] = adj
             a['y1'] = min(a['y1'], best['y1'])
             a['y2'] = max(a['y2'], best['y2'])
+
+    # ── Step E + F preparation: index bar_width and h_rule data ───
+    # bar_widths and h_rules are optional; if missing, both Step E
+    # and Step F become no-ops and the function behaves as before.
+    bw_by_col = {}
+    for bw in (bar_widths or []):
+        bw_by_col.setdefault(bw['col_idx'], []).append(bw)
+
+    rules_by_col = {}
+    for r in (h_rules or []):
+        if r.get('strength', 0) < h_rule_strength_min:
+            continue
+        rules_by_col.setdefault(r['col_idx'], []).append(r['y_pct'])
+    for c in rules_by_col:
+        rules_by_col[c].sort()
+
+    def _rule_clamp_above(cols, y):
+        """Highest h_rule y above y across cols; 0.0 if none."""
+        best = 0.0
+        for c in cols:
+            for ry in rules_by_col.get(c, []):
+                if ry < y and ry > best:
+                    best = ry
+        return best
+
+    def _rule_clamp_below(cols, y):
+        """Lowest h_rule y below y across cols; 100.0 if none."""
+        best = 100.0
+        for c in cols:
+            for ry in rules_by_col.get(c, []):
+                if ry > y and ry < best:
+                    best = ry
+        return best
+
+    def _rule_inside(col, y1, y2):
+        """True if any h_rule in col sits inside (y1, y2)."""
+        for ry in rules_by_col.get(col, []):
+            if y1 < ry < y2:
+                return True
+        return False
+
+    # ── Step E: vertical extension via bar_width ──────────────────
+    # For each block, look at bar_widths in the block's columns whose
+    # y-range overlaps the block. Extend the block's y1/y2 to the
+    # union of those bar_width bounds, clamped by the nearest h_rule
+    # above/below within the block's columns. The clamp encodes the
+    # rule that a horizontal rule is a sure-stop signal — a headline
+    # never spans across a rule.
+    #
+    # Sanity cap on bar_width height: very tall bar_widths (>4% page)
+    # are typically ad borders or column rules, not headlines. Even
+    # multi-line headlines top out around 2-3% page height. Cap as
+    # max(3 × block height, 1.5%), capped at 4% absolute. Skip any
+    # bar_width whose height exceeds the cap — it's almost certainly
+    # not a headline body.
+    if bar_widths is not None:
+        for a in assembled:
+            cols = list(range(a['col_min'], a['col_max'] + 1))
+            block_h = a['y2'] - a['y1']
+            max_bar_h = min(0.04 * 100, max(3.0 * block_h, 1.5))
+            cand_y1 = a['y1']
+            cand_y2 = a['y2']
+            for c in cols:
+                for bw in bw_by_col.get(c, []):
+                    by1, by2 = bw['y1_pct'], bw['y2_pct']
+                    bh = by2 - by1
+                    if bh > max_bar_h:
+                        continue
+                    # Require the bar_width to overlap the existing
+                    # block — otherwise it's an unrelated bar lower
+                    # or higher in the column.
+                    if by2 < a['y1'] or by1 > a['y2']:
+                        continue
+                    if by1 < cand_y1:
+                        cand_y1 = by1
+                    if by2 > cand_y2:
+                        cand_y2 = by2
+            clamp_up = _rule_clamp_above(cols, a['y1'])
+            clamp_dn = _rule_clamp_below(cols, a['y2'])
+            a['y1'] = max(cand_y1, clamp_up)
+            a['y2'] = min(cand_y2, clamp_dn)
+
+    # ── Step F: cross-col extension via bar_width ─────────────────
+    # Look one column outward on each side. Requires:
+    #   (a) gutter support (when gutter_fills supplied) — same
+    #       vertical-rule rule as Step C/D,
+    #   (b) no h_rule inside the block's y-range in the adj column —
+    #       a section break in the partner column means the headline
+    #       does not extend there,
+    #   (c) a bar_width in the adj column whose y-range overlaps the
+    #       block by ≥ rescue_overlap_min of block height.
+    # If all pass, extend col_min/col_max and adopt the bar_width's
+    # y-range (clamped by adj-column rules).
+    if bar_widths is not None:
+        for a in assembled:
+            block_h = a['y2'] - a['y1']
+            if block_h <= 0:
+                continue
+            max_bar_h = min(0.04 * 100, max(3.0 * block_h, 1.5))
+            for adj in (a['col_min'] - 1, a['col_max'] + 1):
+                if adj not in bw_by_col:
+                    continue
+                if a['col_min'] <= adj <= a['col_max']:
+                    continue
+                anchor = adj if adj < a['col_min'] else a['col_max']
+                partner = a['col_min'] if adj < a['col_min'] else adj
+                if gutter_check_active and not _gutter_supports(
+                        anchor, partner, a['y1'], a['y2']):
+                    continue
+                if _rule_inside(adj, a['y1'], a['y2']):
+                    continue
+                best = None
+                for bw in bw_by_col[adj]:
+                    by1, by2 = bw['y1_pct'], bw['y2_pct']
+                    if by2 - by1 > max_bar_h:
+                        continue
+                    y_lo = max(a['y1'], by1)
+                    y_hi = min(a['y2'], by2)
+                    overlap = y_hi - y_lo
+                    if overlap / block_h < rescue_overlap_min:
+                        continue
+                    if best is None or overlap > best['overlap']:
+                        best = {'overlap': overlap, 'y1': by1, 'y2': by2}
+                if best is None:
+                    continue
+                if adj < a['col_min']:
+                    a['col_min'] = adj
+                else:
+                    a['col_max'] = adj
+                # Adopt bar_width's y-range, clamped by adj's rules.
+                clamp_up = _rule_clamp_above([adj], a['y1'])
+                clamp_dn = _rule_clamp_below([adj], a['y2'])
+                a['y1'] = max(min(a['y1'], best['y1']), clamp_up)
+                a['y2'] = min(max(a['y2'], best['y2']), clamp_dn)
 
     # Build output using column metadata for x extents
     headlines = []

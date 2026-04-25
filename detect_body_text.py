@@ -440,7 +440,9 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
         from detect_headlines import assemble_headlines_from_charts
         large_type_chart = assemble_headlines_from_charts(
             charts, columns, gutter_fills=gutter_fills,
-            ad_zones=ad_zones)
+            ad_zones=ad_zones,
+            bar_widths=large_type_bars,
+            h_rules=h_rules)
         for lt in large_type_chart:
             lt['method'] = 'chart'
     except Exception:
