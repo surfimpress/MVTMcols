@@ -406,6 +406,18 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         # Place columns using detected boundaries + context
         final = place_columns(clustered, ctx)
 
+        # Validate: drop edge "columns" that are implausibly empty
+        # (margin slivers or right-side ad strips that the boundary
+        # detector mistook for content columns).
+        try:
+            from validate_columns import validate_edge_columns
+            final, dropped = validate_edge_columns(final, pdf_path)
+            for side, ink, med, ratio in dropped:
+                print(f"  P{page_num}: dropped empty {side} column "
+                      f"(ink {ink:.1f} = {ratio*100:.0f}% of median {med:.1f})")
+        except Exception as e:
+            print(f"  P{page_num}: edge-col validation skipped ({e})")
+
         # Extract columns
         page_out = os.path.join(output_dir, f"p{page_num}")
         if os.path.exists(page_out):
@@ -803,15 +815,65 @@ def _update_viewer_data(db_path, columns_dir):
                 "text_area": text_area,
             })
 
-        ad_list = [{"page": p, "cols": c, "confidence": cf, "file": fn,
-                     "x_pct": x, "y_pct": y, "w_pct": w, "h_pct": bh}
-                   for p, c, cf, fn, x, y, w, bh in
-                   conn.execute("""
-                       SELECT page, cols, confidence, image_filename,
-                              x_pct, y_pct, w_pct, h_pct
-                       FROM detected_ads WHERE year=? AND month=? AND day=?
-                       ORDER BY page
-                   """, (year, month, day)).fetchall()]
+        # Read body_text per page for ad false-positive filtering.
+        # Body-text-shaped FPs from the ad detector (squarish 2-col
+        # clippings of body text columns) overlap heavily with the
+        # body_text regions written by detect_body_text. High-confidence
+        # ads (strong borders, rect_ratio > 0.85) are trusted as-is and
+        # never filtered.
+        body_text_by_page = {}
+        for page, *_ in layouts:
+            page_dir = os.path.join(
+                columns_dir, f"{year}-{month:02d}-{day:02d}", f"p{page}")
+            pa_path = os.path.join(page_dir, "page_analysis.json")
+            if os.path.exists(pa_path):
+                try:
+                    with open(pa_path) as f:
+                        body_text_by_page[page] = json.load(f).get("body_text", [])
+                except Exception:
+                    body_text_by_page[page] = []
+            else:
+                body_text_by_page[page] = []
+
+        def _is_body_text_fp(page, conf_, x, y, w, h):
+            """True if a low-confidence ad rectangle is mostly covered
+            by body_text regions and spans 2+ columns. Only `low`
+            confidence (rect_ratio < 0.70) is filtered — medium and
+            high confidence have a real border and are trusted, even
+            when they contain body-text-like internal content."""
+            if conf_ != "low":
+                return False
+            bt = body_text_by_page.get(page) or []
+            if not bt:
+                return False
+            ad_x2, ad_y2 = x + w, y + h
+            if w <= 0 or h <= 0:
+                return False
+            ad_area = w * h
+            total_overlap = 0.0
+            cols_overlapping = set()
+            for r in bt:
+                ox1 = max(x, r["x1_pct"]); ox2 = min(ad_x2, r["x2_pct"])
+                oy1 = max(y, r["y1_pct"]); oy2 = min(ad_y2, r["y2_pct"])
+                if ox2 > ox1 and oy2 > oy1:
+                    total_overlap += (ox2 - ox1) * (oy2 - oy1)
+                    cols_overlapping.add(r.get("col_idx"))
+            return (total_overlap / ad_area) > 0.5 and len(cols_overlapping) >= 2
+
+        ad_rows = conn.execute("""
+            SELECT page, cols, confidence, image_filename,
+                   x_pct, y_pct, w_pct, h_pct
+            FROM detected_ads WHERE year=? AND month=? AND day=?
+            ORDER BY page
+        """, (year, month, day)).fetchall()
+
+        ad_list = []
+        for p, c, cf, fn, x, y, w, bh in ad_rows:
+            if _is_body_text_fp(p, cf, x, y, w, bh):
+                continue
+            ad_list.append({"page": p, "cols": c, "confidence": cf,
+                            "file": fn, "x_pct": x, "y_pct": y,
+                            "w_pct": w, "h_pct": bh})
 
         issue_dir = f"{year}-{month:02d}-{day:02d}"
         summary_path = os.path.join(columns_dir, issue_dir, "issue_summary.json")
