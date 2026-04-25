@@ -759,14 +759,19 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
     #   4. cross-col aligned partner — adjacent col has a chart raw run
     #      OR bar sub-bar (mean>40) overlapping ≥50% of shorter run, and
     #      the partner is not itself an h_rule.
-    h_rule_y_pcts = []
+    # Per-column index: an h_rule in col 2 says nothing about whether a
+    # candidate in col 5 is on a rule. h_rules are detected per-column
+    # strip, so the barrier must be applied per-column too.
+    h_rule_y_by_col = {}
     if h_rules:
         for hr in h_rules:
             if hr.get('strength', 0) >= h_rule_strength_min:
-                h_rule_y_pcts.append(hr['y_pct'])
+                h_rule_y_by_col.setdefault(hr.get('col_idx'), []).append(
+                    hr['y_pct'])
 
-    def _hits_h_rule(y1, y2):
-        return any(y1 <= ypc <= y2 for ypc in h_rule_y_pcts)
+    def _hits_h_rule(col_idx, y1, y2):
+        ypcs = h_rule_y_by_col.get(col_idx, ())
+        return any(y1 <= ypc <= y2 for ypc in ypcs)
 
     bar_subbars_safe = bar_subbars or {}
 
@@ -803,7 +808,7 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
                     continue
                 if ov / min(rh, ah) < promote_overlap_min:
                     continue
-                if _hits_h_rule(ay1, ay2):
+                if _hits_h_rule(adj, ay1, ay2):
                     continue
                 return True
             # Partner type 2: bar_width sub-bar in adjacent col
@@ -819,7 +824,7 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
                     continue
                 if ov / min(rh, ah) < promote_overlap_min:
                     continue
-                if _hits_h_rule(ay1, ay2):
+                if _hits_h_rule(adj, ay1, ay2):
                     continue
                 return True
         return False
@@ -835,7 +840,7 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
                     continue
                 ry1 = chart[r['s']]['y_pct']
                 ry2 = chart[r['e']]['y_pct']
-                if _hits_h_rule(ry1, ry2):
+                if _hits_h_rule(col_idx, ry1, ry2):
                     continue
                 cy = (ry1 + ry2) / 2
                 if any(az[0] <= x_sample <= az[1] and
