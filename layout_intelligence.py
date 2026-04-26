@@ -33,6 +33,7 @@ import sqlite3
 import json
 import numpy as np
 from collections import Counter
+from contextlib import contextmanager
 
 
 class LayoutDB:
@@ -42,79 +43,90 @@ class LayoutDB:
         self.db_path = db_path
         self._init_tables()
 
+    @contextmanager
     def _conn(self):
-        return sqlite3.connect(self.db_path)
+        """Yield a sqlite3 connection; close it on exit (success or error).
+
+        Callers retain responsibility for calling ``conn.commit()`` for
+        write paths — this wrapper centralises only the close, not the
+        transaction semantics, so behaviour is byte-for-byte equivalent
+        to the prior ``conn = self._conn() … conn.close()`` pattern.
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            yield conn
+        finally:
+            conn.close()
 
     def _init_tables(self):
         """Create intelligence tables if they don't exist."""
-        conn = self._conn()
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS page_layouts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                year INTEGER NOT NULL,
-                month INTEGER,
-                day INTEGER,
-                page INTEGER,
-                num_columns INTEGER NOT NULL,
-                boundary_positions TEXT NOT NULL,
-                column_widths TEXT NOT NULL,
-                quality_flags TEXT,
-                confidence REAL,
-                profile_json TEXT,
-                created_at TEXT DEFAULT (datetime('now'))
-            );
+        with self._conn() as conn:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS page_layouts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    year INTEGER NOT NULL,
+                    month INTEGER,
+                    day INTEGER,
+                    page INTEGER,
+                    num_columns INTEGER NOT NULL,
+                    boundary_positions TEXT NOT NULL,
+                    column_widths TEXT NOT NULL,
+                    quality_flags TEXT,
+                    confidence REAL,
+                    profile_json TEXT,
+                    created_at TEXT DEFAULT (datetime('now'))
+                );
 
-            CREATE TABLE IF NOT EXISTS page_geometry (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                year INTEGER NOT NULL,
-                month INTEGER,
-                day INTEGER,
-                page INTEGER,
-                r2_left REAL, r2_right REAL,
-                r3_left REAL, r3_right REAL,
-                text_left REAL, text_right REAL,
-                binding_side TEXT,
-                created_at TEXT DEFAULT (datetime('now'))
-            );
+                CREATE TABLE IF NOT EXISTS page_geometry (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    year INTEGER NOT NULL,
+                    month INTEGER,
+                    day INTEGER,
+                    page INTEGER,
+                    r2_left REAL, r2_right REAL,
+                    r3_left REAL, r3_right REAL,
+                    text_left REAL, text_right REAL,
+                    binding_side TEXT,
+                    created_at TEXT DEFAULT (datetime('now'))
+                );
 
-            CREATE INDEX IF NOT EXISTS idx_page_geometry_year
-                ON page_geometry(year);
+                CREATE INDEX IF NOT EXISTS idx_page_geometry_year
+                    ON page_geometry(year);
 
-            CREATE INDEX IF NOT EXISTS idx_page_geometry_issue
-                ON page_geometry(year, month, day);
+                CREATE INDEX IF NOT EXISTS idx_page_geometry_issue
+                    ON page_geometry(year, month, day);
 
-            CREATE TABLE IF NOT EXISTS layout_templates (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                template_name TEXT NOT NULL,
-                page_number INTEGER,
-                year_start INTEGER NOT NULL,
-                year_end INTEGER NOT NULL,
-                pattern TEXT NOT NULL,
-                description TEXT,
-                created_at TEXT DEFAULT (datetime('now')),
-                UNIQUE(template_name, page_number, year_start, year_end)
-            );
+                CREATE TABLE IF NOT EXISTS layout_templates (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    template_name TEXT NOT NULL,
+                    page_number INTEGER,
+                    year_start INTEGER NOT NULL,
+                    year_end INTEGER NOT NULL,
+                    pattern TEXT NOT NULL,
+                    description TEXT,
+                    created_at TEXT DEFAULT (datetime('now')),
+                    UNIQUE(template_name, page_number, year_start, year_end)
+                );
 
-            CREATE INDEX IF NOT EXISTS idx_page_layouts_year
-                ON page_layouts(year);
+                CREATE INDEX IF NOT EXISTS idx_page_layouts_year
+                    ON page_layouts(year);
 
-            CREATE INDEX IF NOT EXISTS idx_page_layouts_issue
-                ON page_layouts(year, month, day);
+                CREATE INDEX IF NOT EXISTS idx_page_layouts_issue
+                    ON page_layouts(year, month, day);
 
-            CREATE TABLE IF NOT EXISTS era_patterns (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                year_start INTEGER NOT NULL,
-                year_end INTEGER NOT NULL,
-                dominant_columns INTEGER NOT NULL,
-                typical_widths TEXT,
-                sample_count INTEGER,
-                confidence REAL,
-                updated_at TEXT DEFAULT (datetime('now')),
-                UNIQUE(year_start, year_end)
-            );
-        """)
-        conn.commit()
-        conn.close()
+                CREATE TABLE IF NOT EXISTS era_patterns (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    year_start INTEGER NOT NULL,
+                    year_end INTEGER NOT NULL,
+                    dominant_columns INTEGER NOT NULL,
+                    typical_widths TEXT,
+                    sample_count INTEGER,
+                    confidence REAL,
+                    updated_at TEXT DEFAULT (datetime('now')),
+                    UNIQUE(year_start, year_end)
+                );
+            """)
+            conn.commit()
 
     # ── Recording results ────────────────────────────────────────────
 
@@ -138,22 +150,21 @@ class LayoutDB:
         edges = list(boundary_positions)
         widths = [round(edges[i+1] - edges[i], 2) for i in range(len(edges)-1)]
 
-        conn = self._conn()
-        conn.execute("""
-            INSERT INTO page_layouts
-            (year, month, day, page, num_columns, boundary_positions,
-             column_widths, quality_flags, confidence, profile_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            year, month, day, page, num_columns,
-            json.dumps([round(p, 2) for p in boundary_positions]),
-            json.dumps(widths),
-            json.dumps(quality_flags or []),
-            confidence,
-            json.dumps(profile) if profile else None,
-        ))
-        conn.commit()
-        conn.close()
+        with self._conn() as conn:
+            conn.execute("""
+                INSERT INTO page_layouts
+                (year, month, day, page, num_columns, boundary_positions,
+                 column_widths, quality_flags, confidence, profile_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                year, month, day, page, num_columns,
+                json.dumps([round(p, 2) for p in boundary_positions]),
+                json.dumps(widths),
+                json.dumps(quality_flags or []),
+                confidence,
+                json.dumps(profile) if profile else None,
+            ))
+            conn.commit()
 
     def record_template(self, template_name, page_number, year_start,
                         year_end, pattern, description=None):
@@ -168,18 +179,17 @@ class LayoutDB:
             pattern:        JSON-serialisable dict describing the pattern
             description:    Human-readable description
         """
-        conn = self._conn()
-        conn.execute("""
-            INSERT OR REPLACE INTO layout_templates
-            (template_name, page_number, year_start, year_end,
-             pattern, description)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            template_name, page_number, year_start, year_end,
-            json.dumps(pattern), description,
-        ))
-        conn.commit()
-        conn.close()
+        with self._conn() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO layout_templates
+                (template_name, page_number, year_start, year_end,
+                 pattern, description)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                template_name, page_number, year_start, year_end,
+                json.dumps(pattern), description,
+            ))
+            conn.commit()
 
     def get_template(self, template_name, page_number, year, window=10):
         """
@@ -191,29 +201,26 @@ class LayoutDB:
 
         Returns the pattern dict if found, None otherwise.
         """
-        conn = self._conn()
-
-        # Exact match first
-        row = conn.execute("""
-            SELECT pattern, year_start, year_end, description
-            FROM layout_templates
-            WHERE template_name = ? AND page_number = ?
-              AND year_start <= ? AND year_end >= ?
-        """, (template_name, page_number, year, year)).fetchone()
-
-        if not row:
-            # Look for nearest template within window
+        with self._conn() as conn:
+            # Exact match first
             row = conn.execute("""
                 SELECT pattern, year_start, year_end, description
                 FROM layout_templates
                 WHERE template_name = ? AND page_number = ?
-                  AND year_start <= ? + ? AND year_end >= ? - ?
-                ORDER BY ABS(year_start + year_end - ? * 2)
-                LIMIT 1
-            """, (template_name, page_number, year, window,
-                  year, window, year)).fetchone()
+                  AND year_start <= ? AND year_end >= ?
+            """, (template_name, page_number, year, year)).fetchone()
 
-        conn.close()
+            if not row:
+                # Look for nearest template within window
+                row = conn.execute("""
+                    SELECT pattern, year_start, year_end, description
+                    FROM layout_templates
+                    WHERE template_name = ? AND page_number = ?
+                      AND year_start <= ? + ? AND year_end >= ? - ?
+                    ORDER BY ABS(year_start + year_end - ? * 2)
+                    LIMIT 1
+                """, (template_name, page_number, year, window,
+                      year, window, year)).fetchone()
 
         if row:
             return {
@@ -231,25 +238,24 @@ class LayoutDB:
         Finds the nearest template and extends its range to cover
         the new year, bridging any gap.
         """
-        conn = self._conn()
-        # Find the nearest template
-        row = conn.execute("""
-            SELECT id, year_start, year_end FROM layout_templates
-            WHERE template_name = ? AND page_number = ?
-            ORDER BY ABS(year_start + year_end - ? * 2)
-            LIMIT 1
-        """, (template_name, page_number, year)).fetchone()
+        with self._conn() as conn:
+            # Find the nearest template
+            row = conn.execute("""
+                SELECT id, year_start, year_end FROM layout_templates
+                WHERE template_name = ? AND page_number = ?
+                ORDER BY ABS(year_start + year_end - ? * 2)
+                LIMIT 1
+            """, (template_name, page_number, year)).fetchone()
 
-        if row:
-            new_start = min(row[1], year)
-            new_end = max(row[2], year)
-            conn.execute("""
-                UPDATE layout_templates
-                SET year_start = ?, year_end = ?
-                WHERE id = ?
-            """, (new_start, new_end, row[0]))
-            conn.commit()
-        conn.close()
+            if row:
+                new_start = min(row[1], year)
+                new_end = max(row[2], year)
+                conn.execute("""
+                    UPDATE layout_templates
+                    SET year_start = ?, year_end = ?
+                    WHERE id = ?
+                """, (new_start, new_end, row[0]))
+                conn.commit()
 
     def record_geometry(self, year, month, day, page, profile):
         """
@@ -262,22 +268,21 @@ class LayoutDB:
         if not profile or "r2" not in profile:
             return
 
-        conn = self._conn()
-        conn.execute("""
-            INSERT INTO page_geometry
-            (year, month, day, page,
-             r2_left, r2_right, r3_left, r3_right,
-             text_left, text_right, binding_side)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            year, month, day, page,
-            profile["r2"]["left"], profile["r2"]["right"],
-            profile["r3"]["left"], profile["r3"]["right"],
-            profile["text_area"]["left"], profile["text_area"]["right"],
-            profile.get("binding_side"),
-        ))
-        conn.commit()
-        conn.close()
+        with self._conn() as conn:
+            conn.execute("""
+                INSERT INTO page_geometry
+                (year, month, day, page,
+                 r2_left, r2_right, r3_left, r3_right,
+                 text_left, text_right, binding_side)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                year, month, day, page,
+                profile["r2"]["left"], profile["r2"]["right"],
+                profile["r3"]["left"], profile["r3"]["right"],
+                profile["text_area"]["left"], profile["text_area"]["right"],
+                profile.get("binding_side"),
+            ))
+            conn.commit()
 
     def record_from_page_result(self, page_result, year, month, day, page,
                                 profile=None):
@@ -329,14 +334,13 @@ class LayoutDB:
             dict with expected_columns, typical_widths, sample_count,
             confidence, or None if no data.
         """
-        conn = self._conn()
-        rows = conn.execute("""
-            SELECT num_columns, column_widths, confidence
-            FROM page_layouts
-            WHERE year BETWEEN ? AND ?
-              AND confidence > 0.3
-        """, (year - window, year + window)).fetchall()
-        conn.close()
+        with self._conn() as conn:
+            rows = conn.execute("""
+                SELECT num_columns, column_widths, confidence
+                FROM page_layouts
+                WHERE year BETWEEN ? AND ?
+                  AND confidence > 0.3
+            """, (year - window, year + window)).fetchall()
 
         if not rows:
             return None
@@ -383,14 +387,13 @@ class LayoutDB:
         Get layout from other pages in the same issue.
         Within an issue, the column grid is constant (though content varies).
         """
-        conn = self._conn()
-        rows = conn.execute("""
-            SELECT num_columns, column_widths, confidence, page
-            FROM page_layouts
-            WHERE year = ? AND month = ? AND day = ?
-            ORDER BY confidence DESC
-        """, (year, month, day)).fetchall()
-        conn.close()
+        with self._conn() as conn:
+            rows = conn.execute("""
+                SELECT num_columns, column_widths, confidence, page
+                FROM page_layouts
+                WHERE year = ? AND month = ? AND day = ?
+                ORDER BY confidence DESC
+            """, (year, month, day)).fetchall()
 
         if not rows:
             return None
@@ -414,14 +417,13 @@ class LayoutDB:
         Groups years into bins (default 10-year) and finds the
         dominant column count and typical widths for each era.
         """
-        conn = self._conn()
-        rows = conn.execute("""
-            SELECT year, num_columns, column_widths, confidence
-            FROM page_layouts
-            WHERE confidence > 0.3
-            ORDER BY year
-        """).fetchall()
-        conn.close()
+        with self._conn() as conn:
+            rows = conn.execute("""
+                SELECT year, num_columns, column_widths, confidence
+                FROM page_layouts
+                WHERE confidence > 0.3
+                ORDER BY year
+            """).fetchall()
 
         if not rows:
             return []
@@ -465,22 +467,21 @@ class LayoutDB:
             })
 
         # Store in database
-        conn = self._conn()
-        for p in patterns:
-            conn.execute("""
-                INSERT OR REPLACE INTO era_patterns
-                (year_start, year_end, dominant_columns, typical_widths,
-                 sample_count, confidence)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                p["year_start"], p["year_end"],
-                p["dominant_columns"],
-                json.dumps(p["typical_widths"]),
-                p["sample_count"],
-                p["confidence"],
-            ))
-        conn.commit()
-        conn.close()
+        with self._conn() as conn:
+            for p in patterns:
+                conn.execute("""
+                    INSERT OR REPLACE INTO era_patterns
+                    (year_start, year_end, dominant_columns, typical_widths,
+                     sample_count, confidence)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    p["year_start"], p["year_end"],
+                    p["dominant_columns"],
+                    json.dumps(p["typical_widths"]),
+                    p["sample_count"],
+                    p["confidence"],
+                ))
+            conn.commit()
 
         return patterns
 
@@ -488,41 +489,38 @@ class LayoutDB:
 
     def summary(self):
         """Print a summary of accumulated intelligence."""
-        conn = self._conn()
-        total = conn.execute("SELECT COUNT(*) FROM page_layouts").fetchone()[0]
-        years = conn.execute(
-            "SELECT MIN(year), MAX(year) FROM page_layouts"
-        ).fetchone()
+        with self._conn() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM page_layouts").fetchone()[0]
+            years = conn.execute(
+                "SELECT MIN(year), MAX(year) FROM page_layouts"
+            ).fetchone()
 
-        if total == 0:
-            print("No layout data recorded yet.")
-            conn.close()
-            return
+            if total == 0:
+                print("No layout data recorded yet.")
+                return
 
-        print(f"Layout intelligence: {total} pages, {years[0]}-{years[1]}")
+            print(f"Layout intelligence: {total} pages, {years[0]}-{years[1]}")
 
-        # Column count distribution
-        dist = conn.execute("""
-            SELECT num_columns, COUNT(*) as cnt
-            FROM page_layouts
-            GROUP BY num_columns
-            ORDER BY cnt DESC
-        """).fetchall()
-        print("  Column counts: " +
-              ", ".join(f"{n}cols={c}" for n, c in dist))
+            # Column count distribution
+            dist = conn.execute("""
+                SELECT num_columns, COUNT(*) as cnt
+                FROM page_layouts
+                GROUP BY num_columns
+                ORDER BY cnt DESC
+            """).fetchall()
+            print("  Column counts: " +
+                  ", ".join(f"{n}cols={c}" for n, c in dist))
 
-        # Era patterns
-        eras = conn.execute("""
-            SELECT year_start, year_end, dominant_columns, sample_count
-            FROM era_patterns
-            ORDER BY year_start
-        """).fetchall()
-        if eras:
-            print(f"  Era patterns ({len(eras)} decades):")
-            for start, end, cols, samples in eras:
-                print(f"    {start}-{end}: {cols} columns ({samples} samples)")
-
-        conn.close()
+            # Era patterns
+            eras = conn.execute("""
+                SELECT year_start, year_end, dominant_columns, sample_count
+                FROM era_patterns
+                ORDER BY year_start
+            """).fetchall()
+            if eras:
+                print(f"  Era patterns ({len(eras)} decades):")
+                for start, end, cols, samples in eras:
+                    print(f"    {start}-{end}: {cols} columns ({samples} samples)")
 
 
 def print_prior(prior):

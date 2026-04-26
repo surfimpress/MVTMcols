@@ -63,6 +63,8 @@ Risk levels used below:
 >
 > **Why I got this wrong:** I treated `_conn()` as if its name implied context-management, and I didn't read the body of `LayoutDB` before claiming it was the well-behaved exception. The dynamic import in `process_issue.py:251` was missed because I grepped for `sqlite3.connect` literally and the module was loaded via `__import__`. **What would have caught it in one tool call:** `grep -n "sqlite3" *.py` (broader pattern) plus actually reading three lines of `layout_intelligence._conn`. The lesson is bigger than C2: when a recommendation says "only X is correct," verify that X is correct before relying on it as a safe baseline.
 
+↳ **C2 (LayoutDB) landed.** Converted `LayoutDB._conn` from a plain factory into a `@contextmanager` that yields a connection and closes it in a `finally` block. All 11 callsites inside `layout_intelligence.py` (lines 50, 141, 171, 194, 234, 265, 332, 386, 417, 468, 491 in the pre-change file) became `with self._conn() as conn:`. Transaction semantics are preserved exactly — callers still issue `conn.commit()` themselves on write paths. Verified by importing `LayoutDB`, calling `summary()`, and re-running the four-issue regression (1898-10-07, 1920-01-02, 1937-01-14, 1947-11-06): zero deltas across all five tables (`page_layouts=281`, `page_geometry=281`, `detected_ads=3391`, `layout_templates=1`, `era_patterns=13`). DB backup at `data/mvtm.db.pre-C2-layoutdb.bak`. **C2 remainder:** 2 callsites inside `process_issue._update_viewer_data` (lines 812, 961). Deferred — wrapping in place costs ~140 lines of indentation; cleaner fix requires decomposing the function into smaller helpers.
+
 ## D. Best practices (only obvious ones)
 
 | # | Item | Where | Risk |
