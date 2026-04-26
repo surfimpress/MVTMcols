@@ -18,6 +18,9 @@ Usage:
               f"{ad['w_pct']:.0f}%x{ad['h_pct']:.0f}% ~{ad['cols']}col")
 """
 
+import sqlite3
+from contextlib import closing
+
 import fitz
 import numpy as np
 import cv2
@@ -878,35 +881,32 @@ def extract_ad_images(pdf_path, ads, output_dir, page_number=0, dpi=450,
 
 def init_ads_table(db_path):
     """Create the ads table in SQLite if it doesn't exist."""
-    import sqlite3
-    conn = sqlite3.connect(db_path)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS detected_ads (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            year INTEGER NOT NULL,
-            month INTEGER NOT NULL,
-            day INTEGER NOT NULL,
-            page INTEGER NOT NULL,
-            x_pct REAL NOT NULL,
-            y_pct REAL NOT NULL,
-            w_pct REAL NOT NULL,
-            h_pct REAL NOT NULL,
-            x_end_pct REAL NOT NULL,
-            y_end_pct REAL NOT NULL,
-            rect_ratio REAL,
-            aspect REAL,
-            cols INTEGER,
-            confidence TEXT,
-            image_filename TEXT,
-            created_at TEXT DEFAULT (datetime('now'))
-        )
-    """)
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_detected_ads_issue
-            ON detected_ads(year, month, day)
-    """)
-    conn.commit()
-    conn.close()
+    with closing(sqlite3.connect(db_path)) as conn, conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS detected_ads (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                year INTEGER NOT NULL,
+                month INTEGER NOT NULL,
+                day INTEGER NOT NULL,
+                page INTEGER NOT NULL,
+                x_pct REAL NOT NULL,
+                y_pct REAL NOT NULL,
+                w_pct REAL NOT NULL,
+                h_pct REAL NOT NULL,
+                x_end_pct REAL NOT NULL,
+                y_end_pct REAL NOT NULL,
+                rect_ratio REAL,
+                aspect REAL,
+                cols INTEGER,
+                confidence TEXT,
+                image_filename TEXT,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_detected_ads_issue
+                ON detected_ads(year, month, day)
+        """)
 
 
 def store_ads(db_path, year, month, day, page, ads_with_images):
@@ -923,28 +923,25 @@ def store_ads(db_path, year, month, day, page, ads_with_images):
         List of inserted detected_ads.id values, in the same order
         as ads_with_images.
     """
-    import sqlite3
     init_ads_table(db_path)
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
     ids = []
-    for ad in ads_with_images:
-        cur.execute("""
-            INSERT INTO detected_ads
-            (year, month, day, page, x_pct, y_pct, w_pct, h_pct,
-             x_end_pct, y_end_pct, rect_ratio, aspect, cols,
-             confidence, image_filename)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            year, month, day, page,
-            ad["x_pct"], ad["y_pct"], ad["w_pct"], ad["h_pct"],
-            ad["x_end_pct"], ad["y_end_pct"],
-            ad.get("rect_ratio"), ad.get("aspect"), ad.get("cols"),
-            ad.get("confidence"), ad.get("image_filename"),
-        ))
-        ids.append(cur.lastrowid)
-    conn.commit()
-    conn.close()
+    with closing(sqlite3.connect(db_path)) as conn, conn:
+        cur = conn.cursor()
+        for ad in ads_with_images:
+            cur.execute("""
+                INSERT INTO detected_ads
+                (year, month, day, page, x_pct, y_pct, w_pct, h_pct,
+                 x_end_pct, y_end_pct, rect_ratio, aspect, cols,
+                 confidence, image_filename)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                year, month, day, page,
+                ad["x_pct"], ad["y_pct"], ad["w_pct"], ad["h_pct"],
+                ad["x_end_pct"], ad["y_end_pct"],
+                ad.get("rect_ratio"), ad.get("aspect"), ad.get("cols"),
+                ad.get("confidence"), ad.get("image_filename"),
+            ))
+            ids.append(cur.lastrowid)
     return ids
 
 

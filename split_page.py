@@ -23,6 +23,7 @@ import os
 import json
 import sqlite3
 import time
+from contextlib import closing
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
@@ -1162,42 +1163,40 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
 
 def _log_to_db(result, db_path):
     """Log page-splitting results to the SQLite database."""
-    conn = sqlite3.connect(db_path)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS page_splits (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            pdf_path TEXT,
-            page_number INTEGER,
-            dpi INTEGER,
-            page_width_px INTEGER,
-            page_height_px INTEGER,
-            num_columns INTEGER,
-            detection_row TEXT,
-            quality_flags TEXT,
-            error TEXT,
-            elapsed_seconds REAL,
-            columns_json TEXT,
-            created_at TEXT DEFAULT (datetime('now'))
-        )
-    """)
-    conn.execute("""
-        INSERT INTO page_splits
-        (pdf_path, page_number, dpi, page_width_px, page_height_px,
-         num_columns, detection_row, quality_flags, error,
-         elapsed_seconds, columns_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        result.pdf_path, result.page_number, result.dpi,
-        result.page_width_px, result.page_height_px,
-        result.num_columns,
-        json.dumps(result.detection_row),
-        json.dumps(result.quality_flags),
-        result.error,
-        result.elapsed_seconds,
-        json.dumps([asdict(c) for c in result.columns]),
-    ))
-    conn.commit()
-    conn.close()
+    with closing(sqlite3.connect(db_path)) as conn, conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS page_splits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pdf_path TEXT,
+                page_number INTEGER,
+                dpi INTEGER,
+                page_width_px INTEGER,
+                page_height_px INTEGER,
+                num_columns INTEGER,
+                detection_row TEXT,
+                quality_flags TEXT,
+                error TEXT,
+                elapsed_seconds REAL,
+                columns_json TEXT,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("""
+            INSERT INTO page_splits
+            (pdf_path, page_number, dpi, page_width_px, page_height_px,
+             num_columns, detection_row, quality_flags, error,
+             elapsed_seconds, columns_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            result.pdf_path, result.page_number, result.dpi,
+            result.page_width_px, result.page_height_px,
+            result.num_columns,
+            json.dumps(result.detection_row),
+            json.dumps(result.quality_flags),
+            result.error,
+            result.elapsed_seconds,
+            json.dumps([asdict(c) for c in result.columns]),
+        ))
 
 
 def _save_metadata(result, path):

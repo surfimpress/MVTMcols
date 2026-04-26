@@ -19,6 +19,7 @@ import json
 import sqlite3
 import subprocess
 import time
+from contextlib import closing
 
 import numpy as np
 
@@ -37,13 +38,12 @@ def download_issue(year, month, day, db_path="data/mvtm.db",
 
     Returns list of (page_number, pdf_path) tuples.
     """
-    conn = sqlite3.connect(db_path)
-    rows = conn.execute("""
-        SELECT page, drive_id, directory_path FROM files
-        WHERE year=? AND month=? AND day=? AND file_type='pdf'
-        ORDER BY page
-    """, (year, month, day)).fetchall()
-    conn.close()
+    with closing(sqlite3.connect(db_path)) as conn:
+        rows = conn.execute("""
+            SELECT page, drive_id, directory_path FROM files
+            WHERE year=? AND month=? AND day=? AND file_type='pdf'
+            ORDER BY page
+        """, (year, month, day)).fetchall()
 
     if not rows:
         print(f"No pages found for {year}-{month:02d}-{day:02d}")
@@ -248,11 +248,9 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     print(f"  {len(pages)} pages downloaded")
 
     # ── Clean previous ad data for this issue ───────────────────────
-    _conn = __import__("sqlite3").connect(db_path)
-    _conn.execute("DELETE FROM detected_ads WHERE year=? AND month=? AND day=?",
-                  (year, month, day))
-    _conn.commit()
-    _conn.close()
+    with closing(sqlite3.connect(db_path)) as conn, conn:
+        conn.execute("DELETE FROM detected_ads WHERE year=? AND month=? AND day=?",
+                     (year, month, day))
 
     # ── Ad detection (before column detection) ─────────────────────
     print("Detecting display ads...")
@@ -682,13 +680,11 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     db = LayoutDB(db_path)
 
     # Clean any previous data for this issue
-    conn = __import__("sqlite3").connect(db_path)
-    conn.execute("DELETE FROM page_layouts WHERE year=? AND month=? AND day=?",
-                 (year, month, day))
-    conn.execute("DELETE FROM page_geometry WHERE year=? AND month=? AND day=?",
-                 (year, month, day))
-    conn.commit()
-    conn.close()
+    with closing(sqlite3.connect(db_path)) as conn, conn:
+        conn.execute("DELETE FROM page_layouts WHERE year=? AND month=? AND day=?",
+                     (year, month, day))
+        conn.execute("DELETE FROM page_geometry WHERE year=? AND month=? AND day=?",
+                     (year, month, day))
 
     for page_num, result, prof in pass1_results:
         meta_path = os.path.join(output_dir, f"p{page_num}", "page_meta.json")
