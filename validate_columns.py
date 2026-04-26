@@ -20,7 +20,7 @@ sat at 78–141 % of median, and clear empty edges at 8–43 %.
 """
 
 import numpy as np
-from pdf_utils import open_clean_pdf as _open_clean
+from pdf_utils import render_grey
 
 
 # Edge column ink must be at least this fraction of the median
@@ -31,25 +31,6 @@ EDGE_INK_RATIO_THRESHOLD = 0.35
 # footer regions where edge cols often light up for unrelated reasons.
 INK_BAND_TOP_PCT = 20.0
 INK_BAND_BOTTOM_PCT = 90.0
-
-
-def _render_grey(pdf_path, page_number, dpi):
-    """Render the page as a 2-D greyscale numpy array.
-
-    Uses pdf_utils.open_clean_pdf so red-overlay annotations are
-    stripped before measurement, matching every other detector.
-    """
-    doc = _open_clean(pdf_path)
-    page = doc[page_number]
-    pix = page.get_pixmap(dpi=dpi)
-    img = np.frombuffer(pix.samples, dtype=np.uint8)
-    if pix.n >= 3:
-        img = img.reshape(pix.h, pix.w, pix.n)[:, :, :3]
-        grey = img.mean(axis=2)
-    else:
-        grey = img.reshape(pix.h, pix.w).astype(float)
-    doc.close()
-    return grey
 
 
 def _column_ink_means(grey, boundaries):
@@ -96,7 +77,7 @@ def validate_edge_columns(boundaries, pdf_path, page_number=0,
         # against; below that, trust the detector.
         return list(boundaries), []
 
-    grey = _render_grey(pdf_path, page_number, dpi)
+    grey = render_grey(pdf_path, page_number, dpi)
     means = _column_ink_means(grey, boundaries)
     if len(means) < 3:
         return list(boundaries), []

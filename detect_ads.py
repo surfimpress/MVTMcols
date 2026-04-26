@@ -26,7 +26,7 @@ import numpy as np
 import cv2
 
 
-from pdf_utils import open_clean_pdf as _open_clean
+from pdf_utils import open_clean_pdf as _open_clean, render_grey_uint8
 
 
 def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
@@ -216,21 +216,7 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
         Each dict has: x_pct, y_pct, w_pct, h_pct, rect_ratio,
         aspect, cols (estimated column span), confidence.
     """
-    doc = _open_clean(pdf_path)
-    page = doc[page_number]
-    pix = page.get_pixmap(dpi=render_dpi)
-    img = np.frombuffer(pix.samples, dtype=np.uint8)
-    if pix.n >= 3:
-        img = img.reshape(pix.h, pix.w, pix.n)[:, :, :3]
-    else:
-        img = img.reshape(pix.h, pix.w)
-    doc.close()
-
-    if img.ndim == 3:
-        grey = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    else:
-        grey = img
-
+    grey = render_grey_uint8(pdf_path, page_number, render_dpi)
     h, w = grey.shape
     pitch = column_pitch or 12.0  # default guess if not provided
 
@@ -397,21 +383,7 @@ def detect_single_col_ads(pdf_path, multi_col_ads=None, page_number=0,
     multi_col_ads = multi_col_ads or []
 
     # ── A) Common preprocessing — identical to detect_ads ──────────────
-    doc = _open_clean(pdf_path)
-    page = doc[page_number]
-    pix = page.get_pixmap(dpi=render_dpi)
-    img = np.frombuffer(pix.samples, dtype=np.uint8)
-    if pix.n >= 3:
-        img = img.reshape(pix.h, pix.w, pix.n)[:, :, :3]
-    else:
-        img = img.reshape(pix.h, pix.w)
-    doc.close()
-
-    if img.ndim == 3:
-        grey = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    else:
-        grey = img
-
+    grey = render_grey_uint8(pdf_path, page_number, render_dpi)
     h, w = grey.shape
 
     binary = cv2.adaptiveThreshold(

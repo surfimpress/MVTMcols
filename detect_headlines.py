@@ -18,7 +18,7 @@ Does NOT detect:
 """
 
 import numpy as np
-from pdf_utils import open_clean_pdf as _open_clean
+from pdf_utils import render_grey
 
 
 def detect_headlines(pdf_path, column_boundaries, page_number=0,
@@ -45,18 +45,7 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
     if len(column_boundaries) < 2:
         return []
 
-    # Render page (red-overlay annotations stripped — see pdf_utils)
-    doc = _open_clean(pdf_path)
-    page = doc[page_number]
-    pix = page.get_pixmap(dpi=dpi)
-    img = np.frombuffer(pix.samples, dtype=np.uint8)
-    if pix.n >= 3:
-        img = img.reshape(pix.h, pix.w, pix.n)[:, :, :3]
-        grey = np.mean(img, axis=2)
-    else:
-        grey = img.reshape(pix.h, pix.w).astype(float)
-    doc.close()
-
+    grey = render_grey(pdf_path, page_number, dpi)
     h, w = grey.shape
     inv = 255.0 - grey  # dark = high
 

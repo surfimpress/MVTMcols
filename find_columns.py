@@ -15,7 +15,6 @@ for r in results:
     print(f"{r.page_pct:.1f}% across page, confidence={r.confidence}")
 """
 
-import fitz
 import numpy as np
 import cv2
 from dataclasses import dataclass
@@ -30,7 +29,7 @@ class ColumnBoundary:
     valley_depth: float     # how much lighter the flanking whitespace is
     confidence: str         # "high", "medium", "low"
 
-from pdf_utils import open_clean_pdf as _open_clean
+from pdf_utils import render_grey, render_grey_uint8
 
 def find_column_boundaries(
     pdf_path,
@@ -63,45 +62,17 @@ def find_column_boundaries(
     Returns:
         List of ColumnBoundary objects, sorted by confidence then position.
     """
-    # Render the crop
-    doc = _open_clean(pdf_path)
-    page = doc[page_number]
-    pw, ph = page.rect.width, page.rect.height
-
+    # Render the crop (red overlays stripped via render_grey → open_clean_pdf)
     if clip_x_frac:
         clip_x0_frac, clip_x1_frac = clip_x_frac
-        clip = fitz.Rect(
-            pw * clip_x0_frac,
-            ph * (y - 1) / 10,
-            pw * clip_x1_frac,
-            ph * (y - 1 + h) / 10,
-        )
     else:
         clip_x0_frac = (x - 1) / 10
         clip_x1_frac = (x - 1 + w) / 10
-        clip = fitz.Rect(
-            pw * clip_x0_frac,
-            ph * (y - 1) / 10,
-            pw * clip_x1_frac,
-            ph * (y - 1 + h) / 10,
-        )
-    pix = page.get_pixmap(clip=clip, dpi=dpi)
-    doc.close()
-
-    # Convert to numpy greyscale
-    img = np.frombuffer(pix.samples, dtype=np.uint8)
-    if pix.n == 4:
-        img = img.reshape(pix.h, pix.w, 4)[:, :, :3]
-    elif pix.n == 3:
-        img = img.reshape(pix.h, pix.w, 3)
-    else:
-        img = img.reshape(pix.h, pix.w)
-
-    if img.ndim == 3:
-        grey = np.mean(img, axis=2)
-    else:
-        grey = img.astype(float)
-
+    grey = render_grey(
+        pdf_path, page_number, dpi,
+        clip=(clip_x0_frac, (y - 1) / 10,
+              clip_x1_frac, (y - 1 + h) / 10),
+    )
     img_h, img_w = grey.shape
 
     # Work with the middle 60% of rows to avoid headers/borders
@@ -277,32 +248,17 @@ def find_column_boundaries_morph(pdf_path, x=1, y=6, w=1, h=1,
     Returns:
         List of ColumnBoundary objects from morphologically-detected rules.
     """
-    doc = _open_clean(pdf_path)
-    page = doc[page_number]
-    pw, ph = page.rect.width, page.rect.height
-
     if clip_x_frac:
         clip_x0_frac, clip_x1_frac = clip_x_frac
     else:
         clip_x0_frac = (x - 1) / 10
         clip_x1_frac = (x - 1 + w) / 10
 
-    clip = fitz.Rect(
-        pw * clip_x0_frac,
-        ph * (y - 1) / 10,
-        pw * clip_x1_frac,
-        ph * (y - 1 + h) / 10,
+    grey = render_grey_uint8(
+        pdf_path, page_number, dpi,
+        clip=(clip_x0_frac, (y - 1) / 10,
+              clip_x1_frac, (y - 1 + h) / 10),
     )
-    pix = page.get_pixmap(clip=clip, dpi=dpi)
-    doc.close()
-
-    img = np.frombuffer(pix.samples, dtype=np.uint8)
-    if pix.n >= 3:
-        img = img.reshape(pix.h, pix.w, pix.n)[:, :, :3]
-        grey = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    else:
-        grey = img.reshape(pix.h, pix.w)
-
     img_h, img_w = grey.shape
 
     # Binarise: ink is dark → white in binary
