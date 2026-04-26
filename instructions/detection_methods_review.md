@@ -285,33 +285,26 @@ re-imported by `split_page.py` after refactor 1's B2 commit.
 
 ---
 
-### 10. Multi-strip consensus (`split_page._detect_consensus`)
+### 10. Multi-strip consensus (retired — folded into `column_pipeline`)
 
-**File:** `split_page.py`, `_detect_consensus()`
-**DPI:** 450
+**File:** previously `split_page._detect_consensus()`. Removed
+2026-04-26 as part of refactor-1 Part 1 (opportunity #9).
 
-**What:** Older orchestrator for the same idea as strategy #9: run
-detection on 7 horizontal strips and keep boundaries that appear
-consistently across strips.
+**What:** Older parallel orchestrator for the same idea as strategy #9.
+Now removed — `split_page.py`'s CLI invokes
+`column_pipeline.detect_strips → cluster_boundaries → place_columns`
+directly, eliminating the parallel implementation that had drifted from
+the live pipeline.
 
-**Effectiveness:** Equivalent in design to `column_pipeline`. Acceptance
-threshold: `weighted_score ≥ 1.5 OR strips_hit ≥ 3`.
-
-**What it lacks:** Counterproductive for column-spanning headlines and
-display ads — a rule that vanishes where a 2-column headline crosses gets
-voted down and may be lost. The newer pipeline (`column_pipeline`) makes
-this auditable; the CLI path here doesn't.
-
-**Production suitability:** CLI / diagnostic only. Live pipeline runs
-through `column_pipeline`. Drift risk is documented in
-`refactor1_recommendations.md` opportunity #9.
+**Production suitability:** Done — CLI and live pipeline share the same
+detection chain. No drift risk remains.
 
 ---
 
 ### 11. Grid projection from interior columns
 
-**File:** `split_page.py`, `_project_grid_edges()` and
-`column_pipeline.place_standard()`
+**File:** `column_pipeline.place_standard()` (the parallel
+`split_page._project_grid_edges()` was removed 2026-04-26)
 **DPI:** n/a (operates on % positions)
 
 **What:** Uses interior column widths to predict where outer edges should
@@ -336,7 +329,8 @@ would be more accurate when the clean side has a high-confidence anchor.
 
 ### 12. Narrow-column merging
 
-**File:** `column_pipeline._merge_narrow()`, `split_page._remove_narrow_columns()`
+**File:** `column_pipeline._merge_narrow()` (the parallel
+`split_page._remove_narrow_columns()` was removed 2026-04-26)
 **DPI:** n/a
 
 **What:** Merges boundaries closer than ~7% of page width, keeping the
@@ -355,24 +349,19 @@ detected column width) is a candidate for a later round.
 
 ---
 
-### 13. Best-grid selection (combinatorial)
+### 13. Best-grid selection (retired — never reached in live pipeline)
 
-**File:** `split_page.py`, `_select_best_grid()`
-**DPI:** n/a
+**File:** previously `split_page._select_best_grid()`. Removed
+2026-04-26 as part of refactor-1 Part 1.
 
-**What:** When more boundaries are detected than the maximum (8), tries all
-C(N, max) combinations (capped at 15 candidates) and selects the most
-regular subset by CV (coefficient of variation) of column widths.
+**What:** Combinatorial subset selection by CV when too many boundaries
+were detected. Only ever reached from the now-retired
+`_detect_consensus` orchestrator. The live pipeline (`column_pipeline`)
+caps and selects boundaries during `cluster_boundaries`, so this
+function had no caller after the CLI rewrite.
 
-**Effectiveness:** Mathematically sound, expensive on large candidate sets.
-Used as a last resort when too many boundaries are detected.
-
-**What it lacks:** Treats all boundaries equally when some have much higher
-confidence than others. A high-confidence boundary should never be dropped
-in favour of a more "regular" but lower-confidence alternative.
-
-**Production suitability:** Keep as a last resort. Confidence-weighted
-scoring is a worthwhile refinement (out of refactor-1 scope).
+**Production suitability:** Done — function removed alongside its sole
+caller.
 
 ---
 
@@ -581,6 +570,17 @@ This file is meant to evolve. When a strategy is added, retired, or
 materially changed, append a dated note here so the catalogue's drift is
 auditable.
 
+- **2026-04-26 — Refactor-1 Part 1: split_page CLI drift eliminated.**
+  `split_page.py`'s parallel column-detection (`_detect_consensus`,
+  `_project_grid_edges`, `_remove_narrow_columns`, `_select_best_grid`,
+  `_validate`) removed (~760 lines). The CLI now invokes
+  `column_pipeline.detect_strips → cluster_boundaries → place_columns`
+  directly, then `validate_edge_columns`, then `extract_columns`. The
+  three kept exports (`PageResult`, `extract_columns`, `_save_metadata`)
+  are still imported by `process_issue`. Strategies #10 and #13 marked
+  retired; #11 and #12 updated to remove the parallel-implementation
+  pointers. 1947-11-06 regression: zero deltas vs baseline (32 ads,
+  8 page_layouts, 8 page_geometry, identical column widths/CV).
 - **2026-04-26 — Comprehensive rewrite.** Original April 2026 catalogue
   documented 10 strategies in `find_columns`/`split_page`. This rewrite
   brings it forward to cover: page profiling and adaptive flags
