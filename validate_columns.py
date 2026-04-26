@@ -19,8 +19,8 @@ pages spanning 1878–1965; in that sample real edge content columns
 sat at 78–141 % of median, and clear empty edges at 8–43 %.
 """
 
-import fitz
 import numpy as np
+from pdf_utils import open_clean_pdf as _open_clean
 
 
 # Edge column ink must be at least this fraction of the median
@@ -34,8 +34,12 @@ INK_BAND_BOTTOM_PCT = 90.0
 
 
 def _render_grey(pdf_path, page_number, dpi):
-    """Render the page as a 2-D greyscale numpy array."""
-    doc = fitz.open(pdf_path)
+    """Render the page as a 2-D greyscale numpy array.
+
+    Uses pdf_utils.open_clean_pdf so red-overlay annotations are
+    stripped before measurement, matching every other detector.
+    """
+    doc = _open_clean(pdf_path)
     page = doc[page_number]
     pix = page.get_pixmap(dpi=dpi)
     img = np.frombuffer(pix.samples, dtype=np.uint8)

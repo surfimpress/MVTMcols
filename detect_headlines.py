@@ -17,8 +17,8 @@ Does NOT detect:
   - Headlines already captured as ad regions (caller should filter)
 """
 
-import fitz
 import numpy as np
+from pdf_utils import open_clean_pdf as _open_clean
 
 
 def detect_headlines(pdf_path, column_boundaries, page_number=0,
@@ -45,8 +45,8 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
     if len(column_boundaries) < 2:
         return []
 
-    # Render page
-    doc = fitz.open(pdf_path)
+    # Render page (red-overlay annotations stripped — see pdf_utils)
+    doc = _open_clean(pdf_path)
     page = doc[page_number]
     pix = page.get_pixmap(dpi=dpi)
     img = np.frombuffer(pix.samples, dtype=np.uint8)
