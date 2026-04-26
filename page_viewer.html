@@ -630,8 +630,14 @@ function updateOverlay() {
         const minColW2 = Math.min(...colWidths2);
         const hwPct2 = minColW2 * 0.24;
         for (const col of a.body_text_charts) {
-            const chart = col.chart;
-            if (!chart || chart.length < 2) continue;
+            // Columnar wire format: parallel arrays y_pct / val / body.
+            // (Earlier shape was a list of {y_pct,val,body} dicts —
+            // ~5-10× slower to JSON-encode at full per-pixel resolution.)
+            const yArr = col.y_pct;
+            const valArr = col.val;
+            const bodyArr = col.body;
+            const n = yArr ? yArr.length : 0;
+            if (n < 2) continue;
             const cx = pctToX(col.x_pct - hwPct2, w);
             const btChartW = pctToX(col.x_pct + hwPct2, w) - cx;
 
@@ -640,31 +646,30 @@ function updateOverlay() {
                 fill="rgba(0,0,40,0.4)"/>`;
 
             // Draw segments: body text in white, non-body in blue
-            let curBody = chart[0]?.body || false;
+            let curBody = bodyArr[0] || false;
             let segStart = 0;
             const drawBtSeg = (start, end, isBody) => {
                 if (end <= start) return;
-                const seg = chart.slice(start, end + 1);
-                let path = `M ${cx} ${pctToY(seg[0].y_pct, h)}`;
-                for (const p of seg) {
-                    const y = pctToY(p.y_pct, h);
-                    const x = cx + Math.min((p.val / BT_SCALE) * btChartW, btChartW);
+                let path = `M ${cx} ${pctToY(yArr[start], h)}`;
+                for (let k = start; k <= end; k++) {
+                    const y = pctToY(yArr[k], h);
+                    const x = cx + Math.min((valArr[k] / BT_SCALE) * btChartW, btChartW);
                     path += ` L ${x} ${y}`;
                 }
-                path += ` L ${cx} ${pctToY(seg[seg.length-1].y_pct, h)} Z`;
+                path += ` L ${cx} ${pctToY(yArr[end], h)} Z`;
                 const fill = isBody ? 'rgba(80,130,255,0.3)' : 'rgba(50,50,50,0.2)';
                 const stroke = isBody ? 'rgba(255,255,255,0.9)' : 'rgba(80,130,255,0.4)';
                 s += `<path d="${path}" fill="${fill}" stroke="${stroke}" stroke-width="${isBody ? 1.5 : 0.5}"/>`;
             };
-            for (let i = 1; i < chart.length; i++) {
-                const b = chart[i].body || false;
+            for (let i = 1; i < n; i++) {
+                const b = bodyArr[i] || false;
                 if (b !== curBody) {
                     drawBtSeg(segStart, i - 1, curBody);
                     segStart = i;
                     curBody = b;
                 }
             }
-            drawBtSeg(segStart, chart.length - 1, curBody);
+            drawBtSeg(segStart, n - 1, curBody);
         }
     }
     // Large type regions: orange rectangles, with cross-column matches highlighted
