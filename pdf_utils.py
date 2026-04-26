@@ -30,17 +30,26 @@ import numpy as np
 # ── Full-page render cache ───────────────────────────────────────────
 #
 # Keyed by (pdf_path, mtime, page_number, dpi). Value is a dict with:
-#   'pix'      — fitz.Pixmap (the canonical MuPDF rasterisation)
-#   'doc'      — the fitz.Document the pixmap came from (kept open so
-#                pix.samples remains valid; closed on eviction)
+#   'pix'      — fitz.Pixmap (canonical entry: from MuPDF; derived
+#                entry: built from downsampled samples)
+#   'doc'      — the fitz.Document the pixmap came from (canonical
+#                only; derived entries set this to None)
 #   'rgb'      — full-page RGB uint8 numpy array (h, w, 3), lazy
 #   'grey_f64' — RGB-mean float64 grey (for render_grey), lazy
 #   'grey_u8'  — ITU-R 601 luma uint8 grey (for render_grey_uint8), lazy
 #
+# Tier 2 (P-shared): when a non-canonical DPI is requested, the cache
+# eagerly ensures a canonical-DPI entry first and downsamples its RGB
+# array via cv2.INTER_AREA to populate the lower-DPI entry. Saves the
+# native MuPDF render at 75/150/300 DPI when the page also needs the
+# canonical 450-DPI render (true for every page in process_issue).
+#
 # Memory: a 1947-era page at 450 DPI is ~5400×7000 px, so RGB is
-# ~113 MB and each grey is ~37–75 MB. Two slots peaks around 450 MB —
-# acceptable per the user's "memory is not constrained" directive.
+# ~113 MB and each grey is ~37–75 MB. Two slots × (canonical + a few
+# derived) peaks around 600 MB — acceptable per the user's "memory is
+# not constrained" directive.
 
+CANONICAL_DPI = 450
 _RENDER_CACHE_MAXSIZE = 2
 _RENDER_CACHE = OrderedDict()
 
@@ -53,19 +62,13 @@ def _cache_key(pdf_path, page_number, dpi):
     return (os.path.abspath(pdf_path), mtime, page_number, dpi)
 
 
-def _ensure_full_render(pdf_path, page_number, dpi):
-    """Return the cache entry for (path, page, dpi). Renders on miss."""
-    key = _cache_key(pdf_path, page_number, dpi)
-    entry = _RENDER_CACHE.get(key)
-    if entry is not None:
-        # Mark as most-recently-used
-        _RENDER_CACHE.move_to_end(key)
-        return entry
-
+def _native_render(pdf_path, page_number, dpi):
+    """Open the PDF clean and render the full page at `dpi`. Returns a
+    new cache entry — caller is responsible for storing it."""
     doc = open_clean_pdf(pdf_path)
     page = doc[page_number]
     pix = page.get_pixmap(dpi=dpi)
-    entry = {
+    return {
         "pix": pix,
         "doc": doc,
         "page_w_pts": page.rect.width,
@@ -74,14 +77,72 @@ def _ensure_full_render(pdf_path, page_number, dpi):
         "grey_f64": None,
         "grey_u8": None,
     }
+
+
+def _derive_entry(canon, target_dpi):
+    """Build a lower-DPI cache entry by downsampling the canonical
+    entry's RGB array. The derived `pix` is a fitz.Pixmap built from
+    the downsampled samples — usable by `pix.save(...)` and any
+    consumer that reads `pix.samples` / `pix.w` / `pix.h`.
+    """
+    canon_h = canon["pix"].h
+    canon_w = canon["pix"].w
+    canon_dpi_x = canon_w * 72.0 / canon["page_w_pts"]
+    canon_dpi_y = canon_h * 72.0 / canon["page_h_pts"]
+    # Target pixel dims at requested DPI, mirroring MuPDF's full-page
+    # rounding (which is `round(page_pts * dpi / 72)` for full pages).
+    target_w = int(round(canon["page_w_pts"] * target_dpi / 72.0))
+    target_h = int(round(canon["page_h_pts"] * target_dpi / 72.0))
+
+    canon_rgb = _entry_rgb(canon)
+    derived_rgb = cv2.resize(
+        canon_rgb, (target_w, target_h), interpolation=cv2.INTER_AREA)
+
+    # Build a fitz.Pixmap from the derived samples so consumers like
+    # `get_clip_pixmap` / `pix.save` keep working at this DPI.
+    derived_pix = fitz.Pixmap(
+        fitz.csRGB, target_w, target_h,
+        np.ascontiguousarray(derived_rgb).tobytes(), 0)
+
+    return {
+        "pix": derived_pix,
+        "doc": None,  # derived entries have no source doc
+        "page_w_pts": canon["page_w_pts"],
+        "page_h_pts": canon["page_h_pts"],
+        "rgb": derived_rgb,
+        "grey_f64": None,
+        "grey_u8": None,
+    }
+
+
+def _ensure_full_render(pdf_path, page_number, dpi):
+    """Return the cache entry for (path, page, dpi). On miss:
+    - dpi == CANONICAL_DPI or higher: render natively via MuPDF.
+    - dpi <  CANONICAL_DPI: ensure the canonical entry first, then
+      derive this DPI by downsampling.
+    """
+    key = _cache_key(pdf_path, page_number, dpi)
+    entry = _RENDER_CACHE.get(key)
+    if entry is not None:
+        _RENDER_CACHE.move_to_end(key)
+        return entry
+
+    if dpi < CANONICAL_DPI:
+        canon = _ensure_full_render(pdf_path, page_number, CANONICAL_DPI)
+        entry = _derive_entry(canon, dpi)
+    else:
+        entry = _native_render(pdf_path, page_number, dpi)
+
     _RENDER_CACHE[key] = entry
 
     while len(_RENDER_CACHE) > _RENDER_CACHE_MAXSIZE:
         _, evicted = _RENDER_CACHE.popitem(last=False)
-        try:
-            evicted["doc"].close()
-        except Exception:
-            pass
+        evicted_doc = evicted.get("doc")
+        if evicted_doc is not None:
+            try:
+                evicted_doc.close()
+            except Exception:
+                pass
 
     return entry
 

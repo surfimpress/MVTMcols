@@ -25,7 +25,7 @@ import numpy as np
 from scipy.ndimage import gaussian_filter1d
 
 
-from pdf_utils import open_clean_pdf as _open_clean
+from pdf_utils import open_clean_pdf as _open_clean, render_grey
 
 
 def find_rectangles(inv, h, w, gazette_page=None, pdf_image_rect=None):
@@ -379,17 +379,13 @@ def profile_page(pdf_path, page_number=0, profile_dpi=150, gazette_page=None):
     """
     if gazette_page is None:
         gazette_page = _extract_gazette_page(pdf_path)
+    # Grey array goes through the shared full-page render cache
+    # (P-shared); doc is still opened for `get_images` / `get_image_rects`
+    # metadata which the cache doesn't expose.
+    grey = render_grey(pdf_path, page_number, profile_dpi)
     doc = _open_clean(pdf_path)
     page = doc[page_number]
     pw, ph = page.rect.width, page.rect.height
-    pix = page.get_pixmap(dpi=profile_dpi)
-
-    img = np.frombuffer(pix.samples, dtype=np.uint8)
-    if pix.n >= 3:
-        img = img.reshape(pix.h, pix.w, pix.n)[:, :, :3]
-        grey = np.mean(img, axis=2)
-    else:
-        grey = img.reshape(pix.h, pix.w).astype(float)
 
     h, w = grey.shape
     inv = 255.0 - grey
