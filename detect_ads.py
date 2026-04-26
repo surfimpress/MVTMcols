@@ -30,6 +30,23 @@ from coordinates import pct_to_px, pct_to_px_float, px_to_pct
 from pdf_utils import open_clean_pdf as _open_clean, render_grey_uint8
 
 
+# ── Adaptive-threshold parameter groups for the contour-finding pass ─
+# STRICT_PARAMS is the working default — small block, modest C, light
+# close. LOOSE_PARAMS catches faint borders on low-contrast pages by
+# widening the threshold neighbourhood and bridging broken stretches
+# with a bigger close kernel and more iterations.
+#
+# CONTRAST_TIER1_THRESHOLD is the empirical paper/ink gap below which
+# the loose pass fires as a second sweep. Anchor: 1898-10-07 P5/P6 —
+# text legible but the strict 21/10 missed real borders. Sibling
+# trigger `dynamic_range < 100` lives in page_profile.py:475 and is
+# OR'd with this threshold (covers pages where dynamic range is wide
+# because of dark imagery but the running text is still light).
+STRICT_PARAMS = dict(block_size=21, C=10, kernel_size=3, iterations=2)
+LOOSE_PARAMS = dict(block_size=31, C=8, kernel_size=5, iterations=3)
+CONTRAST_TIER1_THRESHOLD = 145
+
+
 def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
                      min_width_pct, min_height_pct, gather_min_height_pct,
                      min_rect_ratio, pitch, page_profile):
@@ -231,26 +248,23 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
     )
 
     # ── Pass 1 — standard params (the working default) ──────────────
-    ads = _detect_ads_pass(
-        grey, h, w,
-        block_size=21, C=10, kernel_size=3, iterations=2,
-        **pass_kwargs,
-    )
+    ads = _detect_ads_pass(grey, h, w, **STRICT_PARAMS, **pass_kwargs)
 
     # ── Pass 2 — looser params for low-contrast pages (Tier 1) ──────
-    # Triggered when the page profile says contrast is low. The looser
-    # threshold (block 31, C=8) catches faint borders that the strict
-    # 21/10 misses; the bigger close kernel (5×5, 3 iters) bridges the
-    # broken stretches that result from light ink. Empirically validated
-    # on 1898-10-07: P4 0→1 candidate, P5 0→3 candidates with a PROD,
-    # P6 2→4 candidates. Dense pages (1947 P4/P6, 1920 P8) show no
-    # regression because the trigger doesn't fire on them.
+    # Triggered when the page profile says contrast is low. The loose
+    # params (see LOOSE_PARAMS at module top) catch faint borders that
+    # the strict pass misses, and bridge the broken stretches that
+    # result from light ink. Empirically validated on 1898-10-07: P4
+    # 0→1 candidate, P5 0→3 candidates with a PROD, P6 2→4 candidates.
+    # Dense pages (1947 P4/P6, 1920 P8) show no regression because the
+    # trigger doesn't fire on them.
     #
     # Trigger: either the profile flagged 'low_contrast' (dynamic_range
     # < 100, set in page_profile.py), OR the empirical paper/ink gap is
-    # below 145. The latter catches pages where dynamic_range happens to
-    # be wide because of dark imagery but the running text is still
-    # printed lightly — observed on 1898-10-07 P5/P6.
+    # below CONTRAST_TIER1_THRESHOLD. The latter catches pages where
+    # dynamic_range happens to be wide because of dark imagery but the
+    # running text is still printed lightly — observed on 1898-10-07
+    # P5/P6.
     if page_profile:
         # ink_mean is computed on the *inverted* image in page_profile.py
         # (line 444: ink_mask = body > 128 where body = inv[...]), so a
@@ -260,11 +274,9 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
         contrast = (page_profile.get("ink_mean", 255.0) -
                     page_profile.get("paper_mean", 0.0))
         flags = page_profile.get("quality_flags") or []
-        if contrast < 145 or "low_contrast" in flags:
+        if contrast < CONTRAST_TIER1_THRESHOLD or "low_contrast" in flags:
             ads.extend(_detect_ads_pass(
-                grey, h, w,
-                block_size=31, C=8, kernel_size=5, iterations=3,
-                **pass_kwargs,
+                grey, h, w, **LOOSE_PARAMS, **pass_kwargs,
             ))
 
     # Sort by area (largest first)
