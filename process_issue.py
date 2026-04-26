@@ -271,7 +271,7 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
             ads_with_images = extract_ad_images(pdf_path, ads, ad_out, dpi=dpi)
             multi_ids = store_ads(db_path, year, month, day, page_num,
                                   ads_with_images)
-            for ad, _id in zip(ads_with_images, multi_ids):
+            for ad, _id in zip(ads_with_images, multi_ids, strict=True):
                 ad["id"] = _id
             page_ads[page_num] = ads_with_images
             total_ads += len(ads)
@@ -291,7 +291,7 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
                                                dpi=dpi, name_prefix="sc_ad")
             sc_ids = store_ads(db_path, year, month, day, page_num,
                                sc_with_images)
-            for sc, _id in zip(sc_with_images, sc_ids):
+            for sc, _id in zip(sc_with_images, sc_ids, strict=True):
                 sc["id"] = _id
             page_single_col_ads[page_num] = sc_with_images
             print(f"  P{page_num}: {len(sc_ads)} single-col ads")
@@ -609,13 +609,13 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
             verso_lefts.append((page_num, left, result, prof))
 
     outliers_fixed = 0
-    for group_name, group in [("recto", recto_lefts), ("verso", verso_lefts)]:
+    for _group_name, group in [("recto", recto_lefts), ("verso", verso_lefts)]:
         if len(group) < 3:
             continue
         lefts = [g[1] for g in group]
         median_left = float(np.median(lefts))
         # An outlier is >5% from the median
-        for page_num, left, result, prof in group:
+        for page_num, left, _result, prof in group:
             if abs(left - median_left) > 5.0:
                 # This page's left edge is an outlier — reassess
                 pdf_path = None
@@ -663,7 +663,7 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
                     new_left = new_result.columns[0].left_vw
                     if abs(new_left - median_left) < abs(left - median_left):
                         # Update the result
-                        for i, (pn, r, p) in enumerate(pass1_results):
+                        for i, (pn, _r, p) in enumerate(pass1_results):
                             if pn == page_num:
                                 pass1_results[i] = (pn, new_result, p)
                                 break
@@ -708,7 +708,7 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     from PIL import Image
     import fitz as _fitz
 
-    for page_num, result, prof in pass1_results:
+    for page_num, _result, _prof in pass1_results:
         pdf_path = None
         for pn, pp in pages:
             if pn == page_num:
@@ -776,7 +776,7 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     print(f"Issue: {year}-{month:02d}-{day:02d}")
     print(f"Pitch: {pitch:.1f}%, {num_columns} columns")
     print(f"Grounding: pages {grounding_pages}")
-    for page_num, result, prof in pass1_results:
+    for page_num, result, _prof in pass1_results:
         cv, _, _ = _score_regularity(result)
         widths = " ".join(f"{c.width_vw:.0f}%" for c in result.columns)
         flags = [f for f in result.quality_flags
@@ -821,12 +821,6 @@ def _update_viewer_data(db_path, columns_dir):
         layouts = conn.execute("""
             SELECT page, num_columns, column_widths, quality_flags, confidence
             FROM page_layouts WHERE year=? AND month=? AND day=?
-            ORDER BY page
-        """, (year, month, day)).fetchall()
-
-        ads = conn.execute("""
-            SELECT page, cols, confidence, image_filename
-            FROM detected_ads WHERE year=? AND month=? AND day=?
             ORDER BY page
         """, (year, month, day)).fetchall()
 

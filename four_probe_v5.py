@@ -849,7 +849,7 @@ def main(image_path=None, output_path=None):
 
     from collections import Counter
     counts = Counter(t["cls"] for t in r["teeth"])
-    print(f"\n  Classification:")
+    print("\n  Classification:")
     for cls, n in sorted(counts.items(), key=lambda x: -x[1]):
         fix_count = sum(1 for t in r["teeth"] if t["cls"] == cls and "fix" in t)
         fix_note = f" ({fix_count} fixed)" if fix_count else ""
@@ -863,7 +863,7 @@ def main(image_path=None, output_path=None):
               f"({lines:2d} lines, ended by {p['ended_by']}, boundary: {mode})")
 
     # Detailed teeth dump for piano article
-    print(f"\n  Teeth y=750\u20132500:")
+    print("\n  Teeth y=750\u20132500:")
     for t in r["teeth"]:
         if 750 <= t["peak_y"] <= 2500:
             fix = t.get("fix", "")
@@ -872,7 +872,7 @@ def main(image_path=None, output_path=None):
                   f"spk={t['spike_h']:3d} l={t['l_x']:3d} r={t['r_x']:3d} "
                   f"{t['cls']:12}{weak} {fix}")
 
-    print(f"\nRendering chart...")
+    print("\nRendering chart...")
     chart, col = render_chart(r, output_path)
     print(f"  Saved: {chart}")
     print(f"  Saved: {col}")

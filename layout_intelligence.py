@@ -508,7 +508,7 @@ class LayoutDB:
             GROUP BY num_columns
             ORDER BY cnt DESC
         """).fetchall()
-        print(f"  Column counts: " +
+        print("  Column counts: " +
               ", ".join(f"{n}cols={c}" for n, c in dist))
 
         # Era patterns

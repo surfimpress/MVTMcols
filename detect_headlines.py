@@ -398,7 +398,6 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
 
         total_samples = total_rows * max(len(col_centres), 1)
         body_frac = body_rows / max(total_samples, 1)
-        headline_frac = headline_rows / max(total_samples, 1)
 
         # Region-level decision
         if body_frac > 0.7:

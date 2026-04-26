@@ -178,9 +178,6 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
             "chart": col_chart,
         })
 
-        # Save pre-bridge state for horizontal rule detection
-        is_body_prebridge = is_body.copy()
-
         # Bridge small gaps: a headline or paragraph break within body
         # text shouldn't split the region. Fill gaps smaller than
         # ~5% of page height.

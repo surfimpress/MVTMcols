@@ -564,7 +564,7 @@ def print_profile(prof):
     if prof["quality_flags"]:
         print(f"  Flags: {', '.join(prof['quality_flags'])}")
     else:
-        print(f"  Quality: good")
+        print("  Quality: good")
 
 
 if __name__ == "__main__":

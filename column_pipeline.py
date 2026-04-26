@@ -290,7 +290,6 @@ def place_page2_editorial(boundaries, ctx):
     # Build the interval pattern: [wide, wide, pitch, pitch, pitch, pitch]
     # This gives 7 boundaries for 6 columns.
     intervals = [wide, wide] + [pitch] * 4
-    n_boundaries = len(intervals) + 1  # 7
 
     if not boundaries:
         return _boundaries_from_positions(ctx.expected_boundaries)
@@ -307,7 +306,6 @@ def place_page2_editorial(boundaries, ctx):
             elif ref_pitch * 1.4 <= g < ref_pitch * 2.5:
                 page_gaps.append(g / 2)
     if len(page_gaps) >= 3:
-        med = float(np.median(page_gaps))
         q1 = float(np.percentile(page_gaps, 25))
         q3 = float(np.percentile(page_gaps, 75))
         iqr = q3 - q1
@@ -402,7 +400,6 @@ def place_standard(boundaries, ctx):
 
     if len(page_gaps) >= 3:
         # Remove outliers: reject gaps more than 1.5 IQR from median
-        med = float(np.median(page_gaps))
         q1 = float(np.percentile(page_gaps, 25))
         q3 = float(np.percentile(page_gaps, 75))
         iqr = q3 - q1

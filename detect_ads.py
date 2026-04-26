@@ -600,7 +600,6 @@ def detect_single_col_ads(pdf_path, multi_col_ads=None, page_number=0,
     SEARCH_PCT = 6.0
     RULE_FILL_FRAC = 0.80
     MAX_HEIGHT_PCT = 25.0
-    MIN_RECT_AFTER_EXTEND = 0.50
 
     def _row_is_rule(row_idx, x1_px, x2_px):
         if row_idx < 0 or row_idx >= h or x2_px <= x1_px:

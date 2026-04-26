@@ -136,7 +136,7 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None,
     # page_pct values are already in PDF page percentage coordinates.
     all_positions = []
 
-    for strip_idx, grid_y in enumerate(CONSENSUS_ROWS):
+    for _strip_idx, grid_y in enumerate(CONSENSUS_ROWS):
         strip_weight = STRIP_WEIGHTS.get(grid_y, 0.5)
 
         try:
@@ -726,7 +726,7 @@ def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
         try:
             label_font = ImageFont.truetype(
                 "/System/Library/Fonts/Supplemental/Arial.ttf", 24)
-        except (OSError, IOError):
+        except OSError:
             label_font = ImageFont.load_default()
 
     for i in range(len(boundaries) - 1):
@@ -898,7 +898,6 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
         )
 
     page = doc[page_number]
-    pw, ph = page.rect.width, page.rect.height
 
     # Get full-page pixel dimensions for reference
     full_pix = page.get_pixmap(dpi=dpi)
@@ -934,7 +933,6 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
     # (recto vs verso).
     if prior_boundaries and len(best_boundaries) >= 2:
         positions = [b["x_pct"] for b in best_boundaries]
-        this_page_type = page_prof.get("page_type") if page_prof else None
 
         # Get the prior's pitch (median column width)
         prior_widths = [prior_boundaries[i+1] - prior_boundaries[i]
@@ -1245,7 +1243,7 @@ def print_result(result):
     if result.quality_flags:
         print(f"  Flags: {', '.join(result.quality_flags)}")
     else:
-        print(f"  Quality: good")
+        print("  Quality: good")
 
     print(f"  Columns: {result.num_columns}")
     for col in result.columns:
