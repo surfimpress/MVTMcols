@@ -27,7 +27,12 @@ import cv2
 
 
 from coordinates import pct_to_px, pct_to_px_float, px_to_pct
-from pdf_utils import open_clean_pdf as _open_clean, render_grey_uint8
+from pdf_utils import (
+    open_clean_pdf as _open_clean,
+    render_grey_uint8,
+    get_clip_pixmap,
+    get_page_size_pts,
+)
 
 
 # ── Adaptive-threshold parameter groups for the contour-finding pass ─
@@ -822,9 +827,10 @@ def extract_ad_images(pdf_path, ads, output_dir, page_number=0, dpi=450,
     """
     import os
 
-    doc = _open_clean(pdf_path)
-    page = doc[page_number]
-    pw, ph = page.rect.width, page.rect.height
+    # P-shared: page dims come from the cached render entry; per-ad
+    # clips reuse the cached full-page pixmap instead of opening the
+    # PDF and re-rasterising once per ad.
+    pw, ph = get_page_size_pts(pdf_path, page_number, dpi)
 
     os.makedirs(output_dir, exist_ok=True)
     stem = pdf_path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
@@ -849,7 +855,7 @@ def extract_ad_images(pdf_path, ads, output_dir, page_number=0, dpi=450,
         y1 = pct_to_px_float(y1_pct, ph)
 
         clip = fitz.Rect(x0, y0, x1, y1)
-        pix = page.get_pixmap(clip=clip, dpi=dpi)
+        pix = get_clip_pixmap(pdf_path, page_number, dpi, clip)
 
         filename = f"{stem}_{name_prefix}{i + 1}.png"
         filepath = os.path.join(output_dir, filename)
@@ -860,8 +866,6 @@ def extract_ad_images(pdf_path, ads, output_dir, page_number=0, dpi=450,
             "image_path": filepath,
             "image_filename": filename,
         })
-
-    doc.close()
     return results
 
 

@@ -34,7 +34,11 @@ from PIL import Image, ImageDraw, ImageFont
 from page_profile import profile_page
 from page_context import build_context
 from column_pipeline import detect_strips, cluster_boundaries, place_columns
-from pdf_utils import open_clean_pdf as _open_clean
+from pdf_utils import (
+    open_clean_pdf as _open_clean,
+    get_clip_pixmap,
+    get_page_size_pts,
+)
 
 
 # ── Configuration ────────────────────────────────────────────────────────────
@@ -104,9 +108,9 @@ def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
     if len(boundaries) < 2:
         return []
 
-    doc = _open_clean(pdf_path)
-    page = doc[page_number]
-    pw, ph = page.rect.width, page.rect.height
+    # P-shared: full-page render is cached once via get_clip_pixmap;
+    # each column slice reuses it instead of re-rasterising the page.
+    pw, ph = get_page_size_pts(pdf_path, page_number, dpi)
 
     columns = []
     col_num = 0
@@ -152,7 +156,7 @@ def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
         y1 = ph
 
         clip = fitz.Rect(x0, y0, x1, y1)
-        pix = page.get_pixmap(clip=clip, dpi=dpi)
+        pix = get_clip_pixmap(pdf_path, page_number, dpi, clip)
 
         stem = Path(pdf_path).stem
         col_filename = f"{stem}_col{col_num}.png"
@@ -240,7 +244,6 @@ def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
             image_path=col_path,
         ))
 
-    doc.close()
     return columns
 
 
