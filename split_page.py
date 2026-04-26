@@ -33,6 +33,7 @@ from PIL import Image, ImageDraw, ImageFont
 from find_columns import find_column_boundaries, _open_clean
 from page_profile import profile_page
 from detect_sliver import find_binding_edge
+from column_pipeline import CONSENSUS_ROWS, STRIP_WEIGHTS
 
 
 # ── Configuration ────────────────────────────────────────────────────────────
@@ -40,9 +41,7 @@ from detect_sliver import find_binding_edge
 DEFAULT_DPI = 450
 BUFFER_VW = 1.0  # 1% of page width added each side of column crop
 
-# Grid rows for multi-strip consensus (1-indexed, 10% blocks).
-# Skip row 1 (masthead) and row 10 (bottom margin).
-CONSENSUS_ROWS = [3, 4, 5, 6, 7, 8, 9]
+# CONSENSUS_ROWS / STRIP_WEIGHTS imported from column_pipeline (canonical).
 
 # A boundary must appear in this fraction of strips to be accepted
 CONSENSUS_MIN_FRAC = 0.4  # 40% — appears in at least 3 of 7 strips
@@ -104,18 +103,7 @@ def _detect_consensus(pdf_path, page_number, dpi, page_prof=None,
         dark_thresh = 60
         std_thresh = 45
 
-    # ── Strip weighting ────────────────────────────────────────────
-    # Middle strips are most reliable for grid detection (body text,
-    # fewer ads). Edge strips help measure skew but are noisy.
-    STRIP_WEIGHTS = {
-        3: 0.5,   # upper — ads, mastheads
-        4: 0.8,   # upper-mid
-        5: 1.0,   # mid — best body text
-        6: 1.0,   # mid — best body text
-        7: 0.8,   # lower-mid
-        8: 0.5,   # lower — ads, footers
-        9: 0.3,   # bottom — margin noise
-    }
+    # STRIP_WEIGHTS imported at module level from column_pipeline.
 
     # Text area bounds from profile — this is where column rules live.
     # Detection is clipped to this region so no margin/shadow/bleed
