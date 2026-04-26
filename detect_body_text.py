@@ -393,25 +393,30 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
 
         col_subbars = []
 
-        def _record_bar(start_px, end_px):
-            """Common emission for both strict bars and sub-bars."""
+        def _record_bar(start_px, end_px, *,
+                        _col=col, _strip=strip_data, _subbars=col_subbars):
+            """Common emission for both strict bars and sub-bars.
+
+            Loop-vars bound as default args so the closure is safe to
+            store/return without late-binding surprises.
+            """
             w_px = end_px - start_px
             if w_px <= 0:
                 return
-            mean_v = float(strip_data[start_px:end_px].mean())
+            mean_v = float(_strip[start_px:end_px].mean())
             if mean_v <= 40:
                 return
             if w_px >= min_large_width:
                 large_type_bars.append({
-                    'col_idx': col['index'],
-                    'x1_pct': round(col['left_vw'], 1),
-                    'x2_pct': round(col['right_vw'], 1),
+                    'col_idx': _col['index'],
+                    'x1_pct': round(_col['left_vw'], 1),
+                    'x2_pct': round(_col['right_vw'], 1),
                     'y1_pct': px_to_pct(start_px, h),
                     'y2_pct': px_to_pct(end_px, h),
                     'method': 'bar_width',
                 })
             if w_px >= min_subbar_width:
-                col_subbars.append({
+                _subbars.append({
                     'y1_pct': px_to_pct(start_px, h),
                     'y2_pct': px_to_pct(end_px, h),
                     'mean': mean_v,

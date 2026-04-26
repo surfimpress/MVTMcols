@@ -698,9 +698,11 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
         in_run = False
         run_start = 0
 
-        def _push(s, e):
-            vals = [chart[i]['val'] for i in range(s, e + 1)]
-            raw_runs.append({
+        def _push(s, e, *, _chart=chart, _raw_runs=raw_runs):
+            # Loop-vars bound as default args so the closure is safe to
+            # store/return without late-binding surprises.
+            vals = [_chart[i]['val'] for i in range(s, e + 1)]
+            _raw_runs.append({
                 's': s, 'e': e,
                 'n': e - s + 1,
                 'mean': sum(vals) / len(vals),
