@@ -54,9 +54,24 @@ def download_issue(year, month, day, db_path="data/mvtm.db",
     os.makedirs(download_dir, exist_ok=True)
 
     pages = []
+    cached_count = 0
     for page_num, drive_id, dpath in rows:
         fname = dpath.split("/")[-1]
         pdf_path = os.path.join(download_dir, fname)
+
+        # Skip download if a valid PDF is already cached on disk. The
+        # source files in Drive don't change once published, so a cached
+        # %PDF- magic-byte match is enough — no need to re-fetch and
+        # re-validate every run. Saves ~5–10s per issue on warm runs.
+        if os.path.exists(pdf_path):
+            try:
+                with open(pdf_path, "rb") as f:
+                    if f.read(5) == b"%PDF-":
+                        pages.append((page_num, pdf_path))
+                        cached_count += 1
+                        continue
+            except OSError:
+                pass  # fall through to re-download
 
         # Download
         subprocess.run(
@@ -75,6 +90,9 @@ def download_issue(year, month, day, db_path="data/mvtm.db",
                 continue
 
         pages.append((page_num, pdf_path))
+
+    if cached_count:
+        print(f"  ({cached_count} of {len(rows)} pages from cache)")
 
     return pages
 
