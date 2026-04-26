@@ -1,0 +1,21 @@
+# MVTM runtime dependencies
+#
+# Captured 2026-04-25 from a working install. Pinned with `>=` lower bounds
+# matching what's installed locally, so a fresh checkout can `pip install -r`
+# and run the pipeline.
+#
+# Standard library only: os, sys, json, sqlite3, subprocess, time, dataclasses,
+# pathlib, typing, collections, glob, re, base64, urllib — not listed here.
+#
+# Optional Stage-2 LLM classifier (classify_segments.py) calls the Anthropic
+# API via urllib only; needs ANTHROPIC_API_KEY in the environment but no
+# additional Python package.
+
+PyMuPDF>=1.26      # fitz — PDF rendering
+numpy>=2.0
+opencv-python>=4.13   # cv2 — adaptive threshold + contours
+Pillow>=11.0          # PIL.Image / ImageDraw / ImageFont
+scipy>=1.13           # scipy.ndimage.gaussian_filter1d, scipy.signal.find_peaks
+
+# Dev / lint (not required for the pipeline to run):
+# ruff>=0.15
