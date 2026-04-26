@@ -54,3 +54,38 @@ detector or a layout convention, the same commit (or the next one)
 should update the relevant `instructions/` file. Don't batch updates
 across multiple feature commits — the link between code change and doc
 change should be visible in `git log`.
+
+## `coordinates.py` is the point of truth for pct ↔ px conversions
+
+All pct ↔ px (and pct ↔ PDF-points) conversions in this codebase go
+through `coordinates.py`. Do not write inline `int(x_pct / 100 * w)` or
+`round(px / w * 100, N)` in new code; import the helpers instead.
+
+**Why this matters:** wrong-origin errors (measuring against image
+height instead of page height, or vice versa, or the wrong rect) have
+been a recurring class of bug. Centralising the conversion forces a
+deliberate choice of which dimension to pass — the helper signature is
+the place to think about origin discipline. Re-deriving the formula
+inline is where the mistakes happen.
+
+**The helpers (see module docstring for full discussion):**
+- `pct_to_px(pct, dim)` — page percentage → integer pixel position
+  (uses `round`, not `int`/truncate)
+- `pct_to_px_float(pct, dim)` — same, but returns float for chained
+  arithmetic where intermediate rounding would lose precision (areas,
+  bridge calcs, PDF-point conversions)
+- `px_to_pct(px, dim)` — pixel position → page percentage, rounded to
+  2 decimals (the canonical precision across the pipeline)
+- `pct_to_frac` / `frac_to_pct` — when working with `fitz.Rect` clip
+  fractions
+- `clamp_pct(pct, lo=0, hi=100)` / `clamp_px(px, dim)` — boundary
+  clamping
+
+**Don't add new helpers without reason.** The current set covers every
+conversion in the codebase. If a callsite needs something new, first
+check whether `pct_to_px_float` plus a `round()` at the call site
+already covers it.
+
+**Don't reintroduce inline conversions even for one-off use.** Three
+lines of `int(x / 100 * w)` invite a fourth, and the fourth is always
+where someone passes the wrong `w`.

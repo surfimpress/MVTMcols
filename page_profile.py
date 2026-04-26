@@ -19,6 +19,8 @@ Usage:
 """
 
 import fitz
+
+from coordinates import pct_to_px, px_to_pct, clamp_px
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
 
@@ -58,8 +60,8 @@ def find_rectangles(inv, h, w, gazette_page=None, pdf_image_rect=None):
     # page). This avoids including PDF margin rows that dilute the signal
     # and create V-shaped gradients instead of flat troughs.
     if pdf_image_rect:
-        img_top_px = max(0, int(pdf_image_rect.get("top", 0) / 100 * h))
-        img_bot_px = min(h, int(pdf_image_rect.get("bottom", 100) / 100 * h))
+        img_top_px = clamp_px(pct_to_px(pdf_image_rect.get("top", 0), h), h)
+        img_bot_px = clamp_px(pct_to_px(pdf_image_rect.get("bottom", 100), h), h)
     else:
         img_top_px = 0
         img_bot_px = h
@@ -74,11 +76,11 @@ def find_rectangles(inv, h, w, gazette_page=None, pdf_image_rect=None):
     if pdf_image_rect:
         # Use the exact image placement from the PDF structure.
         # Convert percentages to pixel positions in the profile render.
-        r2_left_px = int(pdf_image_rect["left"] / 100 * w)
-        r2_right_px = int(pdf_image_rect["right"] / 100 * w)
+        r2_left_px = pct_to_px(pdf_image_rect["left"], w)
+        r2_right_px = pct_to_px(pdf_image_rect["right"], w)
         # Clamp to valid range
-        r2_left_px = max(0, min(w - 1, r2_left_px))
-        r2_right_px = max(0, min(w - 1, r2_right_px))
+        r2_left_px = clamp_px(r2_left_px, w - 1)
+        r2_right_px = clamp_px(r2_right_px, w - 1)
     else:
         # Fallback: raster threshold detection.
         # PDF margins are digitally white: inverted value near 0 (< 2).
@@ -277,10 +279,10 @@ def find_rectangles(inv, h, w, gazette_page=None, pdf_image_rect=None):
     # ── Build bounding boxes as % of page dimensions ─────────────────
     def bbox(left_px, right_px):
         return {
-            "left": round(left_px / w * 100, 2),
-            "right": round(right_px / w * 100, 2),
-            "top": round(row_lo / h * 100, 2),
-            "bottom": round(row_hi / h * 100, 2),
+            "left": px_to_pct(left_px, w),
+            "right": px_to_pct(right_px, w),
+            "top": px_to_pct(row_lo, h),
+            "bottom": px_to_pct(row_hi, h),
         }
 
     # R2: prefer the exact PDF structural coordinates.
@@ -323,7 +325,7 @@ def find_rectangles(inv, h, w, gazette_page=None, pdf_image_rect=None):
     n_samples = 200
     profile_xs = np.linspace(0, w - 1, n_samples).astype(int)
     profile_chart = [
-        {"pct": round(x / w * 100, 2), "val": round(float(smooth[x]), 2)}
+        {"pct": px_to_pct(x, w), "val": round(float(smooth[x]), 2)}
         for x in profile_xs
     ]
 
@@ -421,8 +423,8 @@ def profile_page(pdf_path, page_number=0, profile_dpi=150, gazette_page=None):
 
     # ── Body region statistics (within text area) ────────────────────
     ta = rects["text_area"]
-    ta_left = int(ta["left"] / 100 * w)
-    ta_right = int(ta["right"] / 100 * w)
+    ta_left = pct_to_px(ta["left"], w)
+    ta_right = pct_to_px(ta["right"], w)
     ta_top = int(h * 0.15)
     ta_bottom = int(h * 0.85)
 

@@ -113,7 +113,7 @@ These came up while scanning. Listing for completeness; user can choose what to 
 
 4. **`page_splits` table has 21 rows vs `page_layouts` 281.** This is suspicious — either we stopped logging to it or it's only populated on a debug path. Worth one query to confirm intent.
 
-5. **`store_ads` returns ids; `record_layout` could too.** Symmetry would let viewer-data assembly drop a SELECT.
+5. **~~`store_ads` returns ids; `record_layout` could too.~~ — Struck on assessment.** The framing rests on a SELECT-to-drop that doesn't exist. `store_ads` returns ids because `process_issue` immediately attaches each id to the RGBA cutout in `extract_columns(...)` so the page viewer can link clipped regions back to ad rows — a real per-row coupling. `record_layout` has no analogous downstream consumer (grep confirms zero references to a `page_layouts.id` anywhere in the codebase). The "SELECT" the opportunity says symmetry would drop is in `_update_viewer_data`, but that function rebuilds the *entire* viewer JSON for *all* issues by SELECTing the whole `page_layouts`/`page_geometry`/`detected_ads` corpus — it doesn't read back recently-inserted rows. Returning an unused id from `record_layout` would add API surface that tempts a future caller to invent a coupling that doesn't currently exist, *increasing* complexity rather than reducing it.
 
 6. **`detected_ads.cols` vs `page_layouts.num_columns`** — same concept, different name. Pick one if/when either schema is touched for another reason.
 

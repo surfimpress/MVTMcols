@@ -23,6 +23,8 @@ import numpy as np
 from scipy.signal import find_peaks
 from scipy.ndimage import uniform_filter1d
 
+from coordinates import pct_to_px
+
 
 # ── Utilities ────────────────────────────────────────────────────────────────
 
@@ -807,7 +809,7 @@ def render_chart(results, output_path):
 
     # Grid lines
     for pct in range(0, 101, 10):
-        y_line = int(h * pct / 100)
+        y_line = pct_to_px(pct, h)
         for ax in [ax_sig, ax_10, ax_50, ax_img, ax_ann]:
             ax.axhline(y_line, color="blue", alpha=0.10, linewidth=0.5)
 

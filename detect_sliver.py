@@ -22,6 +22,7 @@ Usage:
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
 
+from coordinates import pct_to_px, px_to_pct
 from pdf_utils import render_grey
 
 
@@ -84,7 +85,7 @@ def find_binding_edge(pdf_path, page_number=0, binding_side="right",
         # Search the region from the last grid boundary to the edge
         if last_grid_boundary:
             search_start_px = max(int(w * 0.5),
-                                  int((last_grid_boundary - (pitch or 10)) / 100 * w))
+                                  pct_to_px(last_grid_boundary - (pitch or 10), w))
         else:
             search_start_px = int(w * 0.65)
         search_end_px = w
@@ -138,7 +139,7 @@ def find_binding_edge(pdf_path, page_number=0, binding_side="right",
     else:  # binding_side == "left"
         if last_grid_boundary:
             search_end_px = min(int(w * 0.5),
-                                int((last_grid_boundary + (pitch or 10)) / 100 * w))
+                                pct_to_px(last_grid_boundary + (pitch or 10), w))
         else:
             search_end_px = int(w * 0.35)
         search_start_px = 0
@@ -183,12 +184,12 @@ def find_binding_edge(pdf_path, page_number=0, binding_side="right",
             sliver_start_px = None
 
     # Convert to percentages
-    margin_start_pct = round(margin_start_px / w * 100, 1)
-    margin_end_pct = round(margin_end_px / w * 100, 1)
-    content_end_pct = round(content_end_px / w * 100, 1)
+    margin_start_pct = px_to_pct(margin_start_px, w)
+    margin_end_pct = px_to_pct(margin_end_px, w)
+    content_end_pct = px_to_pct(content_end_px, w)
 
     sliver_present = sliver_start_px is not None
-    sliver_start_pct = round(sliver_start_px / w * 100, 1) if sliver_present else None
+    sliver_start_pct = px_to_pct(sliver_start_px, w) if sliver_present else None
 
     # Estimate sliver width if present
     sliver_width = None

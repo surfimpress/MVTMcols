@@ -26,6 +26,7 @@ import numpy as np
 import cv2
 
 
+from coordinates import pct_to_px, pct_to_px_float, px_to_pct
 from pdf_utils import open_clean_pdf as _open_clean, render_grey_uint8
 
 
@@ -53,9 +54,9 @@ def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
     )
 
     min_area = w * h * 0.005  # at least 0.5% of page area
-    min_w = int(w * min_width_pct / 100)
-    min_h = int(h * min_height_pct / 100)
-    gather_min_h = int(h * gather_min_height_pct / 100)
+    min_w = pct_to_px(min_width_pct, w)
+    min_h = pct_to_px(min_height_pct, h)
+    gather_min_h = pct_to_px(gather_min_height_pct, h)
 
     ads = []
     for i, cnt in enumerate(contours):
@@ -100,10 +101,10 @@ def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
         # of the page/image boundary, it's likely shadow, photo edge,
         # or scan artifact — not a boxed ad.
         EDGE_MARGIN = 3.0  # percent of page dimension
-        x_pct = x / w * 100
-        y_pct = y / h * 100
-        x_end_pct = (x + bw) / w * 100
-        y_end_pct = (y + bh) / h * 100
+        x_pct = px_to_pct(x, w)
+        y_pct = px_to_pct(y, h)
+        x_end_pct = px_to_pct(x + bw, w)
+        y_end_pct = px_to_pct(y + bh, h)
 
         at_left_edge = x_pct < EDGE_MARGIN
         at_right_edge = x_end_pct > (100 - EDGE_MARGIN)
@@ -157,12 +158,12 @@ def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
         cols = max(1, round(bw / w * 100 / pitch))
 
         ads.append({
-            "x_pct": round(x_pct, 1),
-            "y_pct": round(y_pct, 1),
-            "w_pct": round(bw / w * 100, 1),
-            "h_pct": round(bh / h * 100, 1),
-            "x_end_pct": round(x_end_pct, 1),
-            "y_end_pct": round(y_end_pct, 1),
+            "x_pct": round(x_pct, 2),
+            "y_pct": round(y_pct, 2),
+            "w_pct": px_to_pct(bw, w),
+            "h_pct": px_to_pct(bh, h),
+            "x_end_pct": round(x_end_pct, 2),
+            "y_end_pct": round(y_end_pct, 2),
             "rect_ratio": round(rect_ratio, 3),
             "aspect": round(aspect, 2),
             "cols": cols,
@@ -322,15 +323,15 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
             # Short extra ABOVE full (extra's bottom == full's top)
             if abs(s["_y2_px"] - f["_y1_px"]) <= SHARE_TOL_PX:
                 f["_y1_px"] = s["_y1_px"]
-                f["y_pct"] = round(s["_y1_px"] / h * 100, 1)
-                f["h_pct"] = round(f["y_end_pct"] - f["y_pct"], 1)
+                f["y_pct"] = px_to_pct(s["_y1_px"], h)
+                f["h_pct"] = round(f["y_end_pct"] - f["y_pct"], 2)
                 f["extended"] = True
                 break
             # Short extra BELOW full (extra's top == full's bottom)
             if abs(s["_y1_px"] - f["_y2_px"]) <= SHARE_TOL_PX:
                 f["_y2_px"] = s["_y2_px"]
-                f["y_end_pct"] = round(s["_y2_px"] / h * 100, 1)
-                f["h_pct"] = round(f["y_end_pct"] - f["y_pct"], 1)
+                f["y_end_pct"] = px_to_pct(s["_y2_px"], h)
+                f["h_pct"] = round(f["y_end_pct"] - f["y_pct"], 2)
                 f["extended"] = True
                 break
 
@@ -399,9 +400,9 @@ def detect_single_col_ads(pdf_path, multi_col_ads=None, page_number=0,
 
     # ── B) Initial contour scan with single-col filters ────────────────
     min_area = w * h * 0.005
-    min_w_px = int(w * min_width_pct / 100)
-    max_w_px = int(w * max_width_pct / 100)
-    min_h_px = int(h * min_height_pct / 100)
+    min_w_px = pct_to_px(min_width_pct, w)
+    max_w_px = pct_to_px(max_width_pct, w)
+    min_h_px = pct_to_px(min_height_pct, h)
 
     def _overlap_pct(a_x1, a_y1, a_x2, a_y2, b_x1, b_y1, b_x2, b_y2):
         ox = max(0.0, min(a_x2, b_x2) - max(a_x1, b_x1))
@@ -440,10 +441,10 @@ def detect_single_col_ads(pdf_path, multi_col_ads=None, page_number=0,
         rect_ratio = area / rect_area
         if rect_ratio < min_rect_ratio:
             continue
-        x_pct = x / w * 100
-        y_pct = y / h * 100
-        x_end_pct = (x + bw) / w * 100
-        y_end_pct = (y + bh) / h * 100
+        x_pct = px_to_pct(x, w)
+        y_pct = px_to_pct(y, h)
+        x_end_pct = px_to_pct(x + bw, w)
+        y_end_pct = px_to_pct(y + bh, h)
         # Edge margin
         if (x_pct < edge_margin_pct or
             x_end_pct > 100 - edge_margin_pct or
@@ -515,13 +516,13 @@ def detect_single_col_ads(pdf_path, multi_col_ads=None, page_number=0,
         # bridge area estimate (conservative — assume slit is half-filled)
         if is_vert:
             gap_h_pct = v_gap
-            gap_h_px = gap_h_pct / 100 * h
-            bridge = (uw_p / 100 * w) * gap_h_px * 0.5
+            gap_h_px = pct_to_px_float(gap_h_pct, h)
+            bridge = pct_to_px_float(uw_p, w) * gap_h_px * 0.5
         else:
             gap_w_pct = h_gap
-            gap_w_px = gap_w_pct / 100 * w
-            bridge = (uh_p / 100 * h) * gap_w_px * 0.5
-        union_rect_px = (uw_p / 100 * w) * (uh_p / 100 * h)
+            gap_w_px = pct_to_px_float(gap_w_pct, w)
+            bridge = pct_to_px_float(uh_p, h) * gap_w_px * 0.5
+        union_rect_px = pct_to_px_float(uw_p, w) * pct_to_px_float(uh_p, h)
         if union_rect_px <= 0:
             return None
         combined = (a["fill_area_px"] + b["fill_area_px"] + bridge) / union_rect_px
@@ -599,10 +600,10 @@ def detect_single_col_ads(pdf_path, multi_col_ads=None, page_number=0,
         return False
 
     for c in candidates:
-        x1_px = int(c["x_pct"] / 100 * w)
-        x2_px = int(c["x_end_pct"] / 100 * w)
-        y1_px = int(c["y_pct"] / 100 * h)
-        y2_px = int(c["y_end_pct"] / 100 * h)
+        x1_px = pct_to_px(c["x_pct"], w)
+        x2_px = pct_to_px(c["x_end_pct"], w)
+        y1_px = pct_to_px(c["y_pct"], h)
+        y2_px = pct_to_px(c["y_end_pct"], h)
 
         new_y1_px = y1_px
         new_y2_px = y2_px
@@ -610,8 +611,8 @@ def detect_single_col_ads(pdf_path, multi_col_ads=None, page_number=0,
         # search top: scan [y1 - 6%, y1] from y1 upward — the rule
         # closest to the candidate is the real top border. Going farther
         # risks hitting unrelated content above.
-        top_lo = max(int(edge_margin_pct / 100 * h),
-                     y1_px - int(SEARCH_PCT / 100 * h))
+        top_lo = max(pct_to_px(edge_margin_pct, h),
+                     y1_px - pct_to_px(SEARCH_PCT, h))
         for r in range(y1_px - 1, top_lo - 1, -1):
             if _row_is_rule(r, x1_px, x2_px):
                 new_y1_px = r
@@ -619,16 +620,16 @@ def detect_single_col_ads(pdf_path, multi_col_ads=None, page_number=0,
 
         # search bottom: scan [y2, y2 + 6%] from y2 downward — closest
         # rule is the real bottom border.
-        bot_hi = min(int((100 - edge_margin_pct) / 100 * h),
-                     y2_px + int(SEARCH_PCT / 100 * h))
+        bot_hi = min(pct_to_px(100 - edge_margin_pct, h),
+                     y2_px + pct_to_px(SEARCH_PCT, h))
         for r in range(y2_px, bot_hi):
             if _row_is_rule(r, x1_px, x2_px):
                 new_y2_px = r + 1  # exclusive end
                 break
 
         # apply guards
-        new_y1_pct = new_y1_px / h * 100
-        new_y2_pct = new_y2_px / h * 100
+        new_y1_pct = px_to_pct(new_y1_px, h)
+        new_y2_pct = px_to_pct(new_y2_px, h)
         new_h_pct = new_y2_pct - new_y1_pct
 
         # height cap
@@ -730,12 +731,12 @@ def detect_single_col_ads(pdf_path, multi_col_ads=None, page_number=0,
         else:
             confidence = "low"
         out.append({
-            "x_pct": round(c["x_pct"], 1),
-            "y_pct": round(c["y_pct"], 1),
-            "w_pct": round(bw_p, 1),
-            "h_pct": round(bh_p, 1),
-            "x_end_pct": round(c["x_end_pct"], 1),
-            "y_end_pct": round(c["y_end_pct"], 1),
+            "x_pct": round(c["x_pct"], 2),
+            "y_pct": round(c["y_pct"], 2),
+            "w_pct": round(bw_p, 2),
+            "h_pct": round(bh_p, 2),
+            "x_end_pct": round(c["x_end_pct"], 2),
+            "y_end_pct": round(c["y_end_pct"], 2),
             "rect_ratio": round(rr, 3),
             "aspect": round(aspect, 2),
             "cols": 1,
@@ -828,11 +829,12 @@ def extract_ad_images(pdf_path, ads, output_dir, page_number=0, dpi=450,
         x1_pct = min(100, ad["x_end_pct"] + margin_x)
         y1_pct = min(100, ad["y_end_pct"] + margin_y)
 
-        # Convert percentages to PDF points
-        x0 = pw * x0_pct / 100
-        y0 = ph * y0_pct / 100
-        x1 = pw * x1_pct / 100
-        y1 = ph * y1_pct / 100
+        # Convert percentages to PDF points (pct_to_px_float is
+        # dimension-agnostic — works for points just as for pixels).
+        x0 = pct_to_px_float(x0_pct, pw)
+        y0 = pct_to_px_float(y0_pct, ph)
+        x1 = pct_to_px_float(x1_pct, pw)
+        y1 = pct_to_px_float(y1_pct, ph)
 
         clip = fitz.Rect(x0, y0, x1, y1)
         pix = page.get_pixmap(clip=clip, dpi=dpi)

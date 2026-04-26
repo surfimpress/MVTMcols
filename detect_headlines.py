@@ -18,6 +18,7 @@ Does NOT detect:
 """
 
 import numpy as np
+from coordinates import pct_to_px, px_to_pct
 from pdf_utils import render_grey
 
 
@@ -59,7 +60,7 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
     # Convert boundary positions to pixel x coordinates.
     # These are all detected column rules — every one is a gutter
     # between adjacent columns. Use all of them.
-    gutter_xs = [int(b / 100 * w) for b in column_boundaries]
+    gutter_xs = [pct_to_px(b, w) for b in column_boundaries]
     if not gutter_xs:
         return [], [], {}
 
@@ -214,8 +215,8 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
         # horizontal extent.
         y1_px = m["b_start"] * step
         y2_px = min((m["b_end"] + 1) * step, h)
-        x1_px = int(x1_pct / 100 * w)
-        x2_px = int(x2_pct / 100 * w)
+        x1_px = pct_to_px(x1_pct, w)
+        x2_px = pct_to_px(x2_pct, w)
         extend_thresh = 15  # darkness above this = still part of headline
 
         # Extend upward
@@ -234,8 +235,8 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
             else:
                 break
 
-        y1_pct = round(max(0, y1_px) / h * 100, 1)
-        y2_pct = round(min(y2_px, h) / h * 100, 1)
+        y1_pct = px_to_pct(max(0, y1_px), h)
+        y2_pct = px_to_pct(min(y2_px, h), h)
 
         # Skip if ANY overlap with an ad zone
         in_ad = False
@@ -263,8 +264,8 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
 
         if cols_spanned >= 2:
             headlines.append({
-                "x1_pct": round(x1_pct, 1),
-                "x2_pct": round(x2_pct, 1),
+                "x1_pct": round(x1_pct, 2),
+                "x2_pct": round(x2_pct, 2),
                 "y1_pct": y1_pct,
                 "y2_pct": y2_pct,
                 "cols_spanned": cols_spanned,
@@ -314,10 +315,10 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
 
         # Extract the region from the image, inset by 5% on each side
         # horizontally to exclude column rules and gutter noise at edges
-        ry1 = int(hl["y1_pct"] / 100 * h)
-        ry2 = int(hl["y2_pct"] / 100 * h)
-        rx1_full = int(hl["x1_pct"] / 100 * w)
-        rx2_full = int(hl["x2_pct"] / 100 * w)
+        ry1 = pct_to_px(hl["y1_pct"], h)
+        ry2 = pct_to_px(hl["y2_pct"], h)
+        rx1_full = pct_to_px(hl["x1_pct"], w)
+        rx2_full = pct_to_px(hl["x2_pct"], w)
         region_w = rx2_full - rx1_full
         inset = max(int(region_w * 0.05), 2)
         rx1 = rx1_full + inset
@@ -342,7 +343,7 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
         # Estimate column centres from the region width and pitch.
         # Sample a strip ~30% of pitch wide from each column's centre.
         region_w_pct = hl["x2_pct"] - hl["x1_pct"]
-        approx_pitch_px = int(pitch_estimate / 100 * w) if pitch_estimate else int(region_w_pct / hl["cols_spanned"] / 100 * w)
+        approx_pitch_px = pct_to_px(pitch_estimate, w) if pitch_estimate else pct_to_px(region_w_pct / hl["cols_spanned"], w)
         sample_hw = max(int(approx_pitch_px * 0.15), 5)  # half-width of sample strip
 
         # Build column centre positions within the region
@@ -423,10 +424,10 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
     # every pixel row for full resolution to show body text rhythm.
     # Body text: regular fine stripes. Headlines: thick sparse peaks.
     for region_entry in classified_headlines:
-        ry1 = int(region_entry["y1_pct"] / 100 * h)
-        ry2 = int(region_entry["y2_pct"] / 100 * h)
-        rx1_full = int(region_entry["x1_pct"] / 100 * w)
-        rx2_full = int(region_entry["x2_pct"] / 100 * w)
+        ry1 = pct_to_px(region_entry["y1_pct"], h)
+        ry2 = pct_to_px(region_entry["y2_pct"], h)
+        rx1_full = pct_to_px(region_entry["x1_pct"], w)
+        rx2_full = pct_to_px(region_entry["x2_pct"], w)
         rw = rx2_full - rx1_full
         inset = max(int(rw * 0.05), 2)
         rx1 = rx1_full + inset
@@ -454,7 +455,7 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
         for cp in col_profiles:
             chart = []
             for i, val in enumerate(cp):
-                y_pct = round((ry1 + i) / h * 100, 2)
+                y_pct = px_to_pct(ry1 + i, h)
                 chart.append({"y_pct": y_pct, "val": round(float(val), 1)})
 
             # Mark body text segments using near-zero trough detection
@@ -491,7 +492,7 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
     # Also include per-gutter fill state for the overlay
     gutter_fills = []
     for gi in range(n_gutters):
-        gutter_pct = round(gutter_xs[gi] / w * 100, 1)
+        gutter_pct = px_to_pct(gutter_xs[gi], w)
         filled_ranges = []
         in_fill = False
         fill_start = 0
@@ -503,14 +504,14 @@ def detect_headlines(pdf_path, column_boundaries, page_number=0,
             else:
                 if in_fill:
                     filled_ranges.append({
-                        "y1_pct": round(fill_start / h * 100, 1),
-                        "y2_pct": round(bi * step / h * 100, 1),
+                        "y1_pct": px_to_pct(fill_start, h),
+                        "y2_pct": px_to_pct(bi * step, h),
                     })
                     in_fill = False
         if in_fill:
             filled_ranges.append({
-                "y1_pct": round(fill_start / h * 100, 1),
-                "y2_pct": round(min(n_blocks * step, h) / h * 100, 1),
+                "y1_pct": px_to_pct(fill_start, h),
+                "y2_pct": px_to_pct(min(n_blocks * step, h), h),
             })
         if filled_ranges:
             gutter_fills.append({"x_pct": gutter_pct, "ranges": filled_ranges})

@@ -32,6 +32,8 @@ import numpy as np
 from PIL import Image
 from scipy.ndimage import gaussian_filter, gaussian_filter1d
 
+from coordinates import px_to_pct
+
 # —————————————————————————
 # Calibration
 # —————————————————————————
@@ -1173,8 +1175,8 @@ def print_results(results):
 
     print(f"Items: {len(items)}")
     for item in items:
-        pct_start = item["y_start"] / h * 100
-        pct_end = item["y_end"] / h * 100
+        pct_start = px_to_pct(item["y_start"], h)
+        pct_end = px_to_pct(item["y_end"], h)
         print(f"  [{item['index']}] y={item['y_start']}-{item['y_end']}  "
               f"({pct_start:.1f}%-{pct_end:.1f}%)  "
               f"height={item['y_end']-item['y_start']}px")

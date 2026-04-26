@@ -48,7 +48,7 @@ def detect_body_text(pdf_path, columns, page_number=0, dpi=300,
     # Detection parameters
     win = int(40 * dpi / 300)  # ~40px at 300 DPI, scales with resolution
     min_region_pct = 2.5  # minimum region height as % of page
-    min_region_px = int(h * min_region_pct / 100)
+    min_region_px = pct_to_px(min_region_pct, h)
 
     n_cols = len(columns)
     min_col_w_px = min(pct_to_px(c['right_vw'] - c['left_vw'], w)
