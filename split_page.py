@@ -35,7 +35,7 @@ from page_profile import profile_page
 from page_context import build_context
 from column_pipeline import detect_strips, cluster_boundaries, place_columns
 from pdf_utils import (
-    open_clean_pdf as _open_clean,
+    # open_clean_pdf as _open_clean,  # unused — kept commented for revival convenience
     get_clip_pixmap,
     get_page_size_pts,
 )
@@ -311,9 +311,13 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
     except Exception:
         page_prof = None
 
-    # Open and measure the page
+    # Pull pixel dimensions from the shared render cache. Earlier this
+    # opened a fresh _open_clean doc and rendered a full-page pixmap just
+    # to read .w / .h — wasteful since extract_columns runs at the same
+    # canonical DPI that detect_strips / detect_ads have already cached
+    # for this page.
     try:
-        doc = _open_clean(pdf_path)
+        pw_pts, ph_pts = get_page_size_pts(pdf_path, page_number, dpi)
     except Exception as e:
         return PageResult(
             pdf_path=pdf_path, page_number=page_number, dpi=dpi,
@@ -321,12 +325,8 @@ def split_page(pdf_path, page_number=0, dpi=DEFAULT_DPI, output_dir=None,
             columns=[], detection_row=0, quality_flags=[],
             error=f"pdf_open_failed: {e}", elapsed_seconds=time.time() - t0,
         )
-
-    page = doc[page_number]
-    full_pix = page.get_pixmap(dpi=dpi)
-    page_w_px = full_pix.w
-    page_h_px = full_pix.h
-    doc.close()
+    page_w_px = int(round(pw_pts * dpi / 72.0))
+    page_h_px = int(round(ph_pts * dpi / 72.0))
 
     quality_flags = []
     if page_prof and page_prof.get("quality_flags"):
