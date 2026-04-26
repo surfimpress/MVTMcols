@@ -998,7 +998,7 @@ def _update_viewer_data(db_path, columns_dir):
     # Write JSON for the viewer
     viewer_data_path = os.path.join(columns_dir, "viewer_data.json")
     with open(viewer_data_path, "w") as f:
-        json.dump(viewer_data, f, indent=2)
+        json.dump(viewer_data, f, separators=(",", ":"))
 
 
 if __name__ == "__main__":
