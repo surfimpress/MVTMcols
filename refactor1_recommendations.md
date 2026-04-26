@@ -16,9 +16,9 @@ Risk levels used below:
 |---|---|---|---|
 | A1 | Suspect dev artefact at repo root: `working_notes_profile_review.md` | repo root | Trivial — confirm with user, then move to `docs/` or delete |
 | A2 | `screenshots/` untracked dir at repo root | repo root | Trivial — likely dev-only; consider `.gitignore` |
-| A3 | DB columns `files.incorrect_date`, `files.likely_date` never SELECTed | `data/mvtm.db` | **Caution** — schema changes touch a 142K-row table; safer to leave or document as deprecated than ALTER |
+| A3 | DB columns `files.incorrect_date`, `files.likely_date` never SELECTed | `data/mvtm.db` | **Leave alone.** Schema change on a 142K-row table needs a triggering reason; clutter cost is low (two unused columns), risk of an `ALTER` mistake on the canonical files table is high. Document-as-deprecated is unnecessary — they're already documented as unread by being absent from every grep. |
 | A4 | DB column `detected_ads.aspect` may duplicate `rect_ratio` | `data/mvtm.db` | **Caution** — verify by inspecting `store_ads` in `detect_ads.py` and viewer JS before any drop |
-| A5 | Possible commented-out helper `_vl()` at `process_issue.py:750` | code | Trivial — read the comment, decide |
+| A5 | Possible commented-out helper `_vl()` at `process_issue.py:750` | code | **Leave alone.** Read the surrounding block: `_vl()` is part of the larger `# ── overlay.png generation (disabled) ──` block (lines 734–766) with a 9-line preamble explaining why it's commented (pre-SVG-viewer dev-validation artifact; page_viewer now renders these as toggleable SVG layers; static raster is ~1.9MB / ~190ms per page; fallback never triggers — page_viewer.html only refs overlay.png in `imgEl.onerror`; kept commented for offline re-enabling). Intentional preservation with documented reason, not dead code. |
 | A6 | Stage-2 standalone scripts not called by orchestrator: `find_splits.py`, `classify_segments.py`, `four_probe_v5.py`, `crop_pdf.py` | code | **Do NOT remove** — these are stage-2 / dev tools, intentionally standalone. Listed here only so we know to leave them alone. |
 
 ↳ **Correction to A4.** `detected_ads.aspect` is **not** a duplicate of `rect_ratio`. They are independent quantities: `rect_ratio` is contour-area ÷ bounding-rect-area (a *rectangularity* score), while `aspect` is bounding-rect width ÷ height (a *shape* ratio). `aspect` has at least twelve live uses in `detect_ads.py`, including the primary admission gates `0.3 < aspect < 5.0` (line 130) and `0.2 < aspect < 8.0` (line 132), and is persisted by `store_ads` for downstream filtering. **Why I got this wrong:** the two columns sit next to each other in the schema and both are floats in roughly the same range, so they *look* duplicative when scanning a `CREATE TABLE`. **What would have caught it in one tool call:** `grep -n "aspect" detect_ads.py` would have shown the gate expressions immediately; reading a CREATE TABLE in isolation is not enough to claim a column is unused. Strike A4 from the action list.
@@ -30,8 +30,8 @@ Risk levels used below:
 | B1 | `_open_clean(pdf_path)` defined identically in **5 files**: `find_columns.py:33`, `detect_ads.py:26`, `detect_sliver.py:27`, `page_profile.py:26`, `crop_pdf.py:34` | scattered | Low — pure function, no state. Move to a shared `pdf_utils.py` (or add to `coordinates.py`); have all five files import. **Verify** that the red-overlay-strip behaviour really is identical character-for-character before consolidating. |
 | B2 | `CONSENSUS_ROWS = [3, 4, 5, 6, 7, 8, 9]` and `STRIP_WEIGHTS` duplicated in `column_pipeline.py:24` and `split_page.py:46` | strip detection | Low — single owner needed. Move to `column_pipeline.py`; have `split_page` import. |
 | B3 | DPI defaults scattered: `dpi=450` (column_pipeline, find_columns, process_issue, crop_pdf), `dpi=300` (detect_body_text), `dpi=150` (detect_ads, page_profile, detect_headlines) | many | **Caution** — these are deliberate per-stage choices, not bugs. Don't unify; just **document** in a central `dpi.py` constants file (e.g. `COLUMN_DPI=450`, `AD_DPI=150`, `PROFILE_DPI=150`, `BODY_TEXT_DPI=300`) and have call sites import. |
-| B4 | Parameter name inconsistency for the same concept: `dpi`, `render_dpi`, `profile_dpi` | several | Trivial-but-tedious — leave alone unless we touch the function for another reason. Renaming touches every call site. |
-| B5 | Magic numbers `0.35` (drop threshold) appear in `detect_headlines.py:315`, `find_columns.py:201`, `detect_sliver.py:162` | several | **Caution** — *probably* coincidental rather than a shared concept; verify each meaning before centralizing. |
+| B4 | Parameter name inconsistency for the same concept: `dpi`, `render_dpi`, `profile_dpi` | several | **Leave alone.** Cross-cutting kwarg-name rename touches every call site; clarity-only, no triggering need. The variants tell something useful at the boundary (`profile_dpi` signals "this is a profiling pass, not a render pass"). Will get fixed naturally if/when a function changes for another reason. |
+| B5 | Magic numbers `0.35` (drop threshold) appear in `detect_headlines.py:315`, `find_columns.py:201`, `detect_sliver.py:162` | several | **Leave alone.** Verified in the B-corrections note that the literal also appears in `validate_columns.py:28` (`EDGE_INK_RATIO_THRESHOLD = 0.35`), `find_splits.py:609`, `four_probe_v5.py:470/775/786/798`. Coincidental: each callsite uses 0.35 for a different concept (edge-column ink ratio, drop threshold, body/headline cutoff). Centralising would force a false shared meaning. The one place it *is* named (`validate_columns.py:28`) is enough. |
 
 ↳ **Corrections to B.**
 > - **B2 line numbers stale.** `STRIP_WEIGHTS` in `split_page.py` is at line **110**, not 46. `CONSENSUS_ROWS` in `split_page.py` is at line **45**, not 46. Pre-existing drift compounded by the D4/D7-D11 cleanup commits (line removals shifted everything below).
@@ -73,9 +73,9 @@ Risk levels used below:
 
 | # | Item | Where | Risk |
 |---|---|---|---|
-| D1 | Bare `except:` clauses (if any) — needs a grep pass to confirm | TBD | Trivial fix, but **verify** there aren't intentional swallow-all clauses |
+| D1 | ~~Bare `except:` clauses~~ | — | **None found.** Grep `except\s*:` across all `*.py`: zero matches. |
 | D2 | `print(...)` calls in detection modules used as logging — fine for CLI use, mixes with library use | `detect_ads.py`, `detect_headlines.py`, `find_columns.py`, `classify_segments.py` | **Don't change** unless we adopt project-wide logging; switching `print` → `logging` is a larger change than scoped here |
-| D3 | Mutable-default-arg risks (`def f(x=[])`) — needs a grep pass | TBD | Trivial fix |
+| D3 | ~~Mutable-default-arg risks (`def f(x=[])`)~~ | — | **None found.** Grep `def\s+\w+\s*\([^)]*=\s*[\[\{]` across all `*.py`: zero matches. |
 | D4 | Unused imports — needs a `pyflakes` / `ruff` pass | TBD | Trivial fix; safe |
 
 ## Risk assessment
