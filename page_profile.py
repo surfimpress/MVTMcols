@@ -18,7 +18,7 @@ Usage:
     print(f"Text area: {prof['text_area']['left']:.1f}%-{prof['text_area']['right']:.1f}%")
 """
 
-import fitz
+# import fitz  # unused — kept commented for revival convenience
 
 from coordinates import pct_to_px, px_to_pct, clamp_px
 import numpy as np

@@ -22,7 +22,7 @@ import sqlite3
 from contextlib import closing
 
 import fitz
-import numpy as np
+# import numpy as np  # unused — kept commented for revival convenience
 import cv2
 
 
