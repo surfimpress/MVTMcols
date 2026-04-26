@@ -13,10 +13,15 @@ Module-level full-page render cache (P-shared Tier 1):
     call renders the full page; subsequent calls slice the cached array
     in numpy, no re-rasterisation.
 
-    The cache is a small LRU (maxsize=2) — process_issue moves through
-    pages serially, so two slots is enough to keep the active page hot
-    while one page transitions out. Use `clear_render_cache()` to drop
-    everything (e.g. between issues) when memory pressure matters.
+    The cache holds up to `_RENDER_CACHE_MAXSIZE` (currently 12) full-page
+    entries. Sized to fit a whole issue's pages so the phase-then-page
+    pipeline structure (detect_ads → profile → Pass 1 → Pass 2 → headlines
+    → body-text → overlays, each a per-page loop) never re-renders a page
+    that was already canonical-rendered in an earlier phase. With the old
+    size of 2, profiling showed `_native_render` running 24× for an
+    8-page issue (3 phase visits × 8 pages with constant eviction); at
+    12 the same issue runs it 8× — once per page. Use `clear_render_cache()`
+    to drop everything (e.g. between issues) when memory matters.
 """
 
 import os
@@ -50,7 +55,7 @@ import numpy as np
 # not constrained" directive.
 
 CANONICAL_DPI = 450
-_RENDER_CACHE_MAXSIZE = 2
+_RENDER_CACHE_MAXSIZE = 12
 _RENDER_CACHE = OrderedDict()
 
 
