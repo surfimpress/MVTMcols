@@ -23,15 +23,7 @@ import numpy as np
 import cv2
 
 
-def _open_clean(pdf_path):
-    """Open a PDF and strip red overlay lines."""
-    doc = fitz.open(pdf_path)
-    for page in doc:
-        for xref in page.get_contents():
-            data = doc.xref_stream(xref).decode("latin-1")
-            if "1 0 0 RG" in data:
-                doc.update_stream(xref, b"")
-    return doc
+from pdf_utils import open_clean_pdf as _open_clean
 
 
 def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,

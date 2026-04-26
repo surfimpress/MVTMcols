@@ -23,15 +23,7 @@ import numpy as np
 from scipy.ndimage import gaussian_filter1d
 
 
-def _open_clean(pdf_path):
-    """Open a PDF and strip red overlay lines."""
-    doc = fitz.open(pdf_path)
-    for page in doc:
-        for xref in page.get_contents():
-            data = doc.xref_stream(xref).decode("latin-1")
-            if "1 0 0 RG" in data:
-                doc.update_stream(xref, b"")
-    return doc
+from pdf_utils import open_clean_pdf as _open_clean
 
 
 def find_rectangles(inv, h, w, gazette_page=None, pdf_image_rect=None):
