@@ -19,7 +19,6 @@ Does NOT detect:
 
 import fitz
 import numpy as np
-from scipy.ndimage import gaussian_filter1d
 
 
 def detect_headlines(pdf_path, column_boundaries, page_number=0,
@@ -1083,7 +1082,7 @@ def assemble_headlines_from_charts(body_text_charts, columns_meta,
 
 
 if __name__ == "__main__":
-    import json, sys
+    import json
 
     # Quick test on 3 issues
     tests = [

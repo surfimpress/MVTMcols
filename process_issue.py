@@ -16,18 +16,16 @@ Usage:
 import os
 import sys
 import json
-import shutil
 import sqlite3
 import subprocess
 import time
-from pathlib import Path
 
 import numpy as np
 
-from split_page import split_page, PageResult, extract_columns, _save_metadata
+from split_page import PageResult, extract_columns, _save_metadata
 from page_profile import profile_page
 from detect_ads import (detect_ads, detect_single_col_ads,
-                        extract_ad_images, store_ads, get_ad_exclusion_zones)
+                        extract_ad_images, store_ads)
 from page_context import build_context
 from column_pipeline import detect_strips, cluster_boundaries, place_columns
 
@@ -707,7 +705,7 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
 
     # ── Generate overlays ────────────────────────────────────────────
     print("\nGenerating overlays...")
-    from PIL import Image, ImageDraw
+    from PIL import Image
     import fitz as _fitz
 
     for page_num, result, prof in pass1_results:

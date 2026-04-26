@@ -20,7 +20,6 @@ Usage:
 """
 
 import os
-import sys
 import json
 import sqlite3
 import time
@@ -31,7 +30,7 @@ import fitz
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from find_columns import find_column_boundaries, ColumnBoundary, _open_clean
+from find_columns import find_column_boundaries, _open_clean
 from page_profile import profile_page
 from detect_sliver import find_binding_edge
 
