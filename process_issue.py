@@ -256,6 +256,7 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     print("Detecting display ads...")
     page_ads = {}  # page_num → list of ad dicts
     page_single_col_ads = {}  # page_num → list of single-col ad dicts
+    page_profiles = {}  # page_num → profile dict (computed once, reused in Pass 1/2)
     total_ads = 0
 
     ads_dir = os.path.join(output_dir, "ads")
@@ -263,6 +264,7 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
 
     for page_num, pdf_path in pages:
         prof = profile_page(pdf_path)
+        page_profiles[page_num] = prof
         ads = detect_ads(pdf_path, column_pitch=None, page_profile=prof)
         if ads:
             ad_out = os.path.join(ads_dir, f"p{page_num}")
@@ -309,14 +311,12 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     # This prevents the default pitch from poisoning the results.
     print("Pass 1: Detecting boundaries...")
     pass1_detections = {}   # page_num → clustered boundaries
-    page_profiles = {}
     page_strip_profiles = {}  # page_num → strip darkness profiles for viewer
     page_dark_thresholds = {} # page_num → darkness threshold used for detection
     page_contexts = {}
 
     for page_num, pdf_path in pages:
-        prof = profile_page(pdf_path)
-        page_profiles[page_num] = prof
+        prof = page_profiles[page_num]  # P4: reuse profile from ad-detection loop
         ads = page_ads.get(page_num, [])
 
         ctx = build_context(page_num, year, db_path=db_path,
