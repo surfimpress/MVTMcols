@@ -271,7 +271,9 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
             ads_with_images = extract_ad_images(pdf_path, ads, ad_out, dpi=dpi)
             multi_ids = store_ads(db_path, year, month, day, page_num,
                                   ads_with_images)
-            for ad, _id in zip(ads_with_images, multi_ids, strict=True):
+            assert len(ads_with_images) == len(multi_ids), \
+                f"store_ads returned {len(multi_ids)} ids for {len(ads_with_images)} ads"
+            for ad, _id in zip(ads_with_images, multi_ids):
                 ad["id"] = _id
             page_ads[page_num] = ads_with_images
             total_ads += len(ads)
@@ -291,7 +293,9 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
                                                dpi=dpi, name_prefix="sc_ad")
             sc_ids = store_ads(db_path, year, month, day, page_num,
                                sc_with_images)
-            for sc, _id in zip(sc_with_images, sc_ids, strict=True):
+            assert len(sc_with_images) == len(sc_ids), \
+                f"store_ads returned {len(sc_ids)} ids for {len(sc_with_images)} ads"
+            for sc, _id in zip(sc_with_images, sc_ids):
                 sc["id"] = _id
             page_single_col_ads[page_num] = sc_with_images
             print(f"  P{page_num}: {len(sc_ads)} single-col ads")
