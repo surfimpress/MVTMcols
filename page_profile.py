@@ -58,8 +58,27 @@ def find_rectangles(inv, h, w, gazette_page=None, pdf_image_rect=None):
         dict with bounding boxes r2, r3, text_area (all in % of page dimensions),
         plus binding_side, clean_side, and page_type.
     """
+    # ── Column-wise profiles within the scanned image ───────────────
+    # Computed first so the no-pdf_image_rect R2 fallback below has
+    # `smooth` available for its raster-threshold scan.
+    #
+    # Sample the middle 50% of the IMAGE's vertical extent (not the PDF
+    # page). This avoids including PDF margin rows that dilute the signal
+    # and create V-shaped gradients instead of flat troughs.
+    if pdf_image_rect:
+        img_top_px = max(0, int(pdf_image_rect.get("top", 0) / 100 * h))
+        img_bot_px = min(h, int(pdf_image_rect.get("bottom", 100) / 100 * h))
+    else:
+        img_top_px = 0
+        img_bot_px = h
+    img_h = img_bot_px - img_top_px
+    row_lo = img_top_px + int(img_h * 0.25)
+    row_hi = img_top_px + int(img_h * 0.75)
+    body_rows = inv[row_lo:row_hi, :]
+    col_profile = body_rows.mean(axis=0)
+    smooth = gaussian_filter1d(col_profile, sigma=5)
+
     # ── R1 → R2: PDF white margin to scanned image ──────────────────
-    # Compute R2 first so we can use its vertical extent for row sampling.
     if pdf_image_rect:
         # Use the exact image placement from the PDF structure.
         # Convert percentages to pixel positions in the profile render.
@@ -82,23 +101,6 @@ def find_rectangles(inv, h, w, gazette_page=None, pdf_image_rect=None):
             if smooth[x] > PDF_WHITE_THRESH:
                 r2_right_px = x
                 break
-
-    # ── Column-wise profiles within the scanned image ───────────────
-    # Sample the middle 50% of the IMAGE's vertical extent (not the PDF
-    # page). This avoids including PDF margin rows that dilute the signal
-    # and create V-shaped gradients instead of flat troughs.
-    if pdf_image_rect:
-        img_top_px = max(0, int(pdf_image_rect.get("top", 0) / 100 * h))
-        img_bot_px = min(h, int(pdf_image_rect.get("bottom", 100) / 100 * h))
-    else:
-        img_top_px = 0
-        img_bot_px = h
-    img_h = img_bot_px - img_top_px
-    row_lo = img_top_px + int(img_h * 0.25)
-    row_hi = img_top_px + int(img_h * 0.75)
-    body_rows = inv[row_lo:row_hi, :]
-    col_profile = body_rows.mean(axis=0)
-    smooth = gaussian_filter1d(col_profile, sigma=5)
 
     # ── Binding side from page number (recto/verso) ────────────────
     edge_w = max(5, int((r2_right_px - r2_left_px) * 0.05))
