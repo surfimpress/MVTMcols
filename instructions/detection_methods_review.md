@@ -295,6 +295,31 @@ real content sits in a narrow band). Standard pages are
 unaffected — the adoption block only fires when the issue-pitch
 window finds zero usable gaps.
 
+**Asymmetric content-band slack.** `place_standard()` clips grid
+boundaries to the R3 content band, but allows each side to extend
+slightly past it:
+- **Binding side: `pitch * 0.5`.** The last column on the binding
+  side is often narrowed by page curvature into the spine — R3 cuts
+  off real content that's bent into the gutter.
+- **Clean side: `pitch * 0.2`.** On ad-heavy pages R3 is biased
+  inward because edge ads don't register as "content" for R3's
+  body-text-driven extent measurement. The clean slack is kept
+  small because there's no spine-curvature reason to expect content
+  beyond R3 on the clean side; it only kicks in when the grid
+  scoring already favours an offset that places a boundary in this
+  range (i.e. supported by detected boundaries near the edge). Added
+  2026-04-27 to recover lost rightmost columns on pages like
+  1947-01-30 P5 (grid built 8th boundary at 88.21 just outside
+  R3=87.26; previously dropped → 6 cols, now kept → 7 cols).
+
+The clean slack is *insufficient* for cases where the entire
+outermost column is missing from the detected-boundary set with no
+target signal at all (e.g. 1947-02-06 P8: leftmost column would sit
+~7%/0.7×pitch past R3 with no detected boundary to anchor it). Those
+are body-text-detection failures, not placement failures — see
+"Pending: ad-heavy page detection" notes for the option-(b) work
+needed there.
+
 ---
 
 ### 10. Multi-strip consensus (retired — folded into `column_pipeline`)
@@ -692,6 +717,30 @@ This file is meant to evolve. When a strategy is added, retired, or
 materially changed, append a dated note here so the catalogue's drift is
 auditable.
 
+- **2026-04-27 — Clean-side placement slack in `place_standard`.**
+  Added `clean_slack = pitch * 0.2` so the grid-clipping limits
+  extend slightly past R3 on the clean side as well as the binding
+  side (which had `bind_slack = pitch * 0.5`). Driven by the v2c
+  inspection finding that ad-heavy pages have R3 biased inward —
+  edge ads don't register as "content" for R3's body-text-driven
+  extent measurement. Verification on three issues:
+  - 1947-01-30 P5: 6c → 7c (rightmost col at 88.21 was previously
+    clipped by R3=87.26; new col contains a real Salada Tea/Coffee
+    ad headline plus body text — visually verified).
+  - 1947-01-30 P3: minor position shift (still 7c, no longer needs
+    validator drop_right intervention).
+  - 1947-02-06 P5: gains a v2 drop_right flag (slack admitted an 8th
+    candidate, validator correctly rejected it as phantom — system
+    working as designed).
+  - 1947-02-06 P8: still 6c — leftmost real column would sit ~7%
+    (~0.67×pitch) past R3 with no detected-boundary signal to anchor
+    it, beyond what any reasonable slack value can recover. Documented
+    as a body-text-detection (option-b) case in the pending notes.
+  - 1947-11-06: byte-identical PRE/POST (no regression).
+  Slack is opportunistic: a grid offset that places a boundary in
+  the slack region only wins if there's a detected-boundary target
+  near it, so the change is conservative on pages where R3 is the
+  true content edge.
 - **2026-04-27 — Validator v2c: conservatism rules.** After the 1947
   batch rerun (42 issues, 79 v2b drops), inspection revealed several
   false positives where real columns were dropped. Four bias-toward-
@@ -718,8 +767,9 @@ auditable.
   Operator preference: false positives (lost real columns) cost more
   than false negatives (kept phantoms); v2c is biased accordingly.
   v2 does *not* address placement-stage missed columns on ad-heavy
-  pages (1947-01-30 P5; 1947-02-06 P8) — those need either an
-  ad-driven placement extension or manual CLI correction.
+  pages — that's a separate concern. The clean-side placement slack
+  added later the same day recovered 1947-01-30 P5; 1947-02-06 P8
+  remains a body-text-detection (option-b) case.
 - **2026-04-27 — Validator v2b: out-of-volume page edge rule.**
   Adds a second phantom rule to `validate_columns_v2` alongside
   the existing "empty edge" rule. Catches strips of an underlying

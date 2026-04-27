@@ -513,15 +513,26 @@ def place_standard(boundaries, ctx):
             pos = center - half_span + i * pitch
             grid.append(round(pos, 2))
 
-        # Constrain to the content band, but allow the binding side
-        # to extend slightly past it — the last column on the binding
-        # side is often narrowed by page curvature into the spine.
+        # Constrain to the content band, but allow each side to extend
+        # slightly past it.
+        #   - Binding side: large slack (pitch * 0.5). The last column
+        #     on the binding side is often narrowed by page curvature
+        #     into the spine, so R3 underestimates the binding edge.
+        #   - Clean side: small slack (pitch * 0.2). On ad-heavy pages
+        #     R3 is biased inward because edge ads don't register as
+        #     "content" for R3's body-text-driven extent measurement;
+        #     a real column can sit just outside R3 on the clean side.
+        #     Kept small because a slack here is more dangerous (no
+        #     spine-curvature reason to expect content beyond R3) and
+        #     this slack only kicks in when a detected boundary near
+        #     the edge causes the grid scoring to favour that offset.
         bind_slack = pitch * 0.5
+        clean_slack = pitch * 0.2
         if ctx.binding_side == "left":
             left_limit = content_left - bind_slack
-            right_limit = content_right
+            right_limit = content_right + clean_slack
         else:
-            left_limit = content_left
+            left_limit = content_left - clean_slack
             right_limit = content_right + bind_slack
         grid = [g for g in grid if left_limit <= g <= right_limit]
         if len(grid) < 3:
