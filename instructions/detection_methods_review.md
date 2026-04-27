@@ -570,6 +570,35 @@ This file is meant to evolve. When a strategy is added, retired, or
 materially changed, append a dated note here so the catalogue's drift is
 auditable.
 
+- **2026-04-27 — Issue-level parallel batch driver + coordinator
+  pattern.** Adds `archive.py` (`process_archive`) and `db_writer.py`
+  (`DBWriter`/`DirectDBWriter`/`ProxyDBWriter`). Detection logic is
+  unchanged; only the orchestration layer above `process_issue` and
+  the DB-write layer below it. Three structural shifts worth
+  recording:
+  1. **UUIDs on `detected_ads`** alongside the integer `id` (schema
+     migration `migrations/001_detected_ads_uuid.sql`). Workers stamp
+     each ad with a uuid at detection time, eliminating the round-trip
+     for an auto-increment id. Integer `id` retained as a debug handle.
+  2. **Coordinator-owns-DB pattern.** A single thread in the parent
+     process owns the only writing connection. Workers send writes
+     through `mp.Queue` via `ProxyDBWriter`; the coordinator drains
+     and dispatches to a `DirectDBWriter`. Eliminates write contention
+     by construction — no retry-on-busy logic needed. SQLite's
+     concurrent-readers guarantee covers worker-side reads. WAL mode
+     enabled at batch start so reads don't briefly stall against
+     writes.
+  3. **`process_issue` now takes `writer` and `skip_aggregates`
+     kwargs.** Default behaviour unchanged when `writer=None` (a
+     `DirectDBWriter` is constructed against `db_path`).
+     `compute_era_patterns` and `_update_viewer_data` (cross-issue
+     aggregates) are skipped per-issue under the batch driver and run
+     once at end-of-batch.
+  Verification: 2-issue serial vs parallel run on 1947-11-06 +
+  1937-01-14, byte-identical across `detected_ads`/`page_layouts`/
+  `page_geometry` (excluding `id`/`uuid`/`created_at`). 4-issue ×
+  4-worker stress run completed clean. Wall time on 2 issues: 31.9s
+  parallel vs 57.3s serial (1.79× on 2 workers).
 - **2026-04-26 — Refactor-1 Part 1: split_page CLI drift eliminated.**
   `split_page.py`'s parallel column-detection (`_detect_consensus`,
   `_project_grid_edges`, `_remove_narrow_columns`, `_select_best_grid`,
