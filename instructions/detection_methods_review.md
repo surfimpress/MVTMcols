@@ -410,36 +410,57 @@ detector wastes work on them.
 `process_issue.py` after `detect_body_text` and `detect_headlines`.
 **DPI:** n/a (operates on detection outputs)
 
-**What:** Drops an edge column when it independently fails *every*
-positive content signal:
-  - `body_height_pct < 20` (sum of body-text region heights in the
-    column, as % of page height)
-  - max ad horizontal-overlap fraction `< 0.30`
-  - max headline horizontal-overlap fraction `< 0.30`
-Iterates from each end (cap 4 passes) so a wide phantom margin with
-multiple stacked phantom "columns" is fully removed. When a column
-is dropped, `process_issue` re-extracts PNGs against the new
-boundaries, filters and renumbers per-column data in
+**What:** Two phantom rules, OR'd, applied iteratively to each edge
+(left then right) until both pass or fewer than 3 columns remain
+(4-pass cap):
+
+  *Rule A — empty edge.* All of:
+    - `body_height_pct < 20` (sum of body-region heights in the
+      column, as % of page height)
+    - max ad horizontal-overlap fraction `< 0.30`
+    - max headline horizontal-overlap fraction `< 0.30`
+  Catches scan-bleed / edge-rule "columns" that have ink but no
+  real content.
+
+  *Rule B — out-of-volume page edge.* Both of:
+    - `body_height_pct / interior_median_body < 0.85`
+    - column extends past `text_area` edge by `> 1.0%` of page width
+  Catches strips of an underlying page in a bound volume that have
+  slipped out of register and are physically visible past this
+  page's body band. The text in the strip is real — but it belongs
+  to a different page. Body ratio alone misfires on real-but-sparse
+  edge columns; text_area extension alone misfires when text_area
+  was estimated narrowly. Together they specifically describe
+  "real text where this page's content shouldn't reach."
+
+When a column is dropped, `process_issue` re-extracts PNGs against
+the new boundaries, filters and renumbers per-column data in
 `page_analysis.json` (`body_text`, `body_text_charts`, `h_rules`,
 `large_type`), and tags the page with `col_v2_drop_left/right`
 quality flags.
 
-**Signal:** A real column hits at least one positive content signal —
-body, ad, or headline. An empty-margin "column" hits none.
+**Signal:** A real column hits at least one positive content signal
+*and* aligns with the page-profile-derived body band. Phantom edges
+fail Rule A (no signals at all) or Rule B (real but mis-aligned text
+from a different page).
 
 **Why both v1 and v2:** v1 (#14a) is cheap and runs pre-extraction,
-saving downstream work on the obvious phantoms. v2 is the safety net
-for phantoms that *have* ink (scan bleed, edge ruling) but no real
-content. Threshold rationale: 1947-01-09 p1's phantom edges sat at
-4.5–11.3% body height; real columns at ~51%. The 20% cut-off
-separates them cleanly.
+saving downstream work on obvious phantoms. v2 is the safety net for
+phantoms with ink but no real content (Rule A) and for out-of-volume
+page-edge bleed (Rule B). Threshold rationale (1947-01-09):
+  - Rule A: phantom edges sat at 4.5–11.3 % body height; real
+    columns at ~51 %. 20 % cut-off separates them.
+  - Rule B: every kept real edge had body ratio ≥ 0.85 OR no
+    text_area extension; phantoms had ratio 0.13–0.78 with
+    extension 1.5–5.7 %. Both signals required.
 
 **Edge-only by design** (same as v1): an interior near-empty column
 is more likely a real column with sparse content than a segmentation
 error.
 
-**Production suitability:** Keep. Caught residual phantoms that
-slipped past v1 and grid projection.
+**Production suitability:** Keep. Rule A caught the 1947-01-09 p1
+anomaly residue; Rule B caught the four 8c-instead-of-7c pages
+(P3/P5/P7 right, P8 left) on the same issue.
 
 ---
 
@@ -582,7 +603,7 @@ defence against single-page detection failures.
 | 12 | Narrow column merging | **Keep, make adaptive** | Cleanup step |
 | 13 | Best-grid selection (combinatorial) | **Keep — last resort** | Confidence weighting is a refinement |
 | 14a | Edge-column ink validation (v1) | **Keep** | Pre-extraction phantom drop |
-| 14b | Edge-column multi-signal validation (v2) | **Keep** | Post-detection phantom drop (body/ad/headline) |
+| 14b | Edge-column multi-signal validation (v2) | **Keep** | Post-detection phantom drop: Rule A (empty edge: body+ad+headline all fail) OR Rule B (out-of-volume page edge: low body ratio + extends past text_area) |
 | 15 | Page-2 editorial template | **Keep** | Template #1 of an extensible system |
 | 16 | Multi-column headline (gutter-fill) | **Keep** | Pair with single-column headline detection later |
 | 17 | Body-text rhythm (300 DPI) | **Keep** | Higher DPI cost is justified |
@@ -623,6 +644,19 @@ This file is meant to evolve. When a strategy is added, retired, or
 materially changed, append a dated note here so the catalogue's drift is
 auditable.
 
+- **2026-04-27 — Validator v2b: out-of-volume page edge rule.**
+  Adds a second phantom rule to `validate_columns_v2` alongside
+  the existing "empty edge" rule. Catches strips of an underlying
+  page in a bound volume that have slipped out of register and
+  show real, well-formed body text past the photographed page's
+  body band. Trigger: body coverage < 0.85 of interior median
+  *and* column extends past `text_area` edge > 1.0 % of page width.
+  Both signals required — body ratio alone misfires on real-but-
+  sparse edge cols; text_area extension alone misfires when
+  text_area was estimated narrowly. Threads `text_area` from the
+  page profile into the validator at the v2 call site.
+  Verification: 1947-01-09 P3/P5/P7 right and P8 left correctly
+  drop from 8c→7c. 1947-09-25 and 1947-11-06 byte-identical.
 - **2026-04-27 — Validator v2 + page-pitch adoption for anomaly
   pages.** Two complementary changes against the
   empty-edge-column failure mode:

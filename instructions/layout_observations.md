@@ -143,6 +143,26 @@ these two.
 - **Notable:** Current standing regression target for refactor 1 commits.
   All pages produce CV=0.000 grids on the post-refactor-1 pipeline.
 
+### 1947-01-09 — out-of-volume page edges on most editorial pages
+- **Layout:** Issue is 7c at ~10.9% pitch (P3-P8 editorial). Scan
+  conditions are messy: pages of the bound volume have slipped out
+  of register, so the edge of an underlying page is physically
+  visible past the photographed page on multiple sheets.
+- **Pages affected:** P3 right, P5 right, P7 right (recto, clean
+  edge); P8 left (verso, clean edge). Without v2b these came out
+  as 8c with a phantom edge column whose content was a partial
+  strip of a different page's text.
+- **Identifying signature:** body coverage on the phantom edge sits
+  at 0.13–0.78 of the interior median; column extends past
+  `text_area` edge by 1.5–5.7 % of page width. The text in the
+  strip is real (so v2 Rule A's body/ad/headline check passes),
+  but the column is geometrically outside the body band of THIS
+  page. v2 Rule B catches this.
+- **Reference case for:** the v2b "out-of-volume page edge" rule
+  in `validate_columns_v2`. P6 left (also low body ratio at 0.46,
+  but inside text_area) is the protective contrast — v2b correctly
+  keeps it.
+
 ### 1947-01-09 page 1 (anomaly — landscape scan in portrait PDF)
 - **Layout:** 6 columns at 5.48% pitch, content band 38.84-71.72%.
 - **Notable:** The embedded image is placed full PDF width
@@ -299,6 +319,13 @@ other.
 This file evolves issue-by-issue. When a new pattern, era boundary, or
 scan condition is observed, append it here.
 
+- **2026-04-27 — Added 1947-01-09 issue-wide notes on out-of-volume
+  page edges.** P3/P5/P7 right and P8 left edges are partial strips
+  of underlying pages, visible because the volume's pages slipped
+  out of register during photography. Reference case for
+  `validate_columns_v2`'s Rule B (low body ratio + text_area
+  extension). P6 left as the protective contrast (low body ratio
+  alone, inside text_area, kept).
 - **2026-04-27 — Added 1947-01-09 p1 as the canonical anomaly-page
   reference (landscape scan placed full-width on a portrait PDF).**
   Documents the `pdf_image_rect` vs actual-content-band discrepancy
