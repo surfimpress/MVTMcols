@@ -143,6 +143,24 @@ these two.
 - **Notable:** Current standing regression target for refactor 1 commits.
   All pages produce CV=0.000 grids on the post-refactor-1 pipeline.
 
+### 1947-01-09 page 1 (anomaly — landscape scan in portrait PDF)
+- **Layout:** 6 columns at 5.48% pitch, content band 38.84-71.72%.
+- **Notable:** The embedded image is placed full PDF width
+  (`pdf_image_rect` x = 4.76-100%, y = 3.37-53.17%) but the actual
+  newspaper content occupies only the upper-half landscape strip. R3
+  detection is fooled — it reports the full page (93.5% wide) — but
+  Pass 1 ink boundary detection gets the correct content band.
+- **Reference case for:** the page-pitch adoption path in
+  `place_standard` (`_maybe_adopt_page_pitch`). When the issue-pitch
+  acceptance window finds zero usable gaps, the code now adopts the
+  page's own pitch and uses the detected boundary span — not R3 —
+  for column count and grid centre. Before this fix, the page came
+  out as 12 phantom-heavy columns spanning 11-77% of page width.
+- **Aspect-ratio anomaly check** is on the wishlist: a portrait PDF
+  with a landscape-shaped embedded image is detectable up front and
+  could trigger an alternate placement path more reliably than the
+  current "no usable gaps in window" trigger.
+
 ### 1952-12-25 page 3 (recto)
 - **Layout:** 7 columns expected
 - **Interior columns:** 11.5–12.1% for confirmed interior
@@ -281,6 +299,13 @@ other.
 This file evolves issue-by-issue. When a new pattern, era boundary, or
 scan condition is observed, append it here.
 
+- **2026-04-27 — Added 1947-01-09 p1 as the canonical anomaly-page
+  reference (landscape scan placed full-width on a portrait PDF).**
+  Documents the `pdf_image_rect` vs actual-content-band discrepancy
+  that fools R3 detection, and the page-pitch adoption path in
+  `place_standard` that recovers the correct 6-column layout. The
+  aspect-ratio anomaly up-front check is noted as a wishlist
+  refinement.
 - **2026-04-26 — Comprehensive rewrite.** Brought forward to reflect
   changes since the original April 2026 notes:
   - Added 1898-10-07 and 1947-11-06 as canonical regression issues

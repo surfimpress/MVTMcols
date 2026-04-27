@@ -283,6 +283,18 @@ than hide it (`no_boundaries_detected`, `insufficient_boundaries`,
 constants — `CONSENSUS_ROWS`, `STRIP_WEIGHTS` — live here and are
 re-imported by `split_page.py` after refactor 1's B2 commit.
 
+**Page-pitch adoption (anomaly path).** `place_standard()` now
+adopts a per-page pitch when none of the page's detected gaps fit
+the issue-pitch acceptance window — the cluster test in
+`_maybe_adopt_page_pitch` (CV < 0.10, ≥4 gaps, ≥25% off ref pitch).
+On adoption, R3 is *not* used for `num_cols` or grid centre — the
+detected boundary span is, since R3 is exactly what's unreliable on
+these pages. Trigger case: an embedded landscape scan placed
+full-width on a portrait PDF (R3 inflates to the full page, but
+real content sits in a narrow band). Standard pages are
+unaffected — the adoption block only fires when the issue-pitch
+window finds zero usable gaps.
+
 ---
 
 ### 10. Multi-strip consensus (retired — folded into `column_pipeline`)
@@ -386,8 +398,48 @@ threshold was empirically calibrated on the 1878–1965 sample corpus.
 genuinely empty (all-photo, all-ad with no text) survives — by design,
 since middle columns are presumed to be content even when dark.
 
-**Production suitability:** Keep. Cheap insurance against a recurring
-failure mode.
+**Production suitability:** Keep. Cheap insurance — runs in Phase A
+before extraction, so phantoms are dropped before any per-column
+detector wastes work on them.
+
+---
+
+### 14b. Edge-column multi-signal validation (v2)
+
+**File:** `validate_columns.py`, `validate_columns_v2()` — invoked from
+`process_issue.py` after `detect_body_text` and `detect_headlines`.
+**DPI:** n/a (operates on detection outputs)
+
+**What:** Drops an edge column when it independently fails *every*
+positive content signal:
+  - `body_height_pct < 20` (sum of body-text region heights in the
+    column, as % of page height)
+  - max ad horizontal-overlap fraction `< 0.30`
+  - max headline horizontal-overlap fraction `< 0.30`
+Iterates from each end (cap 4 passes) so a wide phantom margin with
+multiple stacked phantom "columns" is fully removed. When a column
+is dropped, `process_issue` re-extracts PNGs against the new
+boundaries, filters and renumbers per-column data in
+`page_analysis.json` (`body_text`, `body_text_charts`, `h_rules`,
+`large_type`), and tags the page with `col_v2_drop_left/right`
+quality flags.
+
+**Signal:** A real column hits at least one positive content signal —
+body, ad, or headline. An empty-margin "column" hits none.
+
+**Why both v1 and v2:** v1 (#14a) is cheap and runs pre-extraction,
+saving downstream work on the obvious phantoms. v2 is the safety net
+for phantoms that *have* ink (scan bleed, edge ruling) but no real
+content. Threshold rationale: 1947-01-09 p1's phantom edges sat at
+4.5–11.3% body height; real columns at ~51%. The 20% cut-off
+separates them cleanly.
+
+**Edge-only by design** (same as v1): an interior near-empty column
+is more likely a real column with sparse content than a segmentation
+error.
+
+**Production suitability:** Keep. Caught residual phantoms that
+slipped past v1 and grid projection.
 
 ---
 
@@ -529,7 +581,8 @@ defence against single-page detection failures.
 | 11 | Grid projection from interior | **Keep** | Primary outer-edge method |
 | 12 | Narrow column merging | **Keep, make adaptive** | Cleanup step |
 | 13 | Best-grid selection (combinatorial) | **Keep — last resort** | Confidence weighting is a refinement |
-| 14 | Edge-column ink validation | **Keep** | Cheap insurance |
+| 14a | Edge-column ink validation (v1) | **Keep** | Pre-extraction phantom drop |
+| 14b | Edge-column multi-signal validation (v2) | **Keep** | Post-detection phantom drop (body/ad/headline) |
 | 15 | Page-2 editorial template | **Keep** | Template #1 of an extensible system |
 | 16 | Multi-column headline (gutter-fill) | **Keep** | Pair with single-column headline detection later |
 | 17 | Body-text rhythm (300 DPI) | **Keep** | Higher DPI cost is justified |
@@ -570,6 +623,33 @@ This file is meant to evolve. When a strategy is added, retired, or
 materially changed, append a dated note here so the catalogue's drift is
 auditable.
 
+- **2026-04-27 — Validator v2 + page-pitch adoption for anomaly
+  pages.** Two complementary changes against the
+  empty-edge-column failure mode:
+  1. **`validate_columns_v2`** (strategy #14b) runs after
+     `detect_body_text` and `detect_headlines`. Drops an edge
+     column only if it fails all three positive signals
+     (body_height_pct < 20, ad_overlap < 0.30, hl_overlap < 0.30).
+     Iterative edge peeling, 4-pass cap. `process_issue` re-extracts
+     PNGs and renumbers per-column data when a drop fires; tags the
+     page with `col_v2_drop_left/right` flags. Edge-only by design.
+  2. **Page-pitch adoption in `place_standard`** (strategy #9
+     refinement). When the issue-pitch acceptance window finds no
+     usable gaps, check whether this page's detected gaps form a
+     coherent grid at a different pitch (`_maybe_adopt_page_pitch`:
+     CV < 0.10, ≥4 gaps, ≥25% off ref pitch). On adoption, derive
+     `num_cols` and grid centre from the detected boundary span —
+     not R3, which is exactly what's unreliable on these pages.
+     Trigger: embedded landscape scan placed full-width on a
+     portrait PDF (1947-01-09 p1 is the canonical case — R3 inflates
+     to 93.5%, but content sits at 38.7-73.5%). Without this, even
+     v2 can't fully recover: the issue-pitch grid stamps too many
+     phantom columns, and v2's 4-pass cap leaves residue.
+  Verification: 1947-01-09 p1 went from 12 phantom-heavy columns
+  spanning 11-77% to 6 columns at 38.84-71.72%, aligning to
+  detected boundaries within 0.13%. All other 1947-01-09 pages
+  byte-identical pre/post (the adoption block only fires when the
+  issue-pitch window finds zero gaps).
 - **2026-04-27 — `process_issue` pipeline split: place → reconcile →
   detect.** Restructures the per-page work in `process_issue.py` into
   three explicit phases:
