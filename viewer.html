@@ -119,12 +119,12 @@ function renderDetails(issues) {
 
             const url = `${BASE}/${issue.dir}/p${pg.page}/page_raw.png`;
             const viewerUrl = `page_viewer.html?issue=${issue.dir}&page=${pg.page}`;
-            const overlayHtml = `<a href="${viewerUrl}" target="_blank"><img class="thumb thumb-wide" src="${url}" loading="lazy"></a>
+            const overlayHtml = `<a href="${viewerUrl}" target="_blank"><img class="thumb thumb-wide" src="${url}" loading="lazy" onerror="retryImg(this)"></a>
                 <a href="${viewerUrl}" target="_blank" style="display:inline-block;margin-left:8px;font-size:0.8em;color:#4488ff;text-decoration:none">Open inspector →</a>`;
 
             const colsHtml = pg.col_files.map(cf => {
                 const url = `${BASE}/${issue.dir}/p${pg.page}/${cf}`;
-                return `<a href="${url}" target="_blank"><img class="thumb" src="${url}" loading="lazy"></a>`;
+                return `<a href="${url}" target="_blank"><img class="thumb" src="${url}" loading="lazy" onerror="retryImg(this)"></a>`;
             }).join('');
 
             return `<details>
@@ -140,7 +140,7 @@ function renderDetails(issues) {
         if (issue.ads.length > 0) {
             const adThumbs = issue.ads.map(ad => {
                 const url = `${BASE}/${issue.dir}/ads/p${ad.page}/${ad.file}`;
-                return `<a href="${url}" target="_blank"><img class="thumb" src="${url}" loading="lazy"></a>`;
+                return `<a href="${url}" target="_blank"><img class="thumb" src="${url}" loading="lazy" onerror="retryImg(this)"></a>`;
             }).join('');
             adsHtml = `<details class="ads-section">
                 <summary>Display Ads (${issue.ads.length})</summary>
@@ -190,6 +190,18 @@ function setAllDetails(name, open) {
     document.querySelectorAll('#detail-' + name + ' details').forEach(d => {
         d.open = open;
     });
+}
+
+// Retry images that fail to load (mobile browsers don't auto-retry transient failures).
+// Up to 3 attempts with exponential backoff and a cache-buster so any cached 4xx is bypassed.
+function retryImg(img) {
+    const tries = parseInt(img.dataset.retryTries || '0', 10);
+    if (tries >= 3) return;
+    img.dataset.retryTries = tries + 1;
+    const base = (img.dataset.retryBase ||= img.src.split('?')[0]);
+    setTimeout(() => {
+        img.src = base + '?r=' + Date.now();
+    }, 400 * Math.pow(2, tries));  // 400ms, 800ms, 1600ms
 }
 
 function applyDeepLink() {
