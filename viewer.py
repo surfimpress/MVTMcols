@@ -41,8 +41,8 @@ def generate_viewer(columns_dir="columns", output_path="viewer.html",
             cols = sorted(glob.glob(f"{page_dir}/*_col*.png"))
             n_cols += len(cols)
 
-            # Check overlay
-            overlay = os.path.exists(os.path.join(page_dir, "overlay.png"))
+            # page_raw.png is universally present after a page is processed
+            has_page_raw = os.path.exists(os.path.join(page_dir, "page_raw.png"))
 
             page_data.append({
                 "page": pn,
@@ -50,7 +50,7 @@ def generate_viewer(columns_dir="columns", output_path="viewer.html",
                 "cv": pg["cv"],
                 "widths": pg["widths"],
                 "flags": pg.get("quality_flags", []),
-                "has_overlay": overlay,
+                "has_page_raw": has_page_raw,
                 "col_files": [os.path.basename(c) for c in cols],
             })
 
@@ -176,13 +176,15 @@ details.ads-section summary { background: #f8f5ee; }
     <summary>Page {pn} ({page_type}) &mdash; {pg['num_columns']} cols [{widths_str}] {cv_str} {flags_html}</summary>
     <div class="page-content">""")
 
-            # Overlay
-            if pg["has_overlay"]:
-                overlay_url = f"{base_url}/columns/{issue['dir']}/p{pn}/overlay.png"
+            # Page-raw thumbnail + inspector link
+            if pg["has_page_raw"]:
+                raw_url = f"{base_url}/columns/{issue['dir']}/p{pn}/page_raw.png"
+                viewer_url = f"page_viewer.html?issue={issue['dir']}&page={pn}"
                 html.append(f"""
-      <a href="{overlay_url}" target="_blank">
-        <img class="thumb thumb-wide" src="{overlay_url}" alt="Page {pn} overlay" loading="lazy">
-      </a>""")
+      <a href="{viewer_url}" target="_blank">
+        <img class="thumb thumb-wide" src="{raw_url}" alt="Page {pn}" loading="lazy">
+      </a>
+      <a href="{viewer_url}" target="_blank" style="display:inline-block;margin-left:8px;font-size:0.8em;color:#4488ff;text-decoration:none">Open inspector &rarr;</a>""")
 
             # Column thumbnails
             if pg["col_files"]:

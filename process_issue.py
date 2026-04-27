@@ -846,7 +846,7 @@ def _update_viewer_data(db_path, columns_dir):
             page_dir = os.path.join(columns_dir, f"{year}-{month:02d}-{day:02d}", f"p{page}")
             col_files = sorted(f for f in os.listdir(page_dir)
                               if "_col" in f and f.endswith(".png")) if os.path.exists(page_dir) else []
-            has_overlay = os.path.exists(os.path.join(page_dir, "overlay.png")) if os.path.exists(page_dir) else False
+            has_page_raw = os.path.exists(os.path.join(page_dir, "page_raw.png")) if os.path.exists(page_dir) else False
 
             # Get geometry for this page
             geom = conn.execute("""
@@ -869,7 +869,7 @@ def _update_viewer_data(db_path, columns_dir):
                 "flags": flags,
                 "confidence": conf,
                 "col_files": col_files,
-                "has_overlay": has_overlay,
+                "has_page_raw": has_page_raw,
                 "r2": r2,
                 "r3": r3,
                 "text_area": text_area,
