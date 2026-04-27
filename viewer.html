@@ -20,6 +20,10 @@ h1 { font-size: 1.8em; margin-bottom: 5px; }
 .thumb { max-width: 120px; border: 1px solid #ddd; border-radius: 4px; }
 .thumb-wide { max-width: 300px; }
 .thumb-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.cols-row { display: flex; flex-wrap: nowrap; gap: 6px; align-items: flex-start; width: 100%; }
+.cols-row a { flex: 1 1 0; min-width: 0; display: block; }
+.cols-row img { width: 100%; height: auto; max-width: none; display: block; }
+.cols-row a:hover img { transform: none; }
 .flag { display: inline-block; background: #fff3cd; color: #856404; font-size: 0.75em; padding: 1px 6px; border-radius: 3px; margin-right: 4px; }
 .detail-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .expand-ctrl { font-size: 0.85em; color: #4488ff; }
@@ -127,7 +131,7 @@ function renderDetails(issues) {
                 <summary>Page ${pg.page} (${pg.page_type}) \u2014 ${pg.num_columns} cols [${widths}] ${conf} ${flags}</summary>
                 <div class="page-content">
                     ${overlayHtml}
-                    <div class="thumb-row" style="margin-top:8px">${colsHtml}</div>
+                    <div class="cols-row" style="margin-top:8px">${colsHtml}</div>
                 </div>
             </details>`;
         }).join('');
