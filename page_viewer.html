@@ -561,7 +561,7 @@ function updateOverlay() {
             ...((a && a.single_col_ads) || [])
         ];
         allAds.forEach(ad => {
-            if (ad.id == null || ad.x_pct == null) return;
+            if (ad.uuid == null || ad.x_pct == null) return;
             const ax = pctToX(ad.x_pct, w);
             const ay = pctToY(ad.y_pct, h);
             const aw = pctToX(ad.w_pct, w);
@@ -572,7 +572,7 @@ function updateOverlay() {
             s += `<text x="${ax + aw/2}" y="${ay + ah/2}"
                 text-anchor="middle" dominant-baseline="middle"
                 font-size="13" font-weight="bold"
-                fill="#7d3c98">#${ad.id}</text>`;
+                fill="#7d3c98">#${ad.uuid.slice(0, 6)}</text>`;
         });
     }
     // Body text regions

@@ -85,7 +85,7 @@ class PageResult:
 
 
 def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
-                    buffer_vw=BUFFER_VW, ads_with_ids=None):
+                    buffer_vw=BUFFER_VW, ads_with_uuids=None):
     """
     Extract each column as a PNG using the detected boundaries.
 
@@ -96,12 +96,12 @@ def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
 
     With N boundaries you get N-1 columns.
 
-    If ads_with_ids is provided (list of dicts with id, x_pct, y_pct,
-    x_end_pct, y_end_pct), each column PNG is written as RGBA with
-    the overlapping ad region punched out (alpha=0) and labelled with
-    the ad id at the centre of the clipped hole. The buffered crop
-    window is preserved so labels and holes line up with the visible
-    PNG content.
+    If ads_with_uuids is provided (list of dicts with uuid, x_pct,
+    y_pct, x_end_pct, y_end_pct), each column PNG is written as RGBA
+    with the overlapping ad region punched out (alpha=0) and labelled
+    with the first 6 chars of the ad uuid at the centre of the
+    clipped hole. The buffered crop window is preserved so labels and
+    holes line up with the visible PNG content.
 
     Returns list of ColumnResult.
     """
@@ -115,12 +115,12 @@ def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
     columns = []
     col_num = 0
 
-    ads_with_ids = ads_with_ids or []
+    ads_with_uuids = ads_with_uuids or []
 
     # Load font once for all columns. Arial 24pt is already used
     # elsewhere in the codebase for ad annotations.
     label_font = None
-    if ads_with_ids:
+    if ads_with_uuids:
         try:
             label_font = ImageFont.truetype(
                 "/System/Library/Fonts/Supplemental/Arial.ttf", 24)
@@ -162,7 +162,7 @@ def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
         col_filename = f"{stem}_col{col_num}.png"
         col_path = os.path.join(output_dir, col_filename)
 
-        if not ads_with_ids:
+        if not ads_with_uuids:
             # No ads: keep original opaque-PNG fast path.
             pix.save(col_path)
         else:
@@ -177,7 +177,7 @@ def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
             col_w_pct = crop_right - crop_left
             draw = ImageDraw.Draw(img)
 
-            for ad in ads_with_ids:
+            for ad in ads_with_uuids:
                 # Sliver guard: a real ad occupies ~the full column width
                 # or none of it. If the ad's intersection with this
                 # column (unbuffered) is less than half a column wide,
@@ -224,7 +224,7 @@ def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
                 cx = (ax1c + ax2c) // 2
                 cy = (ay1c + ay2c) // 2
                 draw.text(
-                    (cx, cy), f"#{ad['id']}",
+                    (cx, cy), f"#{ad['uuid'][:6]}",
                     fill=(80, 80, 80, 255),
                     font=label_font, anchor="mm",
                     stroke_width=1,

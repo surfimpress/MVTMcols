@@ -19,6 +19,7 @@ Usage:
 """
 
 import sqlite3
+import uuid
 from contextlib import closing
 
 import fitz
@@ -865,6 +866,7 @@ def extract_ad_images(pdf_path, ads, output_dir, page_number=0, dpi=450,
             **ad,
             "image_path": filepath,
             "image_filename": filename,
+            "uuid": str(uuid.uuid4()),
         })
     return results
 
@@ -875,6 +877,7 @@ def init_ads_table(db_path):
         conn.execute("""
             CREATE TABLE IF NOT EXISTS detected_ads (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                uuid TEXT,
                 year INTEGER NOT NULL,
                 month INTEGER NOT NULL,
                 day INTEGER NOT NULL,
@@ -897,42 +900,46 @@ def init_ads_table(db_path):
             CREATE INDEX IF NOT EXISTS idx_detected_ads_issue
                 ON detected_ads(year, month, day)
         """)
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_detected_ads_uuid
+                ON detected_ads(uuid)
+        """)
 
 
 def store_ads(db_path, year, month, day, page, ads_with_images):
     """
     Store detected ads in SQLite.
 
+    Each ad dict must already carry a `uuid` (assigned in
+    `extract_ad_images`). The integer auto-increment `id` is also
+    populated by SQLite but no longer surfaced — workers identify
+    ads by `uuid`, the parallel-pipeline-safe handle that doesn't
+    require a DB round-trip to learn.
+
     Args:
         db_path:          Path to the SQLite database.
         year, month, day: Issue date.
         page:             Page number.
         ads_with_images:  List of ad dicts (from extract_ad_images).
-
-    Returns:
-        List of inserted detected_ads.id values, in the same order
-        as ads_with_images.
     """
     init_ads_table(db_path)
-    ids = []
     with closing(sqlite3.connect(db_path)) as conn, conn:
         cur = conn.cursor()
         for ad in ads_with_images:
             cur.execute("""
                 INSERT INTO detected_ads
-                (year, month, day, page, x_pct, y_pct, w_pct, h_pct,
+                (uuid, year, month, day, page, x_pct, y_pct, w_pct, h_pct,
                  x_end_pct, y_end_pct, rect_ratio, aspect, cols,
                  confidence, image_filename)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
+                ad["uuid"],
                 year, month, day, page,
                 ad["x_pct"], ad["y_pct"], ad["w_pct"], ad["h_pct"],
                 ad["x_end_pct"], ad["y_end_pct"],
                 ad.get("rect_ratio"), ad.get("aspect"), ad.get("cols"),
                 ad.get("confidence"), ad.get("image_filename"),
             ))
-            ids.append(cur.lastrowid)
-    return ids
 
 
 if __name__ == "__main__":
