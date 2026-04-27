@@ -117,3 +117,44 @@ class DirectDBWriter(DBWriter):
 
     def record_geometry(self, year, month, day, page, profile):
         self._layout_db.record_geometry(year, month, day, page, profile)
+
+
+class ProxyDBWriter(DBWriter):
+    """Worker-side writer: forwards every call to a coordinator queue.
+
+    Used by workers in the parallel batch pipeline. Each method packages
+    its arguments into a tuple `(method_name, args)` and puts it on the
+    queue. A coordinator thread in the parent process drains the queue
+    and dispatches each message to a `DirectDBWriter` — which is the
+    sole owner of the writing connection.
+
+    Pure fan-in. No reply queue; workers never block on the DB. The
+    queue itself is unbounded so `put()` never blocks either.
+
+    The method-name strings here are the wire format. They must match
+    the public method names on `DirectDBWriter` exactly — the
+    coordinator dispatches via `getattr(direct_writer, method_name)`.
+    """
+
+    def __init__(self, req_queue):
+        self._q = req_queue
+
+    def delete_issue_ads(self, year, month, day):
+        self._q.put(("delete_issue_ads", (year, month, day)))
+
+    def delete_issue_layouts(self, year, month, day):
+        self._q.put(("delete_issue_layouts", (year, month, day)))
+
+    def store_ads(self, year, month, day, page, ads_with_uuids):
+        self._q.put(("store_ads", (year, month, day, page, ads_with_uuids)))
+
+    def record_layout(self, year, month, day, page, num_columns,
+                      boundary_positions, quality_flags, confidence):
+        self._q.put((
+            "record_layout",
+            (year, month, day, page, num_columns,
+             boundary_positions, quality_flags, confidence),
+        ))
+
+    def record_geometry(self, year, month, day, page, profile):
+        self._q.put(("record_geometry", (year, month, day, page, profile)))

@@ -6,3 +6,7 @@ __pycache__/
 *.archive
 columns/
 screenshots/
+
+# SQLite WAL sidecar files (created when journal_mode=WAL is enabled)
+*.db-wal
+*.db-shm
