@@ -693,6 +693,7 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
                 analysis.get("body_text", []),
                 ads_for_v2,
                 analysis.get("headlines", []),
+                text_area=prof.get("text_area"),
             )
             if dropped_idx:
                 original_n = len(final) - 1
