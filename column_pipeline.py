@@ -400,15 +400,18 @@ def place_standard(boundaries, ctx):
     # gaps from doubled gaps (missed boundaries).
     ref_pitch = ctx.pitch
     page_gaps = []
+    all_gaps = []
     if len(boundaries) >= 2:
         positions = sorted(b["x_pct"] for b in boundaries)
         for i in range(len(positions) - 1):
             g = positions[i + 1] - positions[i]
+            all_gaps.append(g)
             if ref_pitch * 0.7 < g < ref_pitch * 1.4:
                 page_gaps.append(g)
             elif ref_pitch * 1.4 <= g < ref_pitch * 2.5:
                 page_gaps.append(g / 2)
 
+    page_pitch_adopted = False
     if len(page_gaps) >= 3:
         # Remove outliers: reject gaps more than 1.5 IQR from median
         q1 = float(np.percentile(page_gaps, 25))
@@ -419,7 +422,43 @@ def place_standard(boundaries, ctx):
     elif page_gaps:
         pitch = round(float(np.median(page_gaps)), 2)
     else:
-        pitch = ref_pitch
+        # No gaps fit the issue-pitch acceptance window. Before falling
+        # back to ref_pitch, check whether the page's detected gaps
+        # form a coherent grid at a *different* pitch.
+        #
+        # This is the anomaly path: pages where the actual content has
+        # been compressed into part of the page (e.g. a landscape scan
+        # placed in a portrait PDF), so the per-page pitch in universal
+        # %-of-page coords is significantly smaller (or larger) than the
+        # issue's typical pitch. Pass 1's detected boundaries are
+        # correct in absolute % terms; we should honour them rather
+        # than stamp the issue grid over whitespace.
+        #
+        # Adoption rule: at least 4 gaps, tightly clustered (CV < 0.10),
+        # and the cluster pitch is at least ~25% off the ref pitch (if
+        # it's close, the existing window would have caught it). When
+        # adopted, recompute num_cols from the page's R3 width.
+        adopted = _maybe_adopt_page_pitch(all_gaps, ref_pitch)
+        if adopted is not None:
+            pitch = adopted
+            page_pitch_adopted = True
+            # On adoption, R3 is unreliable as a content extent (the
+            # whole reason we're here is that the issue grid doesn't
+            # fit, typically because R3 was inflated by an embedded
+            # scan placed full-width on a portrait page). Trust the
+            # detected boundaries' span as the content band, and
+            # derive the column count from it.
+            det_left = float(min(positions))
+            det_right = float(max(positions))
+            det_span = max(pitch, det_right - det_left)
+            num_cols = max(2, int(round(det_span / pitch)))
+            n_boundaries = num_cols + 1
+            print(f"  P{ctx.gazette_page}: page-pitch adopted "
+                  f"({pitch}% vs issue {ref_pitch}%), "
+                  f"num_cols={num_cols} from detected span "
+                  f"{det_left:.2f}-{det_right:.2f}")
+        else:
+            pitch = ref_pitch
 
     # ── Alignment targets ─────────────────────────────────────────
     # Detected boundaries are the primary signal for grid positioning.
@@ -444,9 +483,20 @@ def place_standard(boundaries, ctx):
         targets.append((pos, weight))
 
     # ── Build candidate grids ─────────────────────────────────────
-    # Start from the centre of R2, try offsets from -pitch/2 to +pitch/2
-    # in small steps. Score each grid against the targets.
-    r2_center = (ctx.r3_left + ctx.r3_right) / 2
+    # Start from the centre of the content band, try offsets from
+    # -pitch/2 to +pitch/2 in small steps. Score each grid against the
+    # targets.
+    #
+    # Content band defaults to R3, but on the page-pitch-adopted path
+    # R3 is the wrong extent (see adoption block above), so use the
+    # detected boundary span as the band instead.
+    if page_pitch_adopted:
+        content_left = det_left
+        content_right = det_right
+    else:
+        content_left = ctx.r3_left
+        content_right = ctx.r3_right
+    grid_center = (content_left + content_right) / 2
     half_span = (n_boundaries // 2) * pitch
 
     best_grid = None
@@ -456,23 +506,23 @@ def place_standard(boundaries, ctx):
     for step in range(100):
         offset = -pitch / 2 + pitch * step / 100
 
-        # Build grid centred on R2 centre + offset
-        center = r2_center + offset
+        # Build grid centred on content centre + offset
+        center = grid_center + offset
         grid = []
         for i in range(n_boundaries):
             pos = center - half_span + i * pitch
             grid.append(round(pos, 2))
 
-        # Constrain to R3, but allow the binding side to extend
-        # slightly past R3 — the last column on the binding side
-        # is often narrowed by page curvature into the spine.
+        # Constrain to the content band, but allow the binding side
+        # to extend slightly past it — the last column on the binding
+        # side is often narrowed by page curvature into the spine.
         bind_slack = pitch * 0.5
         if ctx.binding_side == "left":
-            left_limit = ctx.r3_left - bind_slack
-            right_limit = ctx.r3_right
+            left_limit = content_left - bind_slack
+            right_limit = content_right
         else:
-            left_limit = ctx.r3_left
-            right_limit = ctx.r3_right + bind_slack
+            left_limit = content_left
+            right_limit = content_right + bind_slack
         grid = [g for g in grid if left_limit <= g <= right_limit]
         if len(grid) < 3:
             continue
@@ -498,6 +548,62 @@ def place_standard(boundaries, ctx):
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _maybe_adopt_page_pitch(all_gaps, ref_pitch,
+                            min_gaps=4, max_cv=0.10, min_offset_frac=0.25):
+    """
+    Decide whether the page's detected gaps form a coherent grid at a
+    pitch significantly different from the issue's reference pitch,
+    and return that pitch if so.
+
+    Used when the issue-pitch acceptance window in `place_standard`
+    finds no usable gaps — typically pages with anomalous scan
+    geometry where the universal-coordinate pitch is genuinely
+    different from the issue norm.
+
+    Args:
+        all_gaps:         every gap between adjacent detected boundaries
+                          (no window filter)
+        ref_pitch:        the issue-wide reference pitch
+        min_gaps:         require at least this many gaps in the cluster
+                          (4 = enough for a 5-column grid, the smallest
+                          case worth trusting)
+        max_cv:           coefficient of variation threshold; tighter
+                          clusters look more like a real grid than noise
+        min_offset_frac:  cluster median must be at least this fraction
+                          off ref_pitch (otherwise the original window
+                          would have caught it)
+
+    Returns:
+        adopted pitch (rounded to 2 dp), or None if no coherent
+        alternative cluster was found.
+    """
+    if len(all_gaps) < min_gaps:
+        return None
+
+    # Tightest cluster around the median gap. We don't try to find a
+    # "best" cluster among multiple modes — anomaly pages observed so
+    # far have a single dominant per-page pitch.
+    arr = np.asarray(all_gaps, dtype=float)
+    med = float(np.median(arr))
+    if med <= 0:
+        return None
+    near = arr[np.abs(arr - med) < 0.20 * med]
+    if len(near) < min_gaps:
+        return None
+    mean = float(near.mean())
+    if mean <= 0:
+        return None
+    cv = float(near.std()) / mean
+    if cv > max_cv:
+        return None
+    if abs(mean - ref_pitch) < min_offset_frac * ref_pitch:
+        # Close enough to ref_pitch that the existing window would have
+        # caught it; if it didn't, the gaps are likely too noisy to
+        # trust as a grid.
+        return None
+    return round(mean, 2)
+
 
 def _boundaries_from_positions(positions):
     """Convert a list of x_pct positions to boundary dicts."""
