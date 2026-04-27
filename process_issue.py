@@ -539,6 +539,7 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         ctx = layout['ctx']
         final = layout['final']
         quality_flags = list(layout.get('quality_flags', []))
+        page_t0 = time.time()
 
         # Extract columns
         page_out = os.path.join(output_dir, f"p{page_num}")
@@ -759,7 +760,8 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         cv, _, nc = _score_regularity(result)
         widths = " ".join(f"{c.width_vw:.0f}%" for c in result.columns)
         p2_note = " [P2 editorial]" if ctx.is_page_2 and ctx.page_2_template else ""
-        print(f"  P{page_num}: {nc}c [{widths}] CV={cv:.3f}{p2_note}")
+        page_dt = time.time() - page_t0
+        print(f"  P{page_num}: {nc}c [{widths}] CV={cv:.3f}{p2_note} ({page_dt:.1f}s)")
 
         pass1_results.append((page_num, result, prof))
 
