@@ -599,6 +599,60 @@ auditable.
   `page_geometry` (excluding `id`/`uuid`/`created_at`). 4-issue ×
   4-worker stress run completed clean. Wall time on 2 issues: 31.9s
   parallel vs 57.3s serial (1.79× on 2 workers).
+- **2026-04-27 — `mvtm` CLI walking skeleton + `hand_edited` write-path
+  respect.** Refactor 1 Part 2 first three commits land:
+  1. `mvtm_cli.py` introduces an LLM-facing umbrella CLI. Uniform
+     JSON envelope `{ok, command, transaction_id, result, errors}`
+     on stdout (compact), human progress logs on stderr. Frozen
+     error codes: `validation_error`, `not_found`, `pipeline_error`,
+     `would_clobber_hand_edit`. Per-stage CLIs (`split_page.py`,
+     `detect_ads.py`, …) remain as human diagnostic tools and are
+     not affected.
+  2. `mvtm show <Y> <M> <D> <page>` — read-only inspection of one
+     page (layout, geometry, ads, headlines/body_text/h_rules/
+     large_type, file pointers). Chart-heavy keys
+     (`profile_chart`, `composite_profile`, `strip_profiles`,
+     `headline_chart`, `body_text_charts`, per-headline
+     `row_chart`/`col_charts`) are excluded — viewer-only data.
+     Add `--include-charts` if a real consumer surfaces.
+  3. `mvtm recompute-layers <Y> <M> <D> <page> [--layers L,L]` —
+     re-runs the post-detection layers (`headlines`, `body_text`)
+     for one page and splices the regenerated keys into
+     `page_analysis.json` without perturbing other keys. Reproduces
+     `process_issue.py:559-602` exactly: same kwargs, same
+     conditional-set pattern (so `headline_chart=null` round-trips).
+     `ad_zones` reconstructed from DB ads via
+     `get_ad_exclusion_zones`. PDF must already be cached at
+     `/tmp/issue_<date>/<file>.pdf`; otherwise `not_found`. No DB
+     writes. The shared-functions principle is load-bearing — if
+     `process_issue`'s detector kwargs change, this CLI must change
+     in the same commit.
+  4. **Migration 002** adds `hand_edited INTEGER DEFAULT 0` to
+     `page_layouts`, `detected_ads`, and `page_geometry`, plus a
+     new `cli_history(id, ts, command, table_name, row_key_json,
+     before_json, after_json)` audit table. `cli_history.py`
+     provides a `record_change()` helper (groundwork — no caller
+     yet, lands with the first mutator).
+  5. **`DirectDBWriter` is the seam for hand-edit respect.**
+     `delete_issue_layouts`/`delete_issue_ads` scope their DELETEs
+     with `AND hand_edited=0`; `record_layout`/`record_geometry`
+     short-circuit if a hand-edited row exists at the same
+     `(year, month, day, page)` key. Skip events print a
+     `[skip P3 layout delete: hand-edited]` line each. Ads are
+     preserved-with-coexistence: hand-edited ads survive the
+     issue wipe but fresh detections still insert (distinct uuids).
+     The duplicate-on-the-page risk is accepted until an LLM
+     mutator pattern emerges that addresses it (uuid-based update
+     vs full re-detect). `process_issue` itself is unchanged — the
+     skip logic lives entirely in the writer.
+  Verification: serial-vs-parallel byte-identical smoke test (2
+  issues, 71 ads / 16 layouts / 16 geometry rows) still passes
+  after the writer change. Manual hand-edit test on
+  `1947-11-06 P3`: bogus `(num_columns=99, confidence=0.42,
+  hand_edited=1)` row preserved across a fresh `process_issue`
+  run; reset to `hand_edited=0` and re-run overwrites correctly.
+  `mvtm show` reflects `layout.hand_edited == true` for the
+  flagged row.
 - **2026-04-26 — Refactor-1 Part 1: split_page CLI drift eliminated.**
   `split_page.py`'s parallel column-detection (`_detect_consensus`,
   `_project_grid_edges`, `_remove_narrow_columns`, `_select_best_grid`,

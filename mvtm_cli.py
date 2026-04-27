@@ -135,7 +135,7 @@ def _fetch_layout(conn, year, month, day, page):
         "widths_pct": json.loads(d["column_widths"]),
         "quality_flags": json.loads(d["quality_flags"] or "[]"),
         "confidence": d["confidence"],
-        "hand_edited": False,  # column lands in commit 3
+        "hand_edited": bool(d.get("hand_edited")),
     }
 
 
@@ -159,14 +159,14 @@ def _fetch_geometry(conn, year, month, day, page):
         "text_left_pct": d["text_left"],
         "text_right_pct": d["text_right"],
         "binding_side": d["binding_side"],
-        "hand_edited": False,  # column lands in commit 3
+        "hand_edited": bool(d.get("hand_edited")),
     }
 
 
 def _fetch_ads(conn, year, month, day, page):
     cur = conn.execute(
         "SELECT uuid, x_pct, y_pct, w_pct, h_pct, x_end_pct, y_end_pct, "
-        "rect_ratio, aspect, cols, confidence, image_filename "
+        "rect_ratio, aspect, cols, confidence, image_filename, hand_edited "
         "FROM detected_ads WHERE year=? AND month=? AND day=? AND page=? "
         "ORDER BY y_pct, x_pct",
         (year, month, day, page),
@@ -174,7 +174,7 @@ def _fetch_ads(conn, year, month, day, page):
     out = []
     for r in cur.fetchall():
         d = _row_to_dict(cur, r)
-        d["hand_edited"] = False  # column lands in commit 3
+        d["hand_edited"] = bool(d.pop("hand_edited"))
         out.append(d)
     return out
 
