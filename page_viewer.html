@@ -164,7 +164,7 @@ h3 { font-size: 0.95em; margin: 15px 0 8px; color: #aaa; text-transform: upperca
 <div class="sidebar" id="sidebar">
     <div class="sidebar-section">
         <div class="header-row">
-            <a class="back-link" href="viewer.html">← Back</a>
+            <a class="back-link" id="back-link" href="viewer.html">← Back</a>
             <h2 id="page-title">Loading...</h2>
             <button class="dock-btn" id="dock-btn" title="Toggle panel position">▼ Bottom</button>
         </div>
@@ -195,6 +195,9 @@ const BASE = '/MVTM/columns';
 const params = new URLSearchParams(window.location.search);
 const issueDir = params.get('issue');
 const pageNum = parseInt(params.get('page') || '1');
+if (issueDir) {
+    document.getElementById('back-link').href = `viewer.html?issue=${issueDir}`;
+}
 
 // Layer definitions — numbered to match pipeline processing order.
 const LAYERS = [
@@ -349,8 +352,7 @@ async function init() {
             <span>Type:</span> <span class="info-val">${pageData.page_type}</span><br>
             <span>Columns:</span> <span class="info-val">${pageData.num_columns} [${widths}]</span><br>
             <span>Confidence:</span> <span class="info-val">${pageData.confidence || '—'}</span><br>
-            <span>Ads:</span> <span class="info-val">${nAds}</span><br>
-            <span>Pitch:</span> <span class="info-val">${issueData.pitch || '?'}%</span>`;
+            <span>Ads:</span> <span class="info-val">${nAds}</span>`;
 
         const layersEl = document.getElementById('layers');
         const savedLayers = JSON.parse(localStorage.getItem('layerState') || '{}');

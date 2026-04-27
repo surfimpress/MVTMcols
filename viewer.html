@@ -21,6 +21,14 @@ h1 { font-size: 1.8em; margin-bottom: 5px; }
 .thumb-wide { max-width: 300px; }
 .thumb-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .flag { display: inline-block; background: #fff3cd; color: #856404; font-size: 0.75em; padding: 1px 6px; border-radius: 3px; margin-right: 4px; }
+.detail-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.expand-ctrl { font-size: 0.85em; color: #4488ff; }
+.expand-ctrl a { color: #4488ff; cursor: pointer; text-decoration: none; }
+.expand-ctrl a:hover { text-decoration: underline; }
+.issue-nav { margin-top: 20px; padding-top: 12px; border-top: 1px solid #eee; display: flex; justify-content: space-between; font-size: 0.9em; }
+.issue-nav a { color: #4488ff; text-decoration: none; cursor: pointer; }
+.issue-nav a:hover { text-decoration: underline; }
+.issue-nav .placeholder { color: #ccc; }
 a img { transition: transform 0.15s; }
 a img:hover { transform: scale(1.05); }
 details { margin-bottom: 10px; border: 1px solid #eee; border-radius: 6px; }
@@ -76,7 +84,6 @@ function renderList(issues) {
             <h2>${date}</h2>
             <div class="stats">
                 ${issue.n_pages} pages \u2022
-                ${issue.pitch || '?'}% pitch \u2022
                 ${issue.n_cols} columns \u2022
                 ${issue.n_ads} ads
                 ${lastRan ? '\u2022 ran ' + lastRan : ''}
@@ -87,8 +94,17 @@ function renderList(issues) {
 
 function renderDetails(issues) {
     const container = document.getElementById('details-container');
-    container.innerHTML = issues.map(issue => {
+    container.innerHTML = issues.map((issue, idx) => {
         const date = `${issue.year}-${String(issue.month).padStart(2,'0')}-${String(issue.day).padStart(2,'0')}`;
+        const prev = issues[idx - 1];
+        const next = issues[idx + 1];
+        const fmtDate = i => `${i.year}-${String(i.month).padStart(2,'0')}-${String(i.day).padStart(2,'0')}`;
+        const prevLink = prev
+            ? `<a onclick="gotoIssue('${issue.dir}','${prev.dir}')">\u2190 ${fmtDate(prev)}</a>`
+            : `<span class="placeholder">\u2190 (first issue)</span>`;
+        const nextLink = next
+            ? `<a onclick="gotoIssue('${issue.dir}','${next.dir}')">${fmtDate(next)} \u2192</a>`
+            : `<span class="placeholder">(last issue) \u2192</span>`;
 
         const pagesHtml = issue.pages.map(pg => {
             const widths = pg.widths.map(w => Math.round(w) + '%').join(' ');
@@ -129,15 +145,22 @@ function renderDetails(issues) {
         }
 
         return `<div class="issue-detail" id="detail-${issue.dir}">
-            <a class="back-btn" onclick="hideIssue('${issue.dir}')">\u2190 Back to list</a>
+            <div class="detail-header">
+                <a class="back-btn" onclick="hideIssue('${issue.dir}')">\u2190 Back to list</a>
+                <span class="expand-ctrl">
+                    <a onclick="setAllDetails('${issue.dir}', true)">open all</a>
+                    |
+                    <a onclick="setAllDetails('${issue.dir}', false)">close all</a>
+                </span>
+            </div>
             <h2>${date}</h2>
             <p class="stats" style="margin-bottom:15px">
-                ${issue.pitch || '?'}% pitch \u2022
                 ${issue.n_cols} columns \u2022
                 ${issue.n_ads} ads
             </p>
             ${pagesHtml}
             ${adsHtml}
+            <div class="issue-nav">${prevLink}${nextLink}</div>
         </div>`;
     }).join('');
 }
@@ -145,13 +168,39 @@ function renderDetails(issues) {
 function showIssue(name) {
     document.getElementById('issue-list').style.display = 'none';
     document.getElementById('detail-' + name).classList.add('active');
+    history.replaceState(null, '', '?issue=' + name);
+    window.scrollTo(0, 0);
 }
 function hideIssue(name) {
     document.getElementById('detail-' + name).classList.remove('active');
     document.getElementById('issue-list').style.display = 'grid';
+    history.replaceState(null, '', window.location.pathname);
+}
+function gotoIssue(from, to) {
+    document.getElementById('detail-' + from).classList.remove('active');
+    document.getElementById('detail-' + to).classList.add('active');
+    history.replaceState(null, '', '?issue=' + to);
+    window.scrollTo(0, 0);
+}
+function setAllDetails(name, open) {
+    document.querySelectorAll('#detail-' + name + ' details').forEach(d => {
+        d.open = open;
+    });
 }
 
-init();
+function applyDeepLink() {
+    const params = new URLSearchParams(window.location.search);
+    const issue = params.get('issue');
+    if (issue) {
+        const el = document.getElementById('detail-' + issue);
+        if (el) {
+            document.getElementById('issue-list').style.display = 'none';
+            el.classList.add('active');
+        }
+    }
+}
+
+(async () => { await init(); applyDeepLink(); })();
 </script>
 </body>
 </html>
