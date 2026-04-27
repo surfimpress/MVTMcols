@@ -26,9 +26,10 @@ import numpy as np
 from split_page import PageResult, extract_columns, _save_metadata
 from page_profile import profile_page
 from detect_ads import (detect_ads, detect_single_col_ads,
-                        extract_ad_images, store_ads)
+                        extract_ad_images)
 from page_context import build_context
 from column_pipeline import detect_strips, cluster_boundaries, place_columns
+from db_writer import DBWriter, DirectDBWriter
 
 
 def download_issue(year, month, day, db_path="data/mvtm.db",
@@ -235,7 +236,8 @@ def _establish_pitch(pass1_results):
 
 
 def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
-                  download_dir=None, dpi=450):
+                  download_dir=None, dpi=450, writer: DBWriter = None,
+                  skip_aggregates: bool = False):
     """
     Process all pages of an issue with two-pass pitch establishment.
 
@@ -245,14 +247,25 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     Args:
         year, month, day: Issue date
         output_dir: Where to save column PNGs (default: columns/YYYY-MM-DD/)
-        db_path: SQLite database path
+        db_path: SQLite database path. Used for reads (build_context,
+                 _update_viewer_data) regardless of which writer is in use.
         download_dir: Where to cache downloaded PDFs
         dpi: Render resolution
+        writer: DBWriter instance for routing every write through. Default
+                None → a DirectDBWriter is constructed against db_path,
+                preserving standalone behaviour. The parallel batch driver
+                passes a ProxyDBWriter that fans writes into a coordinator.
+        skip_aggregates: When True, skip cross-issue aggregate steps
+                (compute_era_patterns, _update_viewer_data). The batch
+                driver runs these once at end-of-batch instead of per-issue.
 
     Returns:
         dict with pitch, num_columns, page_results, grounding_pages
     """
     t0 = time.time()
+
+    if writer is None:
+        writer = DirectDBWriter(db_path)
 
     if output_dir is None:
         output_dir = f"columns/{year}-{month:02d}-{day:02d}"
@@ -266,9 +279,7 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     print(f"  {len(pages)} pages downloaded")
 
     # ── Clean previous ad data for this issue ───────────────────────
-    with closing(sqlite3.connect(db_path)) as conn, conn:
-        conn.execute("DELETE FROM detected_ads WHERE year=? AND month=? AND day=?",
-                     (year, month, day))
+    writer.delete_issue_ads(year, month, day)
 
     # ── Ad detection (before column detection) ─────────────────────
     print("Detecting display ads...")
@@ -291,7 +302,7 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
             # writes the uuid to the DB. No round-trip needed — workers
             # in the parallel pipeline won't have to wait for SQLite to
             # assign auto-increment ids before continuing.
-            store_ads(db_path, year, month, day, page_num, ads_with_images)
+            writer.store_ads(year, month, day, page_num, ads_with_images)
             page_ads[page_num] = ads_with_images
             total_ads += len(ads)
             ad_desc = ", ".join(str(a["cols"]) + "col" for a in ads)
@@ -308,7 +319,7 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
             ad_out = os.path.join(ads_dir, f"p{page_num}")
             sc_with_images = extract_ad_images(pdf_path, sc_ads, ad_out,
                                                dpi=dpi, name_prefix="sc_ad")
-            store_ads(db_path, year, month, day, page_num, sc_with_images)
+            writer.store_ads(year, month, day, page_num, sc_with_images)
             page_single_col_ads[page_num] = sc_with_images
             print(f"  P{page_num}: {len(sc_ads)} single-col ads")
 
@@ -687,16 +698,8 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         print(f"\nPass 3: Fixed {outliers_fixed} left-edge outliers")
 
     # ── Store in database ──────────────────────────────────────────
-    from layout_intelligence import LayoutDB
-
-    db = LayoutDB(db_path)
-
     # Clean any previous data for this issue
-    with closing(sqlite3.connect(db_path)) as conn, conn:
-        conn.execute("DELETE FROM page_layouts WHERE year=? AND month=? AND day=?",
-                     (year, month, day))
-        conn.execute("DELETE FROM page_geometry WHERE year=? AND month=? AND day=?",
-                     (year, month, day))
+    writer.delete_issue_layouts(year, month, day)
 
     for page_num, result, prof in pass1_results:
         meta_path = os.path.join(output_dir, f"p{page_num}", "page_meta.json")
@@ -707,13 +710,17 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
             boundaries = [meta["columns"][0]["left_vw"]]
             boundaries += [col["right_vw"] for col in meta["columns"]]
             cv, _, _ = _score_regularity(result)
-            db.record_layout(year, month, day, page_num,
-                            result.num_columns, boundaries,
-                            result.quality_flags,
-                            round(1.0 / (1.0 + cv), 3))
-        db.record_geometry(year, month, day, page_num, prof)
+            writer.record_layout(year, month, day, page_num,
+                                 result.num_columns, boundaries,
+                                 result.quality_flags,
+                                 round(1.0 / (1.0 + cv), 3))
+        writer.record_geometry(year, month, day, page_num, prof)
 
-    db.compute_era_patterns()
+    if not skip_aggregates:
+        # compute_era_patterns is a cross-issue aggregate. The parallel
+        # batch driver runs it once at end-of-batch instead.
+        from layout_intelligence import LayoutDB
+        LayoutDB(db_path).compute_era_patterns()
 
     # ── Generate overlays ────────────────────────────────────────────
     print("\nGenerating overlays...")
@@ -780,7 +787,11 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     print("  Done")
 
     # ── Update viewer data ──────────────────────────────────────────
-    _update_viewer_data(db_path, "columns")
+    if not skip_aggregates:
+        # _update_viewer_data reads ALL issues from the DB to rebuild the
+        # listing JSON. The parallel batch driver runs it once at
+        # end-of-batch instead of per-issue.
+        _update_viewer_data(db_path, "columns")
 
     # ── Summary ──────────────────────────────────────────────────────
     elapsed = time.time() - t0
