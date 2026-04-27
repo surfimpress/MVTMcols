@@ -570,6 +570,38 @@ This file is meant to evolve. When a strategy is added, retired, or
 materially changed, append a dated note here so the catalogue's drift is
 auditable.
 
+- **2026-04-27 — `process_issue` pipeline split: place → reconcile →
+  detect.** Restructures the per-page work in `process_issue.py` into
+  three explicit phases:
+  1. **Pass 2 Phase A** — place columns + cheap edge ink validation
+     (`validate_edge_columns`). No PNG extraction, no body_text or
+     headline detection. Stores boundaries + context in
+     `page_layouts[page_num]`.
+  2. **Pass 3** — cross-page recto/verso left-edge reconciliation.
+     Updates boundaries in `page_layouts` only. The previous
+     implementation re-extracted PNGs and re-saved `page_meta.json`
+     here, which left `page_analysis.json` (already written from the
+     pre-pass-3 boundaries) inconsistent with the new layout. The
+     1947-batch artefact this caused: 1947-01-09 p1 had 6 body_text
+     charts on disk, but `page_layouts` and `page_meta.json` recorded
+     8 columns — a Frankenstein page where two of the eight columns
+     were phantom margin/scan-bleed.
+  3. **Pass 2 Phase C** — extract column PNGs, run
+     `detect_headlines` and `detect_body_text` on the **final**
+     boundaries, save `page_analysis.json`. Body-text charts and the
+     layout in `page_meta.json` / `page_layouts` are now guaranteed
+     consistent. This is the precondition for the body-text-aware
+     column validator (next commit) — without consistency, the
+     validator's signal would be operating on stale data.
+  No detection logic changed. DB output is byte-identical for clean
+  pages (1947-09-25, 1947-01-09 layouts verified). The only
+  observable difference is `page_analysis.json` content on
+  pass-3-outlier pages: charts now reflect the post-pass-3 layout.
+  Verification: 1947-01-09 p1 post-restructure has 8 charts (was 6),
+  with body counts 140/100/1380/1580/1560/1540/40/40 of 1747 — i.e.
+  cols 0,1,6,7 all <10% body; cols 2-5 all >75% body. The phantom-
+  margin signal the validator-v2 will key on is now visible in the
+  per-column body_count.
 - **2026-04-27 — Issue-level parallel batch driver + coordinator
   pattern.** Adds `archive.py` (`process_archive`) and `db_writer.py`
   (`DBWriter`/`DirectDBWriter`/`ProxyDBWriter`). Detection logic is

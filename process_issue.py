@@ -433,12 +433,20 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     if p2_template:
         print(f"  Page 2 editorial template: {p2_template['year_start']}-{p2_template['year_end']}")
 
-    # ── Pass 2: Place columns with established pitch ─────────────────
+    # ── Pass 2 Phase A: Place columns (per page, no extraction) ──────
     # Now we know the pitch, rebuild context for every page and run
     # placement. Detected boundaries from pass 1 are reused.
+    #
+    # Phase A is intentionally lightweight: place_columns + cheap edge
+    # validation. No PNG extraction and no body_text/headline detection
+    # happen here, because Pass 3 below may rewrite the boundaries to
+    # reconcile cross-page left-edge alignment. Doing detection here
+    # would bind body_text/headlines to pre-pass-3 boundaries that
+    # later disagree with the page_layouts row — the Frankenstein state
+    # observed in the 1947 batch (page_analysis.json showed N body
+    # charts, page_meta.json showed N+2 columns).
     print(f"\nPass 2: Placing columns with pitch={pitch:.1f}%...")
-    pass1_results = []
-
+    page_layouts = {}
     for page_num, pdf_path in pages:
         prof = page_profiles[page_num]
         ads = page_ads.get(page_num, [])
@@ -454,7 +462,8 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
 
         # Validate: drop edge "columns" that are implausibly empty
         # (margin slivers or right-side ad strips that the boundary
-        # detector mistook for content columns).
+        # detector mistook for content columns). Cheap ink-only check;
+        # the richer body-text-aware validator runs in Phase C below.
         try:
             from validate_columns import validate_edge_columns
             final, dropped = validate_edge_columns(final, pdf_path)
@@ -463,6 +472,73 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
                       f"(ink {ink:.1f} = {ratio*100:.0f}% of median {med:.1f})")
         except Exception as e:
             print(f"  P{page_num}: edge-col validation skipped ({e})")
+
+        page_layouts[page_num] = {
+            'pdf_path': pdf_path,
+            'ctx': ctx,
+            'prof': prof,
+            'final': final,
+            'quality_flags': [],
+        }
+
+    # ── Pass 3: Cross-page consistency check (boundaries only) ───────
+    # Check that leftmost column positions are consistent within recto
+    # and verso groups. Outliers get reassessed. This pass updates
+    # boundaries in `page_layouts` only — no extraction yet, so the
+    # subsequent Phase C work always operates on the reconciled
+    # boundary set (no stale page_analysis.json possible).
+    recto_pages = []
+    verso_pages = []
+    for page_num, layout in page_layouts.items():
+        if not layout['final'] or len(layout['final']) < 2:
+            continue
+        left = layout['final'][0]['x_pct']
+        page_type = layout['prof'].get('page_type')
+        if page_type == "recto":
+            recto_pages.append((page_num, left))
+        elif page_type == "verso":
+            verso_pages.append((page_num, left))
+
+    outliers_fixed = 0
+    for _group_name, group in [("recto", recto_pages), ("verso", verso_pages)]:
+        if len(group) < 3:
+            continue
+        lefts = [g[1] for g in group]
+        median_left = float(np.median(lefts))
+        # An outlier is >5% from the median
+        for page_num, left in group:
+            if abs(left - median_left) > 5.0:
+                layout = page_layouts[page_num]
+                ads = page_ads.get(page_num, [])
+                ctx = build_context(page_num, year, db_path=db_path,
+                                   profile=layout['prof'], ads=ads,
+                                   issue_pitch=pitch, issue_columns=num_columns)
+                clustered = pass1_detections.get(page_num, [])
+                new_final = place_columns(clustered, ctx)
+                if new_final and len(new_final) >= 2:
+                    new_left = new_final[0]['x_pct']
+                    if abs(new_left - median_left) < abs(left - median_left):
+                        layout['final'] = new_final
+                        layout['ctx'] = ctx
+                        layout['quality_flags'] = ['pass3_outlier_fix']
+                        outliers_fixed += 1
+
+    if outliers_fixed:
+        print(f"\nPass 3: Fixed {outliers_fixed} left-edge outliers")
+
+    # ── Pass 2 Phase C: Extract columns + run detectors (per page) ───
+    # Runs on FINAL boundaries (after Pass 3 reconciliation), so
+    # body_text, headlines, and the saved analysis are guaranteed
+    # consistent with page_meta.json and the page_layouts DB row.
+    pass1_results = []
+    for page_num, pdf_path in pages:
+        layout = page_layouts.get(page_num)
+        if not layout:
+            continue
+        prof = layout['prof']
+        ctx = layout['ctx']
+        final = layout['final']
+        quality_flags = list(layout.get('quality_flags', []))
 
         # Extract columns
         page_out = os.path.join(output_dir, f"p{page_num}")
@@ -485,7 +561,7 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
             pdf_path=pdf_path, page_number=0, dpi=dpi,
             page_width_px=0, page_height_px=0,
             num_columns=len(columns), columns=columns,
-            detection_row=[], quality_flags=[],
+            detection_row=[], quality_flags=quality_flags,
             error=None, elapsed_seconds=0,
         )
         _save_metadata(result, os.path.join(page_out, "page_meta.json"))
@@ -617,85 +693,6 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         print(f"  P{page_num}: {nc}c [{widths}] CV={cv:.3f}{p2_note}")
 
         pass1_results.append((page_num, result, prof))
-
-    # ── Pass 3: Cross-page consistency check ─────────────────────────
-    # Check that leftmost column positions are consistent within
-    # recto and verso groups. Outliers get reassessed.
-    recto_lefts = []
-    verso_lefts = []
-    for page_num, result, prof in pass1_results:
-        if not result.columns:
-            continue
-        left = result.columns[0].left_vw
-        page_type = prof.get("page_type")
-        if page_type == "recto":
-            recto_lefts.append((page_num, left, result, prof))
-        elif page_type == "verso":
-            verso_lefts.append((page_num, left, result, prof))
-
-    outliers_fixed = 0
-    for _group_name, group in [("recto", recto_lefts), ("verso", verso_lefts)]:
-        if len(group) < 3:
-            continue
-        lefts = [g[1] for g in group]
-        median_left = float(np.median(lefts))
-        # An outlier is >5% from the median
-        for page_num, left, _result, prof in group:
-            if abs(left - median_left) > 5.0:
-                # This page's left edge is an outlier — reassess
-                pdf_path = None
-                for pn, pp in pages:
-                    if pn == page_num:
-                        pdf_path = pp
-                        break
-                if not pdf_path:
-                    continue
-
-                # Re-run with the established pitch
-                ads = page_ads.get(page_num, [])
-                ctx = build_context(page_num, year, db_path=db_path,
-                                   profile=prof, ads=ads,
-                                   issue_pitch=pitch, issue_columns=num_columns)
-                clustered = pass1_detections.get(page_num, [])
-                final = place_columns(clustered, ctx)
-
-                page_out = os.path.join(output_dir, f"p{page_num}")
-                if os.path.exists(page_out):
-                    for f in os.listdir(page_out):
-                        if ("_col" in f and f.endswith(".png")) or f == "page_meta.json":
-                            os.remove(os.path.join(page_out, f))
-                os.makedirs(page_out, exist_ok=True)
-
-                ads_with_uuids = [
-                    {"uuid": a["uuid"], "x_pct": a["x_pct"], "y_pct": a["y_pct"],
-                     "x_end_pct": a["x_end_pct"], "y_end_pct": a["y_end_pct"]}
-                    for a in (page_ads.get(page_num, []) +
-                              page_single_col_ads.get(page_num, []))
-                    if "uuid" in a
-                ]
-                new_columns = extract_columns(pdf_path, final, 0, dpi, page_out,
-                                              ads_with_uuids=ads_with_uuids)
-                new_result = PageResult(
-                    pdf_path=pdf_path, page_number=0, dpi=dpi,
-                    page_width_px=0, page_height_px=0,
-                    num_columns=len(new_columns), columns=new_columns,
-                    detection_row=[], quality_flags=["pass3_outlier_fix"],
-                    error=None, elapsed_seconds=0,
-                )
-                _save_metadata(new_result, os.path.join(page_out, "page_meta.json"))
-
-                if new_result.columns:
-                    new_left = new_result.columns[0].left_vw
-                    if abs(new_left - median_left) < abs(left - median_left):
-                        # Update the result
-                        for i, (pn, _r, p) in enumerate(pass1_results):
-                            if pn == page_num:
-                                pass1_results[i] = (pn, new_result, p)
-                                break
-                        outliers_fixed += 1
-
-    if outliers_fixed:
-        print(f"\nPass 3: Fixed {outliers_fixed} left-edge outliers")
 
     # ── Store in database ──────────────────────────────────────────
     # Clean any previous data for this issue
