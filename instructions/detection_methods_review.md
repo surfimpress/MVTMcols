@@ -404,15 +404,15 @@ detector wastes work on them.
 
 ---
 
-### 14b. Edge-column multi-signal validation (v2)
+### 14b. Edge-column multi-signal validation (v2c)
 
 **File:** `validate_columns.py`, `validate_columns_v2()` — invoked from
 `process_issue.py` after `detect_body_text` and `detect_headlines`.
 **DPI:** n/a (operates on detection outputs)
 
-**What:** Two phantom rules, OR'd, applied iteratively to each edge
-(left then right) until both pass or fewer than 3 columns remain
-(4-pass cap):
+**What:** Two phantom rules, OR'd, applied in a *single pass* to the
+left and right edges. No iteration — the only candidate columns are
+the original leftmost and rightmost, never a newly-exposed edge.
 
   *Rule A — empty edge.* All of:
     - `body_height_pct < 20` (sum of body-region heights in the
@@ -425,6 +425,8 @@ detector wastes work on them.
   *Rule B — out-of-volume page edge.* Both of:
     - `body_height_pct / interior_median_body < 0.85`
     - column extends past `text_area` edge by `> 1.0%` of page width
+      (raised to `1.5%` when interior median body height is below
+      `25%` — sparse-body gate, see below)
   Catches strips of an underlying page in a bound volume that have
   slipped out of register and are physically visible past this
   page's body band. The text in the strip is real — but it belongs
@@ -432,6 +434,35 @@ detector wastes work on them.
   edge columns; text_area extension alone misfires when text_area
   was estimated narrowly. Together they specifically describe
   "real text where this page's content shouldn't reach."
+
+**Conservatism rules (v2c, 2026-04-27):**
+
+  *No iteration.* Only the leftmost and rightmost columns are ever
+  candidates — peeling and re-evaluating a newly-exposed edge against
+  a shrinking interior median produces runaway drops (1947-12-24 P8:
+  7c → 3c when 4 columns peeled sequentially against a collapsing
+  median). The user's principle: "left and right cols are the only
+  ones that will be in question."
+
+  *Ad anchor.* If any detected display ad covers ≥ 50% of a candidate
+  column's width, the column is never dropped, regardless of body or
+  headline signals. A typeset ad block on a column proves the column
+  is real (1947-04-17 P7: a 7-col headline ad + 4-col cartoon ad;
+  body coverage was tiny but the column was anchored by ads).
+
+  *Symmetric-drop tiebreaker.* If both edges qualify for dropping,
+  only the side with lower body coverage (the more phantom-y of the
+  two) is dropped. A symmetric 8→6 drop almost always loses at least
+  one real column unless the page is a 2-wide-+-4-narrow editorial
+  layout, which is rare outside page 2 (1947-04-17 P3 originally
+  dropped both edges → 6c; with the tiebreaker, drops only the
+  weaker right edge → 7c).
+
+  *Sparse-body gate.* When the page's interior median body height is
+  below `25%`, the page is ad-dominated and the body-ratio signal in
+  Rule B is noisy. The text_area extension threshold is raised to
+  `1.5%` to compensate. Rule A is unchanged because its ad and
+  headline signals are independent of body sparsity.
 
 When a column is dropped, `process_issue` re-extracts PNGs against
 the new boundaries, filters and renumbers per-column data in
@@ -454,13 +485,30 @@ page-edge bleed (Rule B). Threshold rationale (1947-01-09):
     text_area extension; phantoms had ratio 0.13–0.78 with
     extension 1.5–5.7 %. Both signals required.
 
+**Bias by design.** v2c is biased toward keeping columns. The
+operator preference: false positives (lost real cols) cost more than
+false negatives (kept phantoms). Manual cleanup of a phantom edge
+column via the CLI is cheap; a real column lost without trace is
+expensive.
+
 **Edge-only by design** (same as v1): an interior near-empty column
 is more likely a real column with sparse content than a segmentation
 error.
 
+**What v2 does not address:** placement-stage missed columns. On
+ad-heavy pages with very little body text (1947-01-30 P5; 1947-02-06
+P8), the boundary detector itself can fail to place a column whose
+content is entirely ads — body-text gaps are the primary placement
+signal. v2 cannot recover a column that was never placed; these
+cases need either an ad-driven placement extension (future work) or
+manual CLI correction.
+
 **Production suitability:** Keep. Rule A caught the 1947-01-09 p1
 anomaly residue; Rule B caught the four 8c-instead-of-7c pages
-(P3/P5/P7 right, P8 left) on the same issue.
+(P3/P5/P7 right, P8 left) on the same issue. v2c (single-pass + ad
+anchor + symmetric tiebreaker + sparse-body gate) tightened the
+1947 batch from 79 drops with several false positives down to a
+smaller, higher-precision drop set.
 
 ---
 
@@ -603,7 +651,7 @@ defence against single-page detection failures.
 | 12 | Narrow column merging | **Keep, make adaptive** | Cleanup step |
 | 13 | Best-grid selection (combinatorial) | **Keep — last resort** | Confidence weighting is a refinement |
 | 14a | Edge-column ink validation (v1) | **Keep** | Pre-extraction phantom drop |
-| 14b | Edge-column multi-signal validation (v2) | **Keep** | Post-detection phantom drop: Rule A (empty edge: body+ad+headline all fail) OR Rule B (out-of-volume page edge: low body ratio + extends past text_area) |
+| 14b | Edge-column multi-signal validation (v2c) | **Keep** | Post-detection phantom drop: Rule A (empty edge: body+ad+headline all fail) OR Rule B (out-of-volume page edge: low body ratio + extends past text_area). Single-pass; ad-anchor protection; symmetric-drop tiebreaker; sparse-body gate. Biased toward keeping columns. |
 | 15 | Page-2 editorial template | **Keep** | Template #1 of an extensible system |
 | 16 | Multi-column headline (gutter-fill) | **Keep** | Pair with single-column headline detection later |
 | 17 | Body-text rhythm (300 DPI) | **Keep** | Higher DPI cost is justified |
@@ -644,6 +692,34 @@ This file is meant to evolve. When a strategy is added, retired, or
 materially changed, append a dated note here so the catalogue's drift is
 auditable.
 
+- **2026-04-27 — Validator v2c: conservatism rules.** After the 1947
+  batch rerun (42 issues, 79 v2b drops), inspection revealed several
+  false positives where real columns were dropped. Four bias-toward-
+  keeping changes to `validate_columns_v2`:
+  1. **No iteration.** Replaced the 4-pass peel-and-recheck loop
+     with a single pass evaluating only the original leftmost and
+     rightmost columns. The peel was eating real columns as the
+     interior median collapsed (1947-12-24 P8: 7c → 3c with four
+     sequential drops; under v2c, 7c → 6c, single right drop).
+  2. **Ad anchor.** A column where any detected ad covers ≥ 50 % of
+     the column width is never dropped, regardless of body or
+     headline signals. A typeset ad block on a column proves it is
+     real. (1947-04-17 P7: was being dropped despite a 7-col headline
+     ad covering both edges; v2c keeps it.)
+  3. **Symmetric-drop tiebreaker.** If both edges qualify for
+     dropping, only the side with lower body coverage is dropped.
+     A symmetric 8 → 6 drop almost always loses a real column.
+     (1947-04-17 P3: was 8 → 6; under v2c, 8 → 7, dropping only the
+     weaker right edge.)
+  4. **Sparse-body gate.** When interior median body height is below
+     25 %, the page is ad-dominated and `body_ratio` (Rule B) is
+     noisy. The text_area extension threshold is raised from 1.0 %
+     to 1.5 %.
+  Operator preference: false positives (lost real columns) cost more
+  than false negatives (kept phantoms); v2c is biased accordingly.
+  v2 does *not* address placement-stage missed columns on ad-heavy
+  pages (1947-01-30 P5; 1947-02-06 P8) — those need either an
+  ad-driven placement extension or manual CLI correction.
 - **2026-04-27 — Validator v2b: out-of-volume page edge rule.**
   Adds a second phantom rule to `validate_columns_v2` alongside
   the existing "empty edge" rule. Catches strips of an underlying

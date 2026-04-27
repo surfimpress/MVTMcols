@@ -171,6 +171,32 @@ HL_OVERLAP_THRESHOLD = 0.30
 BODY_RATIO_THRESHOLD = 0.85
 TEXT_AREA_EXT_THRESHOLD = 1.0  # % of page width
 
+# ─── Conservatism rules (v2c) ──────────────────────────────────────
+#
+# After the 1947 batch rerun the user identified four failure modes:
+#   - iterative peel ate real columns (1947-12-24 P8: 7c → 3c)
+#   - symmetric 8→6 drops were dropping at least one real column
+#   - real columns covered by display ads were being dropped
+#   - on ad-heavy pages with very little body text the body-ratio
+#     denominator is noisy, so Rule B fires on real columns
+#
+# The four rules below all bias toward keeping columns. The user's
+# stated preference: "we may be better off tolerating some misplaced
+# columns" — false positives (lost real cols) are worse than false
+# negatives (kept phantoms).
+
+# Ad anchor: an ad covering this much of a candidate column says the
+# column is real, regardless of body/headline signals. (Body text alone
+# can be sparse on ad-heavy pages; an ad whose footprint reaches into
+# the column anchors it.)
+AD_ANCHOR_OVERLAP = 0.50
+
+# Sparse-body gate: when the interior median body height is below this
+# floor (% page height), the page is ad-dominated and body_ratio is
+# noisy. Raise Rule B's text_area-extension threshold for this page.
+SPARSE_BODY_FLOOR = 25.0
+SPARSE_BODY_EXT_THRESHOLD = 1.5  # % of page width when body is sparse
+
 
 def _h_overlap_frac(col_x1, col_x2, rect_x1, rect_x2):
     """Fraction of [col_x1, col_x2] covered by [rect_x1, rect_x2]."""
@@ -179,6 +205,24 @@ def _h_overlap_frac(col_x1, col_x2, rect_x1, rect_x2):
         return 0.0
     inter = max(0.0, min(col_x2, rect_x2) - max(col_x1, rect_x1))
     return inter / col_w
+
+
+def _ad_anchors_column(col_x1, col_x2, ads):
+    """
+    True if any detected ad covers >= AD_ANCHOR_OVERLAP of the column.
+
+    A multi-column ad whose footprint clearly extends into a candidate
+    edge column is strong evidence the column is real — the column
+    can't be phantom margin if a typeset ad block sits on it.
+    """
+    for a in ads or []:
+        ax1 = a.get("x_pct")
+        ax2 = a.get("x_end_pct")
+        if ax1 is None or ax2 is None:
+            continue
+        if _h_overlap_frac(col_x1, col_x2, ax1, ax2) >= AD_ANCHOR_OVERLAP:
+            return True
+    return False
 
 
 def _column_signals(col_idx, col_x1, col_x2,
@@ -269,9 +313,11 @@ def validate_columns_v2(boundaries, body_regions, ads, headlines,
       ratio alone misfires on real but sparse edge cols, and the
       extension alone misfires when text_area was estimated narrowly.
 
-    Iteratively peels failing edges from the boundary list until both
-    edges pass or fewer than 3 columns remain. Capped at 4 iterations;
-    no observed page needs more than 2.
+    Single-pass evaluation: only the leftmost and rightmost columns
+    are candidates (an interior column is a real content column even
+    if sparse). No iteration — peeling a newly-exposed edge against a
+    shrinking interior median was found to runaway-eat real columns
+    (1947-12-24 P8: 7c → 3c).
 
     Args:
         boundaries:    boundary list (list of dicts with "x_pct").
@@ -292,14 +338,22 @@ def validate_columns_v2(boundaries, body_regions, ads, headlines,
     Edge-only by design: an interior near-empty column is more
     likely a real content column with sparse content than a
     segmentation error.
+
+    Conservatism rules (v2c, see header for context):
+      - Ad anchor: a column with a multi-col ad covering it (>=50%)
+        is never dropped, regardless of body/headline signals.
+      - Symmetric-drop tiebreaker: if both edges qualify, only the
+        weaker (more phantom-y) edge is dropped — a symmetric 8→6
+        drop almost always loses at least one real column.
+      - Sparse-body gate: when interior median body coverage is below
+        SPARSE_BODY_FLOOR, Rule B's text_area threshold is raised
+        because body_ratio is noisy on ad-dominated pages.
     """
     new_boundaries = list(boundaries)
     n_original = len(boundaries) - 1
     if n_original < 3:
         return new_boundaries, set(), []
 
-    # active[i] = ORIGINAL col_idx of the i-th column in new_boundaries
-    active = list(range(n_original))
     drop_log = []
     dropped_orig = set()
 
@@ -308,13 +362,20 @@ def validate_columns_v2(boundaries, body_regions, ads, headlines,
         ta_left = text_area.get("left")
         ta_right = text_area.get("right")
 
+    interior_med = _interior_median_body(list(range(n_original)),
+                                         body_regions)
+    # Sparse-body gate: ad-heavy pages have low body coverage everywhere,
+    # so body_ratio (Rule B) is noisy. Raise the text_area threshold.
+    sparse_body = 0.0 < interior_med < SPARSE_BODY_FLOOR
+    ext_thresh = (SPARSE_BODY_EXT_THRESHOLD if sparse_body
+                  else TEXT_AREA_EXT_THRESHOLD)
+
     def _is_phantom_empty(signals):
         return (signals["body_height_pct"] < BODY_HEIGHT_THRESHOLD
                 and signals["ad_overlap"] < AD_OVERLAP_THRESHOLD
                 and signals["hl_overlap"] < HL_OVERLAP_THRESHOLD)
 
-    def _is_phantom_outofvolume(signals, side, col_x1, col_x2,
-                                interior_med):
+    def _is_phantom_outofvolume(signals, side, col_x1, col_x2):
         # Rule B: low body ratio AND col extends past text_area edge.
         if interior_med <= 0:
             return False
@@ -329,51 +390,50 @@ def validate_columns_v2(boundaries, body_regions, ads, headlines,
             if ta_right is None:
                 return False
             ext = max(0.0, col_x2 - ta_right)
-        return ext > TEXT_AREA_EXT_THRESHOLD
+        return ext > ext_thresh
 
-    for _ in range(4):
-        if len(active) < 3:
-            break
-        any_drop = False
+    # Evaluate both edges against the original boundary set (no peel).
+    right_orig = n_original - 1
+    right_x1 = new_boundaries[-2]["x_pct"]
+    right_x2 = new_boundaries[-1]["x_pct"]
+    right_sig = _column_signals(right_orig, right_x1, right_x2,
+                                body_regions, ads, headlines)
+    right_drop = (_is_phantom_empty(right_sig)
+                  or _is_phantom_outofvolume(right_sig, "right",
+                                             right_x1, right_x2))
+    # Ad-anchor protection: a column with an ad covering it isn't phantom.
+    if right_drop and _ad_anchors_column(right_x1, right_x2, ads):
+        right_drop = False
 
-        interior_med = _interior_median_body(active, body_regions)
+    left_orig = 0
+    left_x1 = new_boundaries[0]["x_pct"]
+    left_x2 = new_boundaries[1]["x_pct"]
+    left_sig = _column_signals(left_orig, left_x1, left_x2,
+                               body_regions, ads, headlines)
+    left_drop = (_is_phantom_empty(left_sig)
+                 or _is_phantom_outofvolume(left_sig, "left",
+                                            left_x1, left_x2))
+    if left_drop and _ad_anchors_column(left_x1, left_x2, ads):
+        left_drop = False
 
-        # Right edge first so the left position doesn't shift this iter.
-        right_orig = active[-1]
-        right_x1 = new_boundaries[-2]["x_pct"]
-        right_x2 = new_boundaries[-1]["x_pct"]
-        right_sig = _column_signals(right_orig, right_x1, right_x2,
-                                    body_regions, ads, headlines)
-        if _is_phantom_empty(right_sig) or \
-           _is_phantom_outofvolume(right_sig, "right",
-                                   right_x1, right_x2, interior_med):
-            new_boundaries.pop()
-            active.pop()
-            dropped_orig.add(right_orig)
-            drop_log.append(("right", right_sig))
-            any_drop = True
+    # Symmetric-drop tiebreaker: dropping both edges from an 8c page
+    # produces 6c, which almost always loses at least one real column.
+    # When both qualify, drop only the side with the lower body
+    # coverage (the more phantom-y of the two).
+    if right_drop and left_drop:
+        if right_sig["body_height_pct"] <= left_sig["body_height_pct"]:
+            left_drop = False
+        else:
+            right_drop = False
 
-        if len(active) < 3:
-            break
-
-        # Recompute interior median after a possible right drop.
-        interior_med = _interior_median_body(active, body_regions)
-
-        left_orig = active[0]
-        left_x1 = new_boundaries[0]["x_pct"]
-        left_x2 = new_boundaries[1]["x_pct"]
-        left_sig = _column_signals(left_orig, left_x1, left_x2,
-                                   body_regions, ads, headlines)
-        if _is_phantom_empty(left_sig) or \
-           _is_phantom_outofvolume(left_sig, "left",
-                                   left_x1, left_x2, interior_med):
-            new_boundaries.pop(0)
-            active.pop(0)
-            dropped_orig.add(left_orig)
-            drop_log.append(("left", left_sig))
-            any_drop = True
-
-        if not any_drop:
-            break
+    # Apply: right first so left index doesn't shift.
+    if right_drop:
+        new_boundaries.pop()
+        dropped_orig.add(right_orig)
+        drop_log.append(("right", right_sig))
+    if left_drop:
+        new_boundaries.pop(0)
+        dropped_orig.add(left_orig)
+        drop_log.append(("left", left_sig))
 
     return new_boundaries, dropped_orig, drop_log
