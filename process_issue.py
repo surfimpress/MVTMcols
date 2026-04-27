@@ -564,7 +564,8 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
             detection_row=[], quality_flags=quality_flags,
             error=None, elapsed_seconds=0,
         )
-        _save_metadata(result, os.path.join(page_out, "page_meta.json"))
+        # page_meta.json is saved later, after the post-detection
+        # validator has had a chance to drop phantom edge columns.
 
         # Save analysis data for the viewer (profile chart + strip profiles
         # + raw detected boundary positions before placement)
@@ -677,6 +678,73 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
                 _PILImg.fromarray(blur_img).save(blur_path)
         except Exception:
             pass
+
+        # ── Post-detection edge-column validation (v2) ───────────────
+        # v1 (Phase A) drops obviously empty edges by ink alone.
+        # v2 catches scan-bleed/edge-rule "columns" that have ink
+        # but fail every detector: no body text, no ad coverage,
+        # no headline. See validate_columns.validate_columns_v2.
+        try:
+            from validate_columns import validate_columns_v2
+            ads_for_v2 = list(page_ads.get(page_num, [])) + \
+                         list(page_single_col_ads.get(page_num, []))
+            new_final, dropped_idx, drop_log = validate_columns_v2(
+                final,
+                analysis.get("body_text", []),
+                ads_for_v2,
+                analysis.get("headlines", []),
+            )
+            if dropped_idx:
+                original_n = len(final) - 1
+                survivors = [i for i in range(original_n)
+                             if i not in dropped_idx]
+                idx_remap = {old: new for new, old in enumerate(survivors)}
+
+                # Re-extract PNGs against new boundaries
+                final = new_final
+                for f in os.listdir(page_out):
+                    if "_col" in f and f.endswith(".png"):
+                        os.remove(os.path.join(page_out, f))
+                columns = extract_columns(pdf_path, final, 0, dpi,
+                                          page_out,
+                                          ads_with_uuids=ads_with_uuids)
+
+                # Filter and renumber per-column data in analysis
+                def _filter_renumber(items):
+                    out = []
+                    for it in items:
+                        ci = it.get("col_idx")
+                        if ci is None or ci in dropped_idx:
+                            continue
+                        new_it = dict(it)
+                        new_it["col_idx"] = idx_remap[ci]
+                        out.append(new_it)
+                    return out
+
+                for k in ("body_text", "body_text_charts",
+                         "h_rules", "large_type"):
+                    if k in analysis:
+                        analysis[k] = _filter_renumber(analysis[k])
+
+                quality_flags = list(quality_flags)
+                for side, _sig in drop_log:
+                    quality_flags.append(f"col_v2_drop_{side}")
+                result = PageResult(
+                    pdf_path=pdf_path, page_number=0, dpi=dpi,
+                    page_width_px=0, page_height_px=0,
+                    num_columns=len(columns), columns=columns,
+                    detection_row=[], quality_flags=quality_flags,
+                    error=None, elapsed_seconds=0,
+                )
+                sides_summary = [d[0] for d in drop_log]
+                print(f"  P{page_num}: v2 dropped phantom edge "
+                      f"col(s) {sides_summary} "
+                      f"(orig idx {sorted(dropped_idx)})")
+        except Exception as e:
+            print(f"  P{page_num}: v2 validation skipped ({e})")
+
+        # Save page_meta.json with the final (post-v2) boundaries.
+        _save_metadata(result, os.path.join(page_out, "page_meta.json"))
 
         # Single-column display ads (sibling layer to multi-col ads)
         sc = page_single_col_ads.get(page_num, [])

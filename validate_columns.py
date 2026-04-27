@@ -104,3 +104,158 @@ def validate_edge_columns(boundaries, pdf_path, page_number=0,
         dropped.append(("left", left_ink, median_interior, left_ratio))
 
     return new_boundaries, dropped
+
+
+# ─── Post-detection edge-column validator (v2) ──────────────────────
+#
+# v2 runs AFTER detect_body_text and detect_headlines, so it has
+# access to the strongest signals available. v1 (above) is still
+# useful as a cheap pre-extraction prune; v2 catches cases v1 misses
+# because the edge "column" has some ink (scan bleed, edge ruling)
+# but no real content.
+#
+# An edge column is dropped if it has ALL of:
+#   - body_height_pct  < BODY_HEIGHT_THRESHOLD  (very little body text)
+#   - max ad overlap   < AD_OVERLAP_THRESHOLD   (no display ad span)
+#   - max headline ov. < HL_OVERLAP_THRESHOLD   (no headline span)
+#
+# Body, ad, and headline are independent positive signals — a real
+# column will hit at least one. Empty-margin "columns" hit none.
+#
+# Threshold rationale (from 1947-01-09 p1, the canonical phantom-edge
+# case): body_height_pct of phantom edges sat at 4.5–11.3% of page
+# height; real columns sat at ~51%. A 20% threshold cleanly separates
+# them. The has-body-region binary check (used in earlier prototypes)
+# was too lenient — the body region merger at min_region_pct=2.5% lets
+# isolated text fragments survive on phantom margins.
+#
+# A refined content-area check (column centre vs the union of body
+# regions in interior columns) was prototyped but did not change any
+# decision in the validation set: when the three signals all fail,
+# the column centre is also already outside the body span. Kept as a
+# tie-breaker comment only.
+
+BODY_HEIGHT_THRESHOLD = 20.0  # body coverage as % of page height
+AD_OVERLAP_THRESHOLD = 0.30
+HL_OVERLAP_THRESHOLD = 0.30
+
+
+def _h_overlap_frac(col_x1, col_x2, rect_x1, rect_x2):
+    """Fraction of [col_x1, col_x2] covered by [rect_x1, rect_x2]."""
+    col_w = col_x2 - col_x1
+    if col_w <= 0:
+        return 0.0
+    inter = max(0.0, min(col_x2, rect_x2) - max(col_x1, rect_x1))
+    return inter / col_w
+
+
+def _column_signals(col_idx, col_x1, col_x2,
+                    body_regions, ads, headlines):
+    body_height = 0.0
+    for b in body_regions or []:
+        if b.get("col_idx") != col_idx:
+            continue
+        y1 = b.get("y1_pct")
+        y2 = b.get("y2_pct")
+        if y1 is None or y2 is None:
+            continue
+        body_height += max(0.0, y2 - y1)
+    max_ad = 0.0
+    for a in ads or []:
+        ax1 = a.get("x_pct")
+        ax2 = a.get("x_end_pct")
+        if ax1 is None or ax2 is None:
+            continue
+        max_ad = max(max_ad, _h_overlap_frac(col_x1, col_x2, ax1, ax2))
+    max_hl = 0.0
+    for hl in headlines or []:
+        hx1 = hl.get("x1_pct")
+        hx2 = hl.get("x2_pct")
+        if hx1 is None or hx2 is None:
+            continue
+        max_hl = max(max_hl, _h_overlap_frac(col_x1, col_x2, hx1, hx2))
+    return {
+        "body_height_pct": body_height,
+        "ad_overlap": max_ad,
+        "hl_overlap": max_hl,
+    }
+
+
+def validate_columns_v2(boundaries, body_regions, ads, headlines):
+    """
+    Drop empty edge columns using post-detection signals.
+
+    Iteratively peels failing edges from the boundary list until both
+    edges pass or fewer than 3 columns remain. This handles pages
+    where multiple adjacent phantom columns sit on a wide scan
+    margin: dropping just the outermost would leave the next-outermost
+    (now the new edge) still phantom. Capped at 4 iterations as a
+    safety bound; no observed page in the corpus needs more than 2.
+
+    Returns (filtered_boundaries, dropped_orig_idx, drop_log) where:
+        filtered_boundaries — boundary list with phantom edges removed
+        dropped_orig_idx    — set of ORIGINAL col_idx values that were
+                              dropped (caller uses to filter and
+                              renumber per-column data in the analysis
+                              dict)
+        drop_log            — list of ('left'/'right', signals_dict)
+                              tuples in drop order, for diagnostics
+
+    Edge-only by design (same as v1): an interior near-empty column
+    is more likely a real content column with sparse content than a
+    segmentation error. By iterating, we still only ever inspect
+    columns that are at the outer edge of the *current* boundary
+    list, which preserves the conservative posture.
+    """
+    new_boundaries = list(boundaries)
+    n_original = len(boundaries) - 1
+    if n_original < 3:
+        return new_boundaries, set(), []
+
+    # active[i] = ORIGINAL col_idx of the i-th column in new_boundaries
+    active = list(range(n_original))
+    drop_log = []
+    dropped_orig = set()
+
+    def _is_phantom(signals):
+        return (signals["body_height_pct"] < BODY_HEIGHT_THRESHOLD
+                and signals["ad_overlap"] < AD_OVERLAP_THRESHOLD
+                and signals["hl_overlap"] < HL_OVERLAP_THRESHOLD)
+
+    for _ in range(4):
+        if len(active) < 3:
+            break
+        any_drop = False
+
+        # Right edge first so the left position doesn't shift this iter.
+        right_orig = active[-1]
+        right_x1 = new_boundaries[-2]["x_pct"]
+        right_x2 = new_boundaries[-1]["x_pct"]
+        right_sig = _column_signals(right_orig, right_x1, right_x2,
+                                    body_regions, ads, headlines)
+        if _is_phantom(right_sig):
+            new_boundaries.pop()
+            active.pop()
+            dropped_orig.add(right_orig)
+            drop_log.append(("right", right_sig))
+            any_drop = True
+
+        if len(active) < 3:
+            break
+
+        left_orig = active[0]
+        left_x1 = new_boundaries[0]["x_pct"]
+        left_x2 = new_boundaries[1]["x_pct"]
+        left_sig = _column_signals(left_orig, left_x1, left_x2,
+                                   body_regions, ads, headlines)
+        if _is_phantom(left_sig):
+            new_boundaries.pop(0)
+            active.pop(0)
+            dropped_orig.add(left_orig)
+            drop_log.append(("left", left_sig))
+            any_drop = True
+
+        if not any_drop:
+            break
+
+    return new_boundaries, dropped_orig, drop_log
