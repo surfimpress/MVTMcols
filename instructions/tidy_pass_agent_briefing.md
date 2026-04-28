@@ -152,6 +152,31 @@ For a "shrink an over-extended ad" tidy:
 
 No delete needed in the shrink case.
 
+For an "add a missed ad" tidy (detector returned nothing for a region
+that visibly contains an ad):
+
+```
+1. Measure bbox in page-pct using ruler crops    (col file + ruler_crop.py)
+2. Render proposal overlay on page_raw.png       (proposal step)
+3. ─── human confirmation ───
+4. mvtm add-ad --year ... --x-pct ... --w-pct ... (insert step)
+5. mvtm regenerate-page <date> <p>                (resync artefacts)
+```
+
+`add-ad` infers `--cols` from current page boundaries (override with
+`--cols N` if the inference looks wrong). The new row is `hand_edited=1`
+so re-detect won't sweep it back out. `image_filename` is auto-assigned
+to the next free index for that page+kind (`_ad{N}` for multi-col,
+`_sc_ad{N}` for single-col); deletes do NOT reshuffle existing
+indices, so a fresh add picks up `max+1` even if intermediate indices
+are missing. `mvtm undo` reverses an add-ad by deleting the inserted
+row by uuid.
+
+If the detector produced a partial match (right region but wrong
+extents), prefer `adjust-ad` over `delete-ad` + `add-ad` — adjust
+preserves uuid and image_filename so downstream references stay
+valid.
+
 ### Why `regenerate-page` is the closing step
 
 Mutators (`adjust-ad`, `delete-ad`, `move-boundary`, etc.) only update
@@ -254,3 +279,9 @@ precision is whatever the column strip supports (0.5% in practice).
   where ad PNGs were written to the per-page directory instead of the
   per-issue `ads/p{N}/` directory the viewer actually reads from. CLI
   fix: 279384e on main.
+- **2026-04-28** — Added "add a missed ad" workflow now that
+  `mvtm add-ad` exists; documented index-not-reshuffled rule and the
+  adjust-ad-vs-add-ad partial-match preference. Same commit also
+  fixed an orphan-cleanup bug in `regenerate-page` (zero-padding
+  mismatch in the page prefix prevented stale ad PNGs from being
+  removed for any page < 10).

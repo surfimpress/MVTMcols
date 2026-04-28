@@ -38,6 +38,7 @@ import sqlite3
 import sys
 import time
 import traceback
+import uuid as _uuid
 from contextlib import closing
 
 
@@ -1201,6 +1202,180 @@ def cmd_adjust_ad(args) -> int:
     }, transaction_id=history_id)
 
 
+def _next_ad_index(conn, year, month, day, page, kind):
+    """Highest existing N for the page+kind, +1. Indices are NEVER
+    reshuffled on delete (so p10 may have _ad1, _ad2, _ad4 — next is
+    _ad5). Counts both auto and hand-edited rows."""
+    prefix = f"{year:04d}-{month:02d}-{day:02d}-{page:02d}_"
+    suffix_kind = "sc_ad" if kind == "sc_ad" else "ad"
+    cur = conn.execute(
+        "SELECT image_filename FROM detected_ads "
+        "WHERE year=? AND month=? AND day=? AND page=?",
+        (year, month, day, page),
+    )
+    max_n = 0
+    for (fn,) in cur.fetchall():
+        if not fn or not fn.startswith(prefix):
+            continue
+        rest = fn[len(prefix):]
+        # Multi-col: ad{N}.png; single-col: sc_ad{N}.png. Distinguish
+        # before stripping so "ad" doesn't match the "ad" inside "sc_ad".
+        if kind == "sc_ad":
+            if not rest.startswith("sc_ad"):
+                continue
+            tail = rest[len("sc_ad"):]
+        else:
+            if rest.startswith("sc_ad") or not rest.startswith("ad"):
+                continue
+            tail = rest[len("ad"):]
+        # tail should be "{N}.png"
+        if not tail.endswith(".png"):
+            continue
+        try:
+            n = int(tail[:-4])
+        except ValueError:
+            continue
+        if n > max_n:
+            max_n = n
+    return max_n + 1
+
+
+def _infer_cols_from_bbox(conn, year, month, day, page, x_pct, x_end_pct):
+    """How many columns the bbox spans, using current page boundaries.
+    A column [bL, bR] is 'spanned' if the bbox overlaps it by at least
+    half the column's width (matches the filter logic in detect_ads)."""
+    layout = _fetch_layout(conn, year, month, day, page)
+    if layout is None:
+        return None
+    boundaries = layout["boundaries_pct"]
+    spanned = 0
+    for i in range(len(boundaries) - 1):
+        bL, bR = boundaries[i], boundaries[i + 1]
+        col_w = bR - bL
+        if col_w <= 0:
+            continue
+        overlap = max(0.0, min(x_end_pct, bR) - max(x_pct, bL))
+        if overlap >= 0.5 * col_w:
+            spanned += 1
+    return max(1, spanned)
+
+
+def cmd_add_ad(args) -> int:
+    """Insert a hand-curated ad row for an ad the detector missed.
+
+    The bbox is given in page percentages (top-left origin). cols is
+    inferred from the current page boundaries unless --cols is passed.
+    image_filename follows the same convention as auto-detected ads:
+    `{YYYY-MM-DD}-{PP}_{ad|sc_ad}{N}.png` — multi-col uses `_ad`,
+    single-col uses `_sc_ad`. N is the next free index for that
+    (page, kind) and is NOT reshuffled by deletes.
+
+    The row is inserted with hand_edited=1; FP filters bypass it on
+    re-detect, so a hand-added ad survives a `recompute-layers` run.
+    """
+    cmd = "add-ad"
+    ok_v, err = _validate_date_page(args.year, args.month, args.day,
+                                    args.page)
+    if not ok_v:
+        return emit_error(cmd, "validation_error", err)
+
+    new_x = _round_pct(args.x_pct)
+    new_y = _round_pct(args.y_pct)
+    new_w = _round_pct(args.w_pct)
+    new_h = _round_pct(args.h_pct)
+
+    if not (0 <= new_x <= 100):
+        return emit_error(cmd, "validation_error",
+                          f"x_pct {new_x} out of 0..100")
+    if not (0 <= new_y <= 100):
+        return emit_error(cmd, "validation_error",
+                          f"y_pct {new_y} out of 0..100")
+    if not (0 < new_w <= 100):
+        return emit_error(cmd, "validation_error",
+                          f"w_pct {new_w} out of (0..100]")
+    if not (0 < new_h <= 100):
+        return emit_error(cmd, "validation_error",
+                          f"h_pct {new_h} out of (0..100]")
+    new_x_end = _round_pct(new_x + new_w)
+    new_y_end = _round_pct(new_y + new_h)
+    if new_x_end > 100.001:
+        return emit_error(cmd, "validation_error", "x + w exceeds 100%")
+    if new_y_end > 100.001:
+        return emit_error(cmd, "validation_error", "y + h exceeds 100%")
+
+    with closing(sqlite3.connect(args.db)) as conn:
+        # Need a layout to (a) confirm the page exists and (b) infer cols.
+        layout = _fetch_layout(conn, args.year, args.month, args.day,
+                               args.page)
+        if layout is None:
+            return emit_error(
+                cmd, "not_found",
+                f"no page_layouts row for "
+                f"{args.year:04d}-{args.month:02d}-{args.day:02d} "
+                f"page {args.page} — run detect first")
+
+        if args.cols is not None:
+            cols = args.cols
+        else:
+            cols = _infer_cols_from_bbox(
+                conn, args.year, args.month, args.day, args.page,
+                new_x, new_x_end,
+            )
+            if cols is None:
+                cols = 1
+
+        kind = "sc_ad" if cols == 1 else "ad"
+        next_n = _next_ad_index(
+            conn, args.year, args.month, args.day, args.page, kind,
+        )
+        image_filename = (
+            f"{args.year:04d}-{args.month:02d}-{args.day:02d}"
+            f"-{args.page:02d}_{kind}{next_n}.png"
+        )
+        new_uuid = str(_uuid.uuid4())
+        # rect_ratio for a hand-defined rect is by definition 1.0 (the
+        # bbox IS the contour). aspect = w/h matches detect_ads.
+        rect_ratio = 1.0
+        aspect = round(new_w / new_h, 2) if new_h > 0 else 0.0
+        confidence = args.confidence
+
+        cur = conn.execute(
+            "INSERT INTO detected_ads "
+            "(year, month, day, page, x_pct, y_pct, w_pct, h_pct, "
+            "x_end_pct, y_end_pct, rect_ratio, aspect, cols, "
+            "confidence, image_filename, uuid, hand_edited) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
+            (args.year, args.month, args.day, args.page,
+             new_x, new_y, new_w, new_h, new_x_end, new_y_end,
+             rect_ratio, aspect, cols, confidence,
+             image_filename, new_uuid),
+        )
+        # Re-fetch the inserted row so the history `after` payload is
+        # the same shape as delete-ad's `before` (minus auto `id`).
+        ad = _ad_row_full(conn, new_uuid)
+        after_full = {k: v for k, v in ad.items() if k != "id"}
+
+        history_id = _record_history(
+            conn, cmd, "detected_ads",
+            {"uuid": new_uuid}, None, after_full,
+        )
+        conn.commit()
+
+    issue = f"{args.year:04d}-{args.month:02d}-{args.day:02d}"
+    return emit_ok(cmd, {
+        "ad_id": new_uuid,
+        "issue": issue,
+        "page": args.page,
+        "image_filename": image_filename,
+        "cols": cols,
+        "bbox_pct": {
+            "x": new_x, "y": new_y, "w": new_w, "h": new_h,
+            "x_end": new_x_end, "y_end": new_y_end,
+        },
+        "confidence": confidence,
+    }, transaction_id=history_id)
+
+
 def cmd_delete_ad(args) -> int:
     cmd = "delete-ad"
     with closing(sqlite3.connect(args.db)) as conn:
@@ -1243,9 +1418,9 @@ def _undo_apply(conn, table, row_key, before, after):
       - UPDATE: both present → undo by UPDATE restoring before
       - DELETE: before=row, after=None → undo by INSERT before
 
-    Currently only UPDATE and DELETE inverses are implemented (we don't
-    yet have any mutator that produces a pure INSERT — add-boundary is
-    an UPDATE on page_layouts, not an INSERT).
+    INSERT undo is implemented for detected_ads (add-ad is the only
+    pure-INSERT mutator); add-boundary is an UPDATE on page_layouts,
+    not an INSERT, so it stays in the UPDATE branch.
     """
     if before is not None and after is not None:
         # UPDATE undo
@@ -1290,9 +1465,14 @@ def _undo_apply(conn, table, row_key, before, after):
         return False, f"undo (DELETE) not supported for table {table}"
 
     if before is None and after is not None:
-        return False, ("undo for pure-INSERT history entries not "
-                       "implemented (no current mutator produces this "
-                       "shape)")
+        # INSERT undo → DELETE on the key
+        if table == "detected_ads":
+            conn.execute(
+                "DELETE FROM detected_ads WHERE uuid=?",
+                (row_key["uuid"],),
+            )
+            return True, None
+        return False, f"undo (INSERT) not supported for table {table}"
 
     return False, "history entry has no before and no after — nothing to undo"
 
@@ -1418,8 +1598,11 @@ def cmd_regenerate_page(args) -> int:
                 if r.get("image_filename")}
         # Also keep stale page_dir copies out of the way: only manage
         # files whose name matches the date-page-prefix pattern. Don't
-        # touch unrelated artefacts that may live alongside.
-        prefix = f"{args.year:04d}-{args.month:02d}-{args.day:02d}-{args.page}_"
+        # touch unrelated artefacts that may live alongside. Page is
+        # zero-padded to match image_filename format produced by
+        # detect_ads / add-ad (e.g. 1940-02-20-03_*, NOT -3_*).
+        prefix = (f"{args.year:04d}-{args.month:02d}-{args.day:02d}"
+                  f"-{args.page:02d}_")
         removed = 0
         for fn in os.listdir(ad_out_dir):
             if not fn.startswith(prefix):
@@ -1441,7 +1624,8 @@ def cmd_regenerate_page(args) -> int:
         confuse anyone inspecting the per-page directory. Remove them."""
         if not os.path.isdir(page_dir):
             return 0
-        prefix = f"{args.year:04d}-{args.month:02d}-{args.day:02d}-{args.page}_"
+        prefix = (f"{args.year:04d}-{args.month:02d}-{args.day:02d}"
+                  f"-{args.page:02d}_")
         removed = 0
         for fn in os.listdir(page_dir):
             if not fn.startswith(prefix):
@@ -1720,6 +1904,29 @@ def _build_parser() -> argparse.ArgumentParser:
     da.add_argument("--ad-id", required=True, dest="ad_id",
                     help="Ad uuid (from `mvtm show`).")
     da.set_defaults(func=cmd_delete_ad)
+
+    addad = sub.add_parser(
+        "add-ad",
+        help="Insert a hand-curated ad the detector missed. bbox in "
+             "page-pct (top-left origin). cols inferred from current "
+             "boundaries unless --cols is given.",
+    )
+    addad.add_argument("--year", required=True, type=int)
+    addad.add_argument("--month", required=True, type=int)
+    addad.add_argument("--day", required=True, type=int)
+    addad.add_argument("--page", required=True, type=int)
+    addad.add_argument("--x-pct", required=True, type=float, dest="x_pct")
+    addad.add_argument("--y-pct", required=True, type=float, dest="y_pct")
+    addad.add_argument("--w-pct", required=True, type=float, dest="w_pct")
+    addad.add_argument("--h-pct", required=True, type=float, dest="h_pct")
+    addad.add_argument("--cols", type=int, default=None,
+                       help="Override cols (1=single, >=2=multi). "
+                            "Default: inferred from x-span vs page "
+                            "boundaries.")
+    addad.add_argument("--confidence", default="high",
+                       choices=["low", "medium", "high"],
+                       help="Default 'high' (hand-curated).")
+    addad.set_defaults(func=cmd_add_ad)
 
     # ── Regenerate per-page artefacts ──
     rp = sub.add_parser(
