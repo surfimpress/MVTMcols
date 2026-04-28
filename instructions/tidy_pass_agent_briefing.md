@@ -138,7 +138,7 @@ For a "merge two stacked detections into one outer-frame bbox" tidy:
 3. ─── human confirmation ───
 4. delete-ad on the redundant inner panels       (delete step)
 5. mvtm view --overlay ads ...                   (post-state check)
-6. _update_viewer_data to refresh viewer JSON    (publish)
+6. mvtm regenerate-page <date> <p>                (resync artefacts)
 ```
 
 For a "shrink an over-extended ad" tidy:
@@ -147,10 +147,30 @@ For a "shrink an over-extended ad" tidy:
 1. Adjust to correct bbox                        (replace step)
 2. mvtm view --overlay ads ...                   (verify)
 3. ─── human confirmation ───
-4. _update_viewer_data                            (publish)
+4. mvtm regenerate-page <date> <p>                (resync artefacts)
 ```
 
 No delete needed in the shrink case.
+
+### Why `regenerate-page` is the closing step
+
+Mutators (`adjust-ad`, `delete-ad`, `move-boundary`, etc.) only update
+the SQLite rows. The on-disk derivatives — the per-ad PNG crops
+(`{date}-{p}_ad{N}.png`, `_sc_ad{N}.png`) and the per-column strip
+PNGs (`_col{N}.png`) — were cut by the original detection pipeline
+and don't update with each mutator. After a batch of edits, the
+filesystem state has drifted from the DB.
+
+`mvtm regenerate-page <year> <month> <day> <page>` re-cuts those
+derivatives from the cached PDF using the current DB state, and
+refreshes `viewer_data.json` so the public viewer reflects the new
+state. Scope flags: `--scope ads` (PNG crops only), `--scope columns`
+(strips only), `--scope both` (default), `--scope viewer` (just the
+JSON refresh, no PNG re-cut).
+
+Run it once at the end of a tidy session for each modified page —
+not after every individual mutator. Re-rendering at 450 DPI is the
+expensive step; batch it.
 
 ---
 
