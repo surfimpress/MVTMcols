@@ -172,6 +172,45 @@ Run it once at the end of a tidy session for each modified page —
 not after every individual mutator. Re-rendering at 450 DPI is the
 expensive step; batch it.
 
+### Where ad PNGs actually live (and why this matters)
+
+There are **two** plausible directories an ad PNG could live in:
+
+- `columns/{issue}/p{page}/{date}-{page}_ad{N}.png` — per-page dir
+- `columns/{issue}/ads/p{page}/{date}-{page}_ad{N}.png` — per-issue
+  ads dir
+
+**The viewer reads from the second one.** That's where
+`process_issue.py` writes ads (`output_dir/ads/p{N}/`), and that's
+what `viewer_data.json` references. As of 2026-04-28,
+`regenerate-page --scope ads` writes there too, and additionally:
+
+- removes orphan ad PNGs in `ads/p{N}/` whose filenames no longer
+  match a DB row (covers the deleted-inner-panel case after a
+  concentric-box merge)
+- removes stale ad PNGs that earlier (buggy) regenerate-page runs
+  dropped into the per-page `p{N}/` directory; columns, page_raw,
+  overlays in `p{N}/` are left alone
+
+**If the viewer doesn't reflect a tidy edit**, the most likely cause
+*used to be* that the new PNG never reached `ads/p{N}/`. That's now
+fixed at the CLI level — but if you ever see a tidy edit not showing
+up, list both directories before forming a hypothesis. The data is
+the answer.
+
+### Per-ad PNG filename conventions
+
+- Multi-column ads: `{date}-{page}_ad{N}.png` where N is 1-indexed by
+  insertion order (preserved across deletions — if `_ad3` is deleted,
+  surviving `_ad4` keeps that suffix; `_ad3` is not reused).
+- Single-column ads: `{date}-{page}_sc_ad{N}.png`, same indexing rule
+  but a separate counter from multi-col.
+- The DB column `detected_ads.image_filename` is the source of truth
+  for the suffix. `regenerate-page` re-cuts in DB-id order then moves
+  outputs to match the stored `image_filename`, so deletions don't
+  cause filename re-shuffling. **Never assume sequential indices** in
+  filename suffixes after a tidy session.
+
 ---
 
 ## Visibility in the viewer
@@ -210,3 +249,8 @@ precision is whatever the column strip supports (0.5% in practice).
   workflow on 1940-02-20 p10, the half-percent measurement discipline,
   the pre-cut column files convention, and the `hand_edited`
   filter-bypass commit.
+- **2026-04-28** — Added "Where ad PNGs actually live" and "Per-ad
+  PNG filename conventions" sections after a `regenerate-page` bug
+  where ad PNGs were written to the per-page directory instead of the
+  per-issue `ads/p{N}/` directory the viewer actually reads from. CLI
+  fix: 279384e on main.
