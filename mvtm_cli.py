@@ -524,6 +524,353 @@ def cmd_recompute_layers(args) -> int:
     return emit_ok(cmd, result)
 
 
+# ── view / crop (visual primitives) ──────────────────────────────────
+
+# Inspect outputs land in a content-addressable temp tree so identical
+# inputs share files; the LLM caches paths itself. /tmp is fine for
+# agent consumption (the agent reads via Read tool); for sharing with a
+# human, use the public viewer URL pattern instead.
+_INSPECT_ROOT = "/tmp/mvtm_inspect"
+
+# Overlay colour scheme — RGB tuples chosen for visibility on grey
+# newsprint and to be distinguishable from each other when stacked.
+_VALID_OVERLAYS = (
+    "boundaries", "ads", "headlines", "body_text", "h_rules", "large_type",
+)
+_OVERLAY_COLORS = {
+    "boundaries": (0, 200, 255),    # cyan
+    "ads":        (255, 50, 50),    # red
+    "headlines":  (255, 220, 0),    # yellow
+    "body_text":  (50, 220, 50),    # green
+    "h_rules":    (255, 140, 0),    # orange
+    "large_type": (200, 50, 200),   # magenta
+}
+
+
+def _validate_overlays(arg):
+    """Parse --overlay. None / empty → no overlays. 'all' → every type.
+    Comma-list → that subset, with unknown values rejected."""
+    if arg is None or arg == "":
+        return [], None
+    if arg.strip() == "all":
+        return list(_VALID_OVERLAYS), None
+    requested = [s.strip() for s in arg.split(",") if s.strip()]
+    if not requested:
+        return None, "--overlay given but empty"
+    bad = [r for r in requested if r not in _VALID_OVERLAYS]
+    if bad:
+        return None, (f"unknown overlay(s) {bad}; valid: "
+                      f"{list(_VALID_OVERLAYS)} or 'all'")
+    return list(dict.fromkeys(requested)), None
+
+
+def _validate_dpi(dpi):
+    """DPI clamp: 50 too small to see column structure, 600 starts to
+    blow up file sizes. The pipeline native is 450; 150 is a good
+    visual default for the LLM."""
+    if not (50 <= dpi <= 600):
+        return False, f"--dpi {dpi} out of range 50..600"
+    return True, None
+
+
+def _render_page(pdf_path, dpi):
+    """Render the page as a PIL.Image (RGB). Goes through the
+    pdf_utils render cache so repeated view/crop calls at the same DPI
+    pay only one render cost.
+    """
+    from PIL import Image
+    from pdf_utils import get_full_pixmap
+    pix = get_full_pixmap(pdf_path, 0, dpi)
+    img = Image.frombytes("RGB", (pix.w, pix.h), pix.samples)
+    return img
+
+
+def _draw_overlays(img, overlays, layout, ads, analysis):
+    """Mutates `img` in place by drawing the requested overlay layers.
+    Pct→px conversions go through coordinates.pct_to_px per CLAUDE.md.
+    Returns counts dict so the envelope can report what was drawn."""
+    from PIL import ImageDraw
+    from coordinates import pct_to_px
+
+    draw = ImageDraw.Draw(img)
+    w, h = img.size
+    counts = {}
+
+    def rect_pct(x1p, y1p, x2p, y2p, color, width):
+        draw.rectangle(
+            [pct_to_px(x1p, w), pct_to_px(y1p, h),
+             pct_to_px(x2p, w), pct_to_px(y2p, h)],
+            outline=color, width=width,
+        )
+
+    if "boundaries" in overlays and layout:
+        c = _OVERLAY_COLORS["boundaries"]
+        for x_pct in layout["boundaries_pct"]:
+            x = pct_to_px(x_pct, w)
+            draw.line([(x, 0), (x, h - 1)], fill=c, width=2)
+        counts["boundaries"] = len(layout["boundaries_pct"])
+
+    if "ads" in overlays:
+        c = _OVERLAY_COLORS["ads"]
+        for ad in ads:
+            rect_pct(ad["x_pct"], ad["y_pct"],
+                     ad["x_end_pct"], ad["y_end_pct"], c, 3)
+        counts["ads"] = len(ads)
+
+    if "headlines" in overlays:
+        c = _OVERLAY_COLORS["headlines"]
+        items = analysis.get("headlines", []) or []
+        for hl in items:
+            rect_pct(hl["x1_pct"], hl["y1_pct"],
+                     hl["x2_pct"], hl["y2_pct"], c, 2)
+        counts["headlines"] = len(items)
+
+    if "body_text" in overlays:
+        c = _OVERLAY_COLORS["body_text"]
+        items = analysis.get("body_text", []) or []
+        for bt in items:
+            rect_pct(bt["x1_pct"], bt["y1_pct"],
+                     bt["x2_pct"], bt["y2_pct"], c, 2)
+        counts["body_text"] = len(items)
+
+    if "h_rules" in overlays:
+        c = _OVERLAY_COLORS["h_rules"]
+        items = analysis.get("h_rules", []) or []
+        for hr in items:
+            x0 = pct_to_px(hr["x1_pct"], w)
+            x1 = pct_to_px(hr["x2_pct"], w)
+            y = pct_to_px(hr["y_pct"], h)
+            draw.line([(x0, y), (x1, y)], fill=c, width=2)
+        counts["h_rules"] = len(items)
+
+    if "large_type" in overlays:
+        c = _OVERLAY_COLORS["large_type"]
+        items = analysis.get("large_type", []) or []
+        for lt in items:
+            rect_pct(lt["x1_pct"], lt["y1_pct"],
+                     lt["x2_pct"], lt["y2_pct"], c, 2)
+        counts["large_type"] = len(items)
+
+    return counts
+
+
+def _inspect_path(issue, page, fname):
+    """Build the content-addressable inspect path and ensure the
+    parent directory exists. Caller passes a stable filename so
+    identical inputs collide (intentional caching)."""
+    page_dir = os.path.join(_INSPECT_ROOT, issue, f"p{page}")
+    os.makedirs(page_dir, exist_ok=True)
+    return os.path.join(page_dir, fname)
+
+
+def cmd_view(args) -> int:
+    cmd = "view"
+    ok, err = _validate_date_page(args.year, args.month, args.day, args.page)
+    if not ok:
+        return emit_error(cmd, "validation_error", err)
+    ok, err = _validate_dpi(args.dpi)
+    if not ok:
+        return emit_error(cmd, "validation_error", err)
+    overlays, err = _validate_overlays(args.overlay)
+    if err:
+        return emit_error(cmd, "validation_error", err)
+
+    issue = f"{args.year:04d}-{args.month:02d}-{args.day:02d}"
+    page_dir = os.path.join(args.output_root, issue, f"p{args.page}")
+
+    pdf_path = _locate_cached_pdf(args.year, args.month, args.day, args.page)
+    if pdf_path is None:
+        return emit_error(
+            cmd, "not_found",
+            f"PDF not cached for {issue} p{args.page}; "
+            f"expected at /tmp/issue_{issue}/{issue}-{args.page:02d}.pdf",
+        )
+
+    # Read state for overlays — only what the requested overlay set
+    # actually needs (DB hits / file reads are cheap but skip them
+    # when not used).
+    layout = None
+    ads = []
+    analysis = {}
+    needs_db = bool(set(overlays) & {"boundaries", "ads"})
+    needs_analysis = bool(
+        set(overlays) & {"headlines", "body_text", "h_rules", "large_type"}
+    )
+    if needs_db:
+        with closing(sqlite3.connect(args.db)) as conn:
+            if "boundaries" in overlays:
+                layout = _fetch_layout(conn, args.year, args.month,
+                                       args.day, args.page)
+            if "ads" in overlays:
+                ads = _fetch_ads(conn, args.year, args.month,
+                                 args.day, args.page)
+    if needs_analysis:
+        analysis = _read_analysis(page_dir)
+
+    try:
+        with contextlib.redirect_stdout(sys.stderr):
+            img = _render_page(pdf_path, args.dpi)
+            counts = _draw_overlays(img, overlays, layout, ads, analysis)
+    except Exception as e:
+        return emit_error(
+            cmd, "pipeline_error", f"{type(e).__name__}: {e}",
+            traceback=traceback.format_exc(),
+        )
+
+    # Filename encodes inputs so different requests don't clobber and
+    # identical requests reuse the same path (cheap LLM-side caching).
+    overlay_tag = "+".join(overlays) if overlays else "raw"
+    fname = f"view_{args.dpi}dpi_{overlay_tag}.png"
+    out_path = _inspect_path(issue, args.page, fname)
+    img.save(out_path)
+
+    return emit_ok(cmd, {
+        "issue": issue,
+        "page": args.page,
+        "dpi": args.dpi,
+        "overlays_drawn": overlays,
+        "overlay_counts": counts,
+        "image_path": os.path.relpath(out_path, os.getcwd())
+                       if out_path.startswith(os.getcwd())
+                       else out_path,
+        "image_size_px": list(img.size),
+    })
+
+
+def _resolve_crop_region(args, conn):
+    """Return ((x_pct, y_pct, w_pct, h_pct), descriptor, error_msg).
+
+    Three mutually exclusive selectors: explicit pct rect, col_idx,
+    ad_id. The descriptor goes into the output filename so different
+    crops don't collide. `error_msg` is non-None on failure."""
+    have_rect = (args.x_pct is not None or args.y_pct is not None
+                 or args.w_pct is not None or args.h_pct is not None)
+    have_col = args.col_idx is not None
+    have_ad = args.ad_id is not None
+    chosen = sum(int(b) for b in (have_rect, have_col, have_ad))
+    if chosen == 0:
+        return None, None, ("specify a region: --x-pct/--w-pct/--y-pct/"
+                            "--h-pct, OR --col-idx, OR --ad-id")
+    if chosen > 1:
+        return None, None, ("region selectors are mutually exclusive: "
+                            "use exactly one of (rect | col-idx | ad-id)")
+
+    if have_rect:
+        # All four required when any are given.
+        missing = [n for n, v in (("--x-pct", args.x_pct),
+                                  ("--y-pct", args.y_pct),
+                                  ("--w-pct", args.w_pct),
+                                  ("--h-pct", args.h_pct))
+                   if v is None]
+        if missing:
+            return None, None, f"rect crop requires all four of x/y/w/h; missing {missing}"
+        for name, v in (("x_pct", args.x_pct), ("y_pct", args.y_pct)):
+            if not (0 <= v <= 100):
+                return None, None, f"--{name.replace('_', '-')} {v} out of 0..100"
+        for name, v in (("w_pct", args.w_pct), ("h_pct", args.h_pct)):
+            if not (0 < v <= 100):
+                return None, None, f"--{name.replace('_', '-')} {v} out of (0..100]"
+        if args.x_pct + args.w_pct > 100.001:
+            return None, None, "x + w exceeds 100%"
+        if args.y_pct + args.h_pct > 100.001:
+            return None, None, "y + h exceeds 100%"
+        desc = (f"rect_x{args.x_pct:.2f}_y{args.y_pct:.2f}"
+                f"_w{args.w_pct:.2f}_h{args.h_pct:.2f}")
+        return (args.x_pct, args.y_pct, args.w_pct, args.h_pct), desc, None
+
+    if have_col:
+        layout = _fetch_layout(conn, args.year, args.month,
+                               args.day, args.page)
+        if layout is None:
+            return None, None, (f"no page_layouts row for "
+                                f"{args.year}-{args.month:02d}-{args.day:02d} "
+                                f"p{args.page}")
+        bps = layout["boundaries_pct"]
+        n_cols = len(bps) - 1
+        if not (0 <= args.col_idx < n_cols):
+            return None, None, (f"--col-idx {args.col_idx} out of range "
+                                f"0..{n_cols - 1} for this page's {n_cols}-col layout")
+        x_pct = bps[args.col_idx]
+        w_pct = bps[args.col_idx + 1] - x_pct
+        # Full page height; col bbox isn't stored vertically.
+        return (x_pct, 0.0, w_pct, 100.0), f"col{args.col_idx}", None
+
+    # have_ad
+    cur = conn.execute(
+        "SELECT x_pct, y_pct, w_pct, h_pct FROM detected_ads "
+        "WHERE year=? AND month=? AND day=? AND page=? AND uuid=?",
+        (args.year, args.month, args.day, args.page, args.ad_id),
+    )
+    r = cur.fetchone()
+    if r is None:
+        return None, None, (f"no ad with uuid {args.ad_id} on "
+                            f"{args.year}-{args.month:02d}-{args.day:02d} "
+                            f"p{args.page}")
+    return (r[0], r[1], r[2], r[3]), f"ad_{args.ad_id[:8]}", None
+
+
+def cmd_crop(args) -> int:
+    cmd = "crop"
+    ok, err = _validate_date_page(args.year, args.month, args.day, args.page)
+    if not ok:
+        return emit_error(cmd, "validation_error", err)
+    ok, err = _validate_dpi(args.dpi)
+    if not ok:
+        return emit_error(cmd, "validation_error", err)
+
+    issue = f"{args.year:04d}-{args.month:02d}-{args.day:02d}"
+
+    # Resolve region inside the same DB connection where we look up
+    # col-idx / ad-id metadata.
+    with closing(sqlite3.connect(args.db)) as conn:
+        region, desc, err = _resolve_crop_region(args, conn)
+    if err:
+        # Pick code: not_found if it's a missing layout/ad row,
+        # validation_error otherwise. Cheap heuristic on the message.
+        code = "not_found" if "no " in err and "row" in err or "no ad" in err else "validation_error"
+        return emit_error(cmd, code, err)
+
+    pdf_path = _locate_cached_pdf(args.year, args.month, args.day, args.page)
+    if pdf_path is None:
+        return emit_error(
+            cmd, "not_found",
+            f"PDF not cached for {issue} p{args.page}; "
+            f"expected at /tmp/issue_{issue}/{issue}-{args.page:02d}.pdf",
+        )
+
+    try:
+        with contextlib.redirect_stdout(sys.stderr):
+            img = _render_page(pdf_path, args.dpi)
+    except Exception as e:
+        return emit_error(
+            cmd, "pipeline_error", f"{type(e).__name__}: {e}",
+            traceback=traceback.format_exc(),
+        )
+
+    # Crop in pixel space using coordinates helpers.
+    from coordinates import pct_to_px
+    w, h = img.size
+    x_pct, y_pct, w_pct, h_pct = region
+    x0 = pct_to_px(x_pct, w)
+    y0 = pct_to_px(y_pct, h)
+    x1 = pct_to_px(x_pct + w_pct, w)
+    y1 = pct_to_px(y_pct + h_pct, h)
+    cropped = img.crop((x0, y0, x1, y1))
+
+    fname = f"crop_{desc}_{args.dpi}dpi.png"
+    out_path = _inspect_path(issue, args.page, fname)
+    cropped.save(out_path)
+
+    return emit_ok(cmd, {
+        "issue": issue,
+        "page": args.page,
+        "dpi": args.dpi,
+        "region_pct": {"x": x_pct, "y": y_pct, "w": w_pct, "h": h_pct},
+        "image_path": out_path,
+        "image_size_px": list(cropped.size),
+    })
+
+
 # ── Argparse plumbing ────────────────────────────────────────────────
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -566,6 +913,64 @@ def _build_parser() -> argparse.ArgumentParser:
              "(default: both). Unknown values rejected — no silent typos.",
     )
     rec.set_defaults(func=cmd_recompute_layers)
+
+    view = sub.add_parser(
+        "view",
+        help="Render the page as a PNG with optional overlays "
+             "(boundaries, ads, headlines, body_text, h_rules, "
+             "large_type, or 'all'). Output goes to /tmp/mvtm_inspect/.",
+    )
+    view.add_argument("year", type=int)
+    view.add_argument("month", type=int)
+    view.add_argument("day", type=int)
+    view.add_argument("page", type=int)
+    view.add_argument(
+        "--overlay", default=None,
+        help="Comma-separated overlay names, or 'all'. Default: no "
+             "overlays (raw page render). Valid: "
+             "boundaries,ads,headlines,body_text,h_rules,large_type",
+    )
+    view.add_argument(
+        "--dpi", type=int, default=150,
+        help="Render DPI (50..600). Default 150 — visible column "
+             "structure without huge files.",
+    )
+    view.set_defaults(func=cmd_view)
+
+    crop = sub.add_parser(
+        "crop",
+        help="Render a sub-region of the page. Region selected by "
+             "explicit pct rect, or by --col-idx (uses layout "
+             "boundaries), or by --ad-id (uses ad bbox).",
+    )
+    crop.add_argument("year", type=int)
+    crop.add_argument("month", type=int)
+    crop.add_argument("day", type=int)
+    crop.add_argument("page", type=int)
+    # Explicit rect (all four required if any given).
+    crop.add_argument("--x-pct", type=float, default=None,
+                      dest="x_pct")
+    crop.add_argument("--y-pct", type=float, default=None,
+                      dest="y_pct")
+    crop.add_argument("--w-pct", type=float, default=None,
+                      dest="w_pct")
+    crop.add_argument("--h-pct", type=float, default=None,
+                      dest="h_pct")
+    # Or by index.
+    crop.add_argument("--col-idx", type=int, default=None,
+                      dest="col_idx",
+                      help="0-indexed column within the page layout. "
+                           "Crops full page height between the two "
+                           "boundary positions.")
+    crop.add_argument("--ad-id", default=None,
+                      dest="ad_id",
+                      help="Ad uuid (from `mvtm show`). Crops the ad's "
+                           "bbox.")
+    crop.add_argument(
+        "--dpi", type=int, default=150,
+        help="Render DPI (50..600). Default 150.",
+    )
+    crop.set_defaults(func=cmd_crop)
 
     return p
 
