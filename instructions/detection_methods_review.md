@@ -177,6 +177,23 @@ specifically for low-contrast 1890s scans where Pass 1 missed bordered ads
 because the threshold sat above the faint border. The contrast-145
 threshold is empirically calibrated against the test corpus.
 
+**Boundary extension (`_extend_to_rules`):** After the contour pass, each
+candidate's bbox is snapped outward to the nearest thick rule
+(≥80% ink-fill) within 6% on each of its four sides. Mirrors the
+boundary-search refinement in `detect_single_col_ads`, generalised to
+all four sides. Catches the case (1947-02-27 p8) where an ad's outer
+border bonds with the page running-head rectangle so the contour engine
+returns only an inner sub-shape, while a thick rule sits a few percent
+outside that sub-shape and IS the visible frame. Guarded against
+crossing other ads' bboxes; growth capped at 6% per side.
+
+**Edge-touching filter (softened 2026-04-28):** Candidates touching a
+page edge with `rect_ratio < 0.80` used to be hard-rejected as
+shadow/artifact. They are now kept with a confidence downgrade, plus
+the existing edge-touch downgrade. Anchor: 1947-02-27 p8 top-right
+"EYRES AND HATTON" was rejected even though it's a real ad below the
+running-head rule.
+
 **What it lacks:** The 145 magic number is a single-point cutoff. Ads
 without borders (run-in display, large bold text) are not detected as ads
 and may be picked up later by headline detection instead. Photo-edge
@@ -717,6 +734,22 @@ This file is meant to evolve. When a strategy is added, retired, or
 materially changed, append a dated note here so the catalogue's drift is
 auditable.
 
+- **2026-04-28 — `detect_ads` boundary extension + edge-filter
+  softening.** `_extend_to_rules` helper added: post-contour, each
+  multi-col candidate's bbox snaps outward to the nearest ≥80%-ink rule
+  on each side within 6%, capped at 6% per side, guarded against
+  crossing other ads. Mirrors `detect_single_col_ads`'s boundary-search,
+  generalised to all four sides. Edge-touching `rect_ratio < 0.80`
+  candidates are no longer hard-rejected as artifacts; they pass with
+  a confidence downgrade and inherit the existing edge-touch downgrade.
+  Driven by 1947-02-27 p8 where the page running-head rectangle bonded
+  with three ads' outer borders, leaving inner sub-shapes that stopped
+  short of the visible frame and triggered `edge_horiz_low_rr` /
+  `edge_vert_low_rr` rejections on legitimate display ads. Net effect
+  on 1947-02-27: 28 → 29 ads, with 23 of the 29 picking up small
+  outward bbox corrections. Also added `verbose=False` flag to
+  `_detect_ads_pass` for stderr-JSONL diagnostic logging
+  (byte-identical when off).
 - **2026-04-27 — Clean-side placement slack in `place_standard`.**
   Added `clean_slack = pitch * 0.2` so the grid-clipping limits
   extend slightly past R3 on the clean side as well as the binding

@@ -257,15 +257,16 @@ def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
                   **(_rule_proximity(x, y, x + bw, y + bh) if verbose else {}))
             continue
 
-        # If touching any edge AND low rectangularity, it's shadow/artifact
-        if (at_left_edge or at_right_edge) and rect_ratio < 0.80:
-            _emit("edge_horiz_low_rr", kept=False, **common, edges=edges,
-                  **(_rule_proximity(x, y, x + bw, y + bh) if verbose else {}))
-            continue
-        if (at_top_edge or at_bottom_edge) and rect_ratio < 0.80:
-            _emit("edge_vert_low_rr", kept=False, **common, edges=edges,
-                  **(_rule_proximity(x, y, x + bw, y + bh) if verbose else {}))
-            continue
+        # Edge-touching with low rectangularity used to be a hard reject
+        # ("shadow/artifact"). Demoted to confidence downgrade — the
+        # rejects on 1947-02-27 p8 were real ads sitting near the page
+        # margin where the running-head rectangle deformed the contour,
+        # not artifacts. Body-text FP filter downstream still has reach
+        # via the lowered confidence.
+        edge_low_rr = (
+            ((at_left_edge or at_right_edge) and rect_ratio < 0.80) or
+            ((at_top_edge or at_bottom_edge) and rect_ratio < 0.80)
+        )
 
         # Confidence scoring
         if rect_ratio > min_rect_ratio and 0.3 < aspect < 5.0:
@@ -274,6 +275,14 @@ def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
             confidence = "medium"
         else:
             confidence = "low"
+
+        # Apply edge+low-rr downgrade before the generic edge-touch one
+        # below so a high candidate can't bypass it.
+        if edge_low_rr:
+            if confidence == "high":
+                confidence = "medium"
+            elif confidence == "medium":
+                confidence = "low"
 
         # Reject contours that match the photograph boundary (R2).
         # The scanned image edge forms a large rectangular contour
@@ -325,6 +334,125 @@ def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
             "_x1_px": x,
             "_x2_px": x + bw,
         })
+
+    return ads
+
+
+def _extend_to_rules(ads, binary, h, w):
+    """Snap each multi-col ad bbox outward to the nearest thick rule on
+    each side, mirroring the boundary-search refinement in
+    detect_single_col_ads but generalised to all four sides.
+
+    "Thick rule" = a row (or column) that is >= RULE_FILL_FRAC ink across
+    the candidate's perpendicular span. The scan is performed on the
+    pre-morph-close binary so what we find are real printed rules, not
+    close-bridged content.
+
+    Catches the "contour stopped short of the visible frame" case
+    diagnosed on 1947-02-27 p8: the ad's outer border bonds with the
+    page outer rectangle so the contour engine returns only an inner
+    sub-shape; a thick rule sits a few percent outside that sub-shape
+    and IS the visible frame.
+
+    Guards:
+    - Snap only to the FIRST rule found in the scan window — closer
+      rules are likely to be the visible frame; rules beyond that risk
+      crossing into adjacent layout.
+    - Cap each side's growth at MAX_EXTENSION_PCT.
+    - Don't extend past another ad's existing bbox in the same row/col
+      span — that would merge two distinct ads.
+
+    Mutates ads in place; ads with any side extended pick up
+    extended=True.
+    """
+    RULE_FILL_FRAC = 0.80
+    EXTENSION_PCT = 6.0
+    MAX_EXTENSION_PCT = 6.0
+
+    scan_h_px = pct_to_px(EXTENSION_PCT, h)
+    scan_w_px = pct_to_px(EXTENSION_PCT, w)
+    max_grow_h = pct_to_px(MAX_EXTENSION_PCT, h)
+    max_grow_w = pct_to_px(MAX_EXTENSION_PCT, w)
+
+    def _row_is_rule(r, x1, x2):
+        if r < 0 or r >= h or x2 <= x1:
+            return False
+        row = binary[r, x1:x2]
+        return row.size > 0 and float((row > 0).mean()) >= RULE_FILL_FRAC
+
+    def _col_is_rule(c, y1, y2):
+        if c < 0 or c >= w or y2 <= y1:
+            return False
+        col = binary[y1:y2, c]
+        return col.size > 0 and float((col > 0).mean()) >= RULE_FILL_FRAC
+
+    for a in ads:
+        x1_px = a["_x1_px"]
+        y1_px = a["_y1_px"]
+        x2_px = a["_x2_px"]
+        y2_px = a["_y2_px"]
+
+        new_y1 = y1_px
+        for r in range(y1_px - 1, max(-1, y1_px - scan_h_px - 1), -1):
+            if _row_is_rule(r, x1_px, x2_px):
+                new_y1 = r
+                break
+        new_y2 = y2_px
+        for r in range(y2_px, min(h, y2_px + scan_h_px)):
+            if _row_is_rule(r, x1_px, x2_px):
+                new_y2 = r + 1  # exclusive end
+                break
+        new_x1 = x1_px
+        for c in range(x1_px - 1, max(-1, x1_px - scan_w_px - 1), -1):
+            if _col_is_rule(c, y1_px, y2_px):
+                new_x1 = c
+                break
+        new_x2 = x2_px
+        for c in range(x2_px, min(w, x2_px + scan_w_px)):
+            if _col_is_rule(c, y1_px, y2_px):
+                new_x2 = c + 1
+                break
+
+        # Cap growth
+        new_y1 = max(new_y1, y1_px - max_grow_h)
+        new_y2 = min(new_y2, y2_px + max_grow_h)
+        new_x1 = max(new_x1, x1_px - max_grow_w)
+        new_x2 = min(new_x2, x2_px + max_grow_w)
+
+        # Don't extend past other ads' bboxes
+        for other in ads:
+            if other is a:
+                continue
+            ox1, oy1 = other["_x1_px"], other["_y1_px"]
+            ox2, oy2 = other["_x2_px"], other["_y2_px"]
+            # x-overlap with other ⇒ y-extension might cross it
+            if ox2 > x1_px and ox1 < x2_px:
+                if y1_px > oy2 > new_y1:  # extending up across other's bottom
+                    new_y1 = oy2
+                if y2_px < oy1 < new_y2:  # extending down across other's top
+                    new_y2 = oy1
+            # y-overlap with other ⇒ x-extension might cross it
+            if oy2 > y1_px and oy1 < y2_px:
+                if x1_px > ox2 > new_x1:  # extending left across other's right
+                    new_x1 = ox2
+                if x2_px < ox1 < new_x2:  # extending right across other's left
+                    new_x2 = ox1
+
+        if (new_x1, new_y1, new_x2, new_y2) == (x1_px, y1_px, x2_px, y2_px):
+            continue  # no change for this ad
+
+        # Apply
+        a["_x1_px"] = new_x1
+        a["_y1_px"] = new_y1
+        a["_x2_px"] = new_x2
+        a["_y2_px"] = new_y2
+        a["x_pct"] = round(px_to_pct(new_x1, w), 2)
+        a["y_pct"] = round(px_to_pct(new_y1, h), 2)
+        a["x_end_pct"] = round(px_to_pct(new_x2, w), 2)
+        a["y_end_pct"] = round(px_to_pct(new_y2, h), 2)
+        a["w_pct"] = px_to_pct(new_x2 - new_x1, w)
+        a["h_pct"] = px_to_pct(new_y2 - new_y1, h)
+        a["extended"] = True
 
     return ads
 
@@ -479,6 +607,24 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
                 f["h_pct"] = round(f["y_end_pct"] - f["y_pct"], 2)
                 f["extended"] = True
                 break
+
+    # ── Boundary extension to nearest thick rules ───────────────────
+    # Mirror of detect_single_col_ads' boundary-search refinement,
+    # generalised to all four sides. Catches the 1947-02-27 p8 case
+    # where the ad's outer border bonded with the page running-head
+    # rectangle so the contour engine returned only an inner sub-shape;
+    # a thick rule sits a few percent outside that sub-shape and IS
+    # the visible frame.
+    #
+    # Re-binarise with STRICT_PARAMS (matches the binary the strict
+    # pass saw, before morph_close — we want real printed rules, not
+    # close-bridged content).
+    p = STRICT_PARAMS
+    binary_for_rules = cv2.adaptiveThreshold(
+        grey, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV, p["block_size"], p["C"],
+    )
+    full = _extend_to_rules(full, binary_for_rules, h, w)
 
     # Strip internal fields and emit only full-height ads.
     for a in full:
