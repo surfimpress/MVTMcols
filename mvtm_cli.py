@@ -1337,6 +1337,11 @@ def cmd_regenerate_page(args) -> int:
     issue_dir = (f"{args.year:04d}-{args.month:02d}-{args.day:02d}")
     page_dir = os.path.join(args.output_root, issue_dir,
                             f"p{args.page}")
+    # Ad PNGs live in a parallel `ads/p{N}/` tree — that's what the
+    # viewer reads. Match the layout that process_issue creates
+    # (process_issue.py writes ads to output_dir/ads/p{page_num}/).
+    ad_out_dir = os.path.join(args.output_root, issue_dir, "ads",
+                              f"p{args.page}")
     if scope != "viewer" and not os.path.isdir(page_dir):
         return emit_error(cmd, "not_found",
                           f"page directory missing: {page_dir}")
@@ -1389,25 +1394,79 @@ def cmd_regenerate_page(args) -> int:
             except (ValueError, IndexError):
                 return 1 << 30
         records.sort(key=_idx)
-        results = extract_ad_images(pdf_path, records, page_dir,
+        os.makedirs(ad_out_dir, exist_ok=True)
+        results = extract_ad_images(pdf_path, records, ad_out_dir,
                                     page_number=0, dpi=450,
                                     name_prefix=name_prefix)
         # extract_ad_images writes _<prefix>{i+1}.png by enumeration.
         # Move each output back to the original image_filename so the
         # uuid → filename mapping in DB stays valid.
         for new, old in zip(results, records):
-            desired = os.path.join(page_dir, old["image_filename"])
+            desired = os.path.join(ad_out_dir, old["image_filename"])
             written = new["image_path"]
             if os.path.abspath(written) != os.path.abspath(desired):
                 shutil.move(written, desired)
         return len(records)
 
+    def _cleanup_orphan_ads(all_records):
+        """Remove ad PNGs in ad_out_dir whose filename no longer
+        corresponds to a current DB row. Without this, a deleted ad
+        leaves a stale PNG that the viewer continues to surface."""
+        if not os.path.isdir(ad_out_dir):
+            return 0
+        keep = {r["image_filename"] for r in all_records
+                if r.get("image_filename")}
+        # Also keep stale page_dir copies out of the way: only manage
+        # files whose name matches the date-page-prefix pattern. Don't
+        # touch unrelated artefacts that may live alongside.
+        prefix = f"{args.year:04d}-{args.month:02d}-{args.day:02d}-{args.page}_"
+        removed = 0
+        for fn in os.listdir(ad_out_dir):
+            if not fn.startswith(prefix):
+                continue
+            if "_ad" not in fn and "_sc_ad" not in fn:
+                continue
+            if fn in keep:
+                continue
+            try:
+                os.remove(os.path.join(ad_out_dir, fn))
+                removed += 1
+            except OSError:
+                pass
+        return removed
+
+    def _cleanup_stale_page_dir_ads():
+        """Earlier regenerate-page runs (before the ad_out_dir fix)
+        wrote ad PNGs into page_dir. Those duplicates are now stale and
+        confuse anyone inspecting the per-page directory. Remove them."""
+        if not os.path.isdir(page_dir):
+            return 0
+        prefix = f"{args.year:04d}-{args.month:02d}-{args.day:02d}-{args.page}_"
+        removed = 0
+        for fn in os.listdir(page_dir):
+            if not fn.startswith(prefix):
+                continue
+            # Only ad PNGs — leave columns, page_raw, overlays alone.
+            stem = fn[len(prefix):]
+            if not (stem.startswith("ad") or stem.startswith("sc_ad")):
+                continue
+            try:
+                os.remove(os.path.join(page_dir, fn))
+                removed += 1
+            except OSError:
+                pass
+        return removed
+
     if scope in ("ads", "both"):
         n_multi = _re_extract_set(multi, "ad")
         n_single = _re_extract_set(single, "sc_ad")
+        n_orphans = _cleanup_orphan_ads(multi + single)
+        n_stale = _cleanup_stale_page_dir_ads()
         actions.append({"step": "ads",
                         "multi_col_rerendered": n_multi,
-                        "single_col_rerendered": n_single})
+                        "single_col_rerendered": n_single,
+                        "orphans_removed": n_orphans,
+                        "stale_page_dir_removed": n_stale})
 
     if scope in ("columns", "both"):
         ads_for_cut = [
