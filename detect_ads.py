@@ -73,10 +73,26 @@ def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
     it survived). Diagnostic only; production paths leave verbose=False
     and the function is byte-identical to the no-flag version.
     """
+    # Pre-compute R2 (text-area rect) for diagnostic logging. R2 may be
+    # absent on pages where page_profile didn't find a clean text-area
+    # — in that case we just don't emit r2_* fields.
+    r2_info = None
+    if verbose and page_profile and "r2" in page_profile:
+        r2 = page_profile["r2"]
+        r2_info = {
+            "r2_left": r2.get("left"),
+            "r2_right": r2.get("right"),
+            "r2_top": r2.get("top"),
+            "r2_bottom": r2.get("bottom"),
+        }
+
     def _emit(stage, kept, **extra):
         if not verbose:
             return
-        rec = {"pass": pass_id, "stage": stage, "kept": kept, **extra}
+        rec = {"pass": pass_id, "stage": stage, "kept": kept}
+        if r2_info:
+            rec.update(r2_info)
+        rec.update(extra)
         sys.stderr.write(json.dumps(rec) + "\n")
 
     binary = cv2.adaptiveThreshold(
@@ -89,6 +105,63 @@ def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
     contours, hierarchy = cv2.findContours(
         closed, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE,
     )
+
+    # Helpers for "is there a thick rule just outside the candidate's
+    # bbox?" — diagnostic only, used in verbose log lines for kept and
+    # edge-* records to quantify the cost of detect_ads not having the
+    # boundary-search refinement that detect_single_col_ads does.
+    _RULE_FILL_FRAC = 0.80
+    _RULE_SCAN_PCT = 10.0  # ~2x the single-col 6%, since this is diagnostic
+    _scan_px = pct_to_px(_RULE_SCAN_PCT, h)
+
+    def _row_is_rule(row_idx, x1_px, x2_px):
+        if row_idx < 0 or row_idx >= h or x2_px <= x1_px:
+            return False
+        row = binary[row_idx, x1_px:x2_px]
+        if row.size == 0:
+            return False
+        return float((row > 0).mean()) >= _RULE_FILL_FRAC
+
+    def _col_is_rule(col_idx, y1_px, y2_px):
+        if col_idx < 0 or col_idx >= w or y2_px <= y1_px:
+            return False
+        col = binary[y1_px:y2_px, col_idx]
+        if col.size == 0:
+            return False
+        return float((col > 0).mean()) >= _RULE_FILL_FRAC
+
+    def _rule_proximity(x1_px, y0_px, x2_px, y1_px):
+        """Return distance-to-nearest-thick-rule (in pct) on each side
+        within RULE_SCAN_PCT of the bbox. None if no rule found in window.
+        Distances are SIGNED: positive means the rule sits OUTSIDE the
+        bbox in the natural extension direction (above the top, below
+        the bottom, left of the left edge, right of the right edge)."""
+        rule_above = None
+        for r in range(y0_px - 1, max(-1, y0_px - _scan_px - 1), -1):
+            if _row_is_rule(r, x1_px, x2_px):
+                rule_above = round(px_to_pct(y0_px, h) - px_to_pct(r, h), 2)
+                break
+        rule_below = None
+        for r in range(y1_px, min(h, y1_px + _scan_px)):
+            if _row_is_rule(r, x1_px, x2_px):
+                rule_below = round(px_to_pct(r, h) - px_to_pct(y1_px, h), 2)
+                break
+        rule_left = None
+        for c in range(x1_px - 1, max(-1, x1_px - _scan_px - 1), -1):
+            if _col_is_rule(c, y0_px, y1_px):
+                rule_left = round(px_to_pct(x1_px, w) - px_to_pct(c, w), 2)
+                break
+        rule_right = None
+        for c in range(x2_px, min(w, x2_px + _scan_px)):
+            if _col_is_rule(c, y0_px, y1_px):
+                rule_right = round(px_to_pct(c, w) - px_to_pct(x2_px, w), 2)
+                break
+        return {
+            "rule_above_pct": rule_above,
+            "rule_below_pct": rule_below,
+            "rule_left_pct": rule_left,
+            "rule_right_pct": rule_right,
+        }
 
     min_area = w * h * 0.005  # at least 0.5% of page area
     min_w = pct_to_px(min_width_pct, w)
@@ -152,11 +225,13 @@ def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
         # must be PROD-grade rect_ratio — they're only kept for the
         # sibling-merge pass and we don't want noise.
         if rect_ratio < 0.40:
-            _emit("rect_ratio_lt_0.40", kept=False, **common)
+            _emit("rect_ratio_lt_0.40", kept=False, **common,
+                  **(_rule_proximity(x, y, x + bw, y + bh) if verbose else {}))
             continue
         if is_short and rect_ratio < min_rect_ratio:
             _emit("short_rect_ratio_lt_min", kept=False, **common,
-                  min_rect_ratio=min_rect_ratio)
+                  min_rect_ratio=min_rect_ratio,
+                  **(_rule_proximity(x, y, x + bw, y + bh) if verbose else {}))
             continue
         # Aspect ratio filter: not a thin horizontal rule
         if aspect > 10.0 or aspect < 0.1:
@@ -178,15 +253,18 @@ def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
         # If touching two opposing edges (left+right or top+bottom),
         # it's a full-width/height element, not a boxed ad
         if (at_left_edge and at_right_edge) or (at_top_edge and at_bottom_edge):
-            _emit("edges_opposing", kept=False, **common, edges=edges)
+            _emit("edges_opposing", kept=False, **common, edges=edges,
+                  **(_rule_proximity(x, y, x + bw, y + bh) if verbose else {}))
             continue
 
         # If touching any edge AND low rectangularity, it's shadow/artifact
         if (at_left_edge or at_right_edge) and rect_ratio < 0.80:
-            _emit("edge_horiz_low_rr", kept=False, **common, edges=edges)
+            _emit("edge_horiz_low_rr", kept=False, **common, edges=edges,
+                  **(_rule_proximity(x, y, x + bw, y + bh) if verbose else {}))
             continue
         if (at_top_edge or at_bottom_edge) and rect_ratio < 0.80:
-            _emit("edge_vert_low_rr", kept=False, **common, edges=edges)
+            _emit("edge_vert_low_rr", kept=False, **common, edges=edges,
+                  **(_rule_proximity(x, y, x + bw, y + bh) if verbose else {}))
             continue
 
         # Confidence scoring
@@ -224,7 +302,8 @@ def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
         cols = max(1, round(bw / w * 100 / pitch))
 
         _emit("kept", kept=True, **common,
-              confidence=confidence, cols=cols, edges=edges)
+              confidence=confidence, cols=cols, edges=edges,
+              **(_rule_proximity(x, y, x + bw, y + bh) if verbose else {}))
 
         ads.append({
             "x_pct": round(x_pct, 2),
