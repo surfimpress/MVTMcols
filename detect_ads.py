@@ -18,7 +18,9 @@ Usage:
               f"{ad['w_pct']:.0f}%x{ad['h_pct']:.0f}% ~{ad['cols']}col")
 """
 
+import json
 import sqlite3
+import sys
 import uuid
 from contextlib import closing
 
@@ -55,7 +57,8 @@ CONTRAST_TIER1_THRESHOLD = 145
 
 def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
                      min_width_pct, min_height_pct, gather_min_height_pct,
-                     min_rect_ratio, pitch, page_profile):
+                     min_rect_ratio, pitch, page_profile,
+                     verbose=False, pass_id="strict"):
     """
     One threshold-and-contour pass. Returns the per-contour-filtered ad
     candidate list (still carrying the internal _y1_px / _is_short fields
@@ -64,7 +67,18 @@ def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
     Pulled out of detect_ads so a second, looser pass can run on
     low-contrast pages (Tier 1 adaptive thresholds) without duplicating
     the per-contour filter logic.
+
+    If verbose=True, emits one JSON line per contour to stderr describing
+    the bbox, derived metrics, and which filter rejected it (or "kept" if
+    it survived). Diagnostic only; production paths leave verbose=False
+    and the function is byte-identical to the no-flag version.
     """
+    def _emit(stage, kept, **extra):
+        if not verbose:
+            return
+        rec = {"pass": pass_id, "stage": stage, "kept": kept, **extra}
+        sys.stderr.write(json.dumps(rec) + "\n")
+
     binary = cv2.adaptiveThreshold(
         grey, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
         cv2.THRESH_BINARY_INV, block_size, C,
@@ -85,38 +99,68 @@ def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
     for i, cnt in enumerate(contours):
         area = cv2.contourArea(cnt)
         if area < min_area:
+            _emit("area_min", kept=False,
+                  area=float(area), min_area=float(min_area))
             continue
 
         x, y, bw, bh = cv2.boundingRect(cnt)
         rect_area = bw * bh
         if rect_area == 0:
+            _emit("rect_area_zero", kept=False, bbox_px=[x, y, bw, bh])
             continue
+
+        # Pre-compute the per-contour metrics used by both the filters
+        # and the verbose log. Order chosen to keep the existing filter
+        # sequence visible below; behaviour is unchanged when verbose
+        # is False.
+        x_pct = px_to_pct(x, w)
+        y_pct = px_to_pct(y, h)
+        x_end_pct = px_to_pct(x + bw, w)
+        y_end_pct = px_to_pct(y + bh, h)
+        rect_ratio = area / rect_area
+        aspect = bw / bh if bh > 0 else 0
+        is_short = bool(bh < min_h)
+        has_children = bool((hierarchy[0][i][2] != -1) if hierarchy is not None else False)
+        common = dict(
+            bbox_pct=[round(x_pct, 2), round(y_pct, 2),
+                      round(x_end_pct, 2), round(y_end_pct, 2)],
+            bbox_px=[int(x), int(y), int(bw), int(bh)],
+            area=float(area),
+            rect_ratio=round(rect_ratio, 4),
+            aspect=round(aspect, 3),
+            is_short=is_short,
+            has_children=has_children,
+        )
 
         # Size filters. Use gather_min_h here so short PROD-grade
         # candidates can survive into the sibling-merge pass below.
         if bw < min_w or bh < gather_min_h:
+            _emit("size_min", kept=False, **common,
+                  min_w=min_w, gather_min_h=gather_min_h)
             continue
-        is_short = bh < min_h
         # Not the whole page, and not a page border
         if bw > w * 0.85 and bh > h * 0.85:
+            _emit("page_full", kept=False, **common)
             continue
         # A contour covering > 50% of the page is a page border or
         # photograph edge, not a display ad
         if (bw * bh) > (w * h * 0.50):
+            _emit("page_coverage_50", kept=False, **common)
             continue
-
-        rect_ratio = area / rect_area
-        aspect = bw / bh if bh > 0 else 0
 
         # Rectangularity filter. Short candidates (below min_height_pct)
         # must be PROD-grade rect_ratio — they're only kept for the
         # sibling-merge pass and we don't want noise.
         if rect_ratio < 0.40:
+            _emit("rect_ratio_lt_0.40", kept=False, **common)
             continue
         if is_short and rect_ratio < min_rect_ratio:
+            _emit("short_rect_ratio_lt_min", kept=False, **common,
+                  min_rect_ratio=min_rect_ratio)
             continue
         # Aspect ratio filter: not a thin horizontal rule
         if aspect > 10.0 or aspect < 0.1:
+            _emit("aspect", kept=False, **common)
             continue
 
         # ── Edge filter: reject if any edge aligns with page boundary ──
@@ -124,25 +168,25 @@ def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
         # of the page/image boundary, it's likely shadow, photo edge,
         # or scan artifact — not a boxed ad.
         EDGE_MARGIN = 3.0  # percent of page dimension
-        x_pct = px_to_pct(x, w)
-        y_pct = px_to_pct(y, h)
-        x_end_pct = px_to_pct(x + bw, w)
-        y_end_pct = px_to_pct(y + bh, h)
 
-        at_left_edge = x_pct < EDGE_MARGIN
-        at_right_edge = x_end_pct > (100 - EDGE_MARGIN)
-        at_top_edge = y_pct < EDGE_MARGIN
-        at_bottom_edge = y_end_pct > (100 - EDGE_MARGIN)
+        at_left_edge = bool(x_pct < EDGE_MARGIN)
+        at_right_edge = bool(x_end_pct > (100 - EDGE_MARGIN))
+        at_top_edge = bool(y_pct < EDGE_MARGIN)
+        at_bottom_edge = bool(y_end_pct > (100 - EDGE_MARGIN))
+        edges = [at_left_edge, at_right_edge, at_top_edge, at_bottom_edge]
 
         # If touching two opposing edges (left+right or top+bottom),
         # it's a full-width/height element, not a boxed ad
         if (at_left_edge and at_right_edge) or (at_top_edge and at_bottom_edge):
+            _emit("edges_opposing", kept=False, **common, edges=edges)
             continue
 
         # If touching any edge AND low rectangularity, it's shadow/artifact
         if (at_left_edge or at_right_edge) and rect_ratio < 0.80:
+            _emit("edge_horiz_low_rr", kept=False, **common, edges=edges)
             continue
         if (at_top_edge or at_bottom_edge) and rect_ratio < 0.80:
+            _emit("edge_vert_low_rr", kept=False, **common, edges=edges)
             continue
 
         # Confidence scoring
@@ -165,6 +209,8 @@ def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
             if abs(y_pct - r2["top"]) < 5: matches_r2 += 1
             if abs(y_end_pct - r2["bottom"]) < 5: matches_r2 += 1
             if matches_r2 >= 2:
+                _emit("r2_photo_edge", kept=False, **common,
+                      matches_r2=matches_r2)
                 continue  # this is the photograph edge, not an ad
 
         # Downgrade confidence if touching any page edge
@@ -174,11 +220,11 @@ def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
             elif confidence == "medium":
                 confidence = "low"
 
-        # Check for children (content inside the box)
-        has_children = (hierarchy[0][i][2] != -1) if hierarchy is not None else False
-
         # Estimate column span
         cols = max(1, round(bw / w * 100 / pitch))
+
+        _emit("kept", kept=True, **common,
+              confidence=confidence, cols=cols, edges=edges)
 
         ads.append({
             "x_pct": round(x_pct, 2),
@@ -208,7 +254,7 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
                min_width_pct=15, min_height_pct=5,
                gather_min_height_pct=3.0,
                min_rect_ratio=0.85, column_pitch=None,
-               page_profile=None):
+               page_profile=None, verbose=False):
     """
     Detect bordered display advertisements on a PDF page.
 
@@ -254,7 +300,8 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
     )
 
     # ── Pass 1 — standard params (the working default) ──────────────
-    ads = _detect_ads_pass(grey, h, w, **STRICT_PARAMS, **pass_kwargs)
+    ads = _detect_ads_pass(grey, h, w, **STRICT_PARAMS, **pass_kwargs,
+                           verbose=verbose, pass_id="strict")
 
     # ── Pass 2 — looser params for low-contrast pages (Tier 1) ──────
     # Triggered when the page profile says contrast is low. The loose
@@ -283,6 +330,7 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
         if contrast < CONTRAST_TIER1_THRESHOLD or "low_contrast" in flags:
             ads.extend(_detect_ads_pass(
                 grey, h, w, **LOOSE_PARAMS, **pass_kwargs,
+                verbose=verbose, pass_id="loose",
             ))
 
     # Sort by area (largest first)
