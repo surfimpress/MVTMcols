@@ -104,14 +104,19 @@ _HEADLINE_DROP_KEYS = ("row_chart", "col_charts")
 
 
 def _validate_date_page(year: int, month: int, day: int, page: int):
-    """Returns (ok, error_message). Page range hard-coded 1..8 — every
-    issue in the corpus is an 8-page broadsheet."""
+    """Returns (ok, error_message).
+
+    Page count varies across the corpus: most 1947 issues are 8 pages,
+    but special issues run to 10/12/28 pages. The validator only
+    rejects page<1; an upper bound is left to the downstream lookup,
+    which returns `not_found` when no page_layouts row exists.
+    """
     try:
         _dt.date(year, month, day)
     except ValueError as e:
         return False, f"invalid date {year}-{month}-{day}: {e}"
-    if not (1 <= page <= 8):
-        return False, f"page {page} out of range 1..8"
+    if page < 1:
+        return False, f"page {page} must be >= 1"
     return True, None
 
 
