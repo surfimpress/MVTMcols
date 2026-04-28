@@ -871,6 +871,479 @@ def cmd_crop(args) -> int:
     })
 
 
+# ── Mutator helpers ──────────────────────────────────────────────────
+
+# All mutators write a `cli_history` row capturing before/after state so
+# `mvtm undo` can roll back. Single-row scope: each command edits one
+# DB row and produces one history entry. Multi-row mutations (split-ad,
+# merge-ads) are deferred — they need a multi-row history shape that
+# isn't built yet.
+
+def _record_history(conn, command, table_name, row_key, before, after,
+                    undoes_id=None):
+    """Insert one cli_history row. Returns its id (the transaction_id
+    surfaced to the LLM in the envelope)."""
+    cur = conn.execute(
+        "INSERT INTO cli_history (command, table_name, row_key_json, "
+        "before_json, after_json, undoes_id) VALUES (?, ?, ?, ?, ?, ?)",
+        (command, table_name, json.dumps(row_key, sort_keys=True),
+         json.dumps(before) if before is not None else None,
+         json.dumps(after) if after is not None else None,
+         undoes_id),
+    )
+    return cur.lastrowid
+
+
+def _layout_row_full(conn, year, month, day, page):
+    cur = conn.execute(
+        "SELECT id, year, month, day, page, num_columns, "
+        "boundary_positions, column_widths, quality_flags, "
+        "confidence, profile_json, hand_edited "
+        "FROM page_layouts WHERE year=? AND month=? AND day=? AND page=?",
+        (year, month, day, page),
+    )
+    r = cur.fetchone()
+    if r is None:
+        return None
+    return _row_to_dict(cur, r)
+
+
+def _ad_row_full(conn, ad_uuid):
+    cur = conn.execute(
+        "SELECT * FROM detected_ads WHERE uuid=?", (ad_uuid,),
+    )
+    r = cur.fetchone()
+    if r is None:
+        return None
+    return _row_to_dict(cur, r)
+
+
+def _round_pct(x):
+    """Canonical pct precision (matches coordinates.px_to_pct's 2dp)."""
+    return round(float(x), 2)
+
+
+def _recompute_widths(boundaries):
+    return [_round_pct(boundaries[i + 1] - boundaries[i])
+            for i in range(len(boundaries) - 1)]
+
+
+def _validate_boundaries_ordered(boundaries):
+    """Strict-ascending check + 0..100 range. Returns (ok, msg)."""
+    if len(boundaries) < 2:
+        return False, "boundaries must have at least 2 entries"
+    for i, b in enumerate(boundaries):
+        if not (0 <= b <= 100):
+            return False, f"boundaries[{i}] = {b} out of 0..100"
+    for i in range(1, len(boundaries)):
+        if boundaries[i] <= boundaries[i - 1]:
+            return False, (f"boundaries not strictly ascending: "
+                           f"[{i - 1}]={boundaries[i - 1]} >= "
+                           f"[{i}]={boundaries[i]}")
+    return True, None
+
+
+def _apply_layout_change(conn, year, month, day, page, command,
+                         new_boundaries):
+    """Validate + UPDATE page_layouts + record history. Returns
+    (ok, history_id_or_msg, before_state, after_state)."""
+    before = _layout_row_full(conn, year, month, day, page)
+    if before is None:
+        return False, (f"no page_layouts row for "
+                       f"{year}-{month:02d}-{day:02d} p{page}"), None, None
+    ok, err = _validate_boundaries_ordered(new_boundaries)
+    if not ok:
+        return False, err, None, None
+
+    new_widths = _recompute_widths(new_boundaries)
+    new_num_cols = len(new_boundaries) - 1
+
+    before_state = {
+        "boundary_positions": json.loads(before["boundary_positions"]),
+        "column_widths": json.loads(before["column_widths"]),
+        "num_columns": before["num_columns"],
+        "hand_edited": bool(before["hand_edited"]),
+    }
+    after_state = {
+        "boundary_positions": new_boundaries,
+        "column_widths": new_widths,
+        "num_columns": new_num_cols,
+        "hand_edited": True,
+    }
+
+    conn.execute(
+        "UPDATE page_layouts SET boundary_positions=?, column_widths=?, "
+        "num_columns=?, hand_edited=1 WHERE year=? AND month=? AND day=? "
+        "AND page=?",
+        (json.dumps(new_boundaries), json.dumps(new_widths),
+         new_num_cols, year, month, day, page),
+    )
+    history_id = _record_history(
+        conn, command, "page_layouts",
+        {"year": year, "month": month, "day": day, "page": page},
+        before_state, after_state,
+    )
+    return True, history_id, before_state, after_state
+
+
+# ── move-boundary / add-boundary / delete-boundary ───────────────────
+
+def cmd_move_boundary(args) -> int:
+    cmd = "move-boundary"
+    ok, err = _validate_date_page(args.year, args.month, args.day, args.page)
+    if not ok:
+        return emit_error(cmd, "validation_error", err)
+    if not (0 <= args.to <= 100):
+        return emit_error(cmd, "validation_error",
+                          f"--to {args.to} out of 0..100")
+
+    issue = f"{args.year:04d}-{args.month:02d}-{args.day:02d}"
+    with closing(sqlite3.connect(args.db)) as conn:
+        layout = _layout_row_full(conn, args.year, args.month,
+                                  args.day, args.page)
+        if layout is None:
+            return emit_error(cmd, "not_found",
+                              f"no page_layouts row for {issue} p{args.page}")
+        boundaries = json.loads(layout["boundary_positions"])
+        n_b = len(boundaries)
+        if not (0 <= args.boundary_idx < n_b):
+            return emit_error(cmd, "validation_error",
+                              f"--boundary-idx {args.boundary_idx} out of "
+                              f"range 0..{n_b - 1}")
+        old_pct = boundaries[args.boundary_idx]
+        new_boundaries = list(boundaries)
+        new_boundaries[args.boundary_idx] = _round_pct(args.to)
+
+        ok, result, _, after_state = _apply_layout_change(
+            conn, args.year, args.month, args.day, args.page,
+            cmd, new_boundaries,
+        )
+        if not ok:
+            return emit_error(cmd, "validation_error", result)
+        conn.commit()
+        history_id = result
+
+    return emit_ok(cmd, {
+        "issue": issue,
+        "page": args.page,
+        "boundary_idx": args.boundary_idx,
+        "old_pct": old_pct,
+        "new_pct": _round_pct(args.to),
+        "boundaries_after": after_state["boundary_positions"],
+        "num_columns_after": after_state["num_columns"],
+    }, transaction_id=history_id)
+
+
+def cmd_add_boundary(args) -> int:
+    cmd = "add-boundary"
+    ok, err = _validate_date_page(args.year, args.month, args.day, args.page)
+    if not ok:
+        return emit_error(cmd, "validation_error", err)
+    if not (0 < args.at < 100):
+        return emit_error(cmd, "validation_error",
+                          f"--at {args.at} out of (0..100)")
+
+    issue = f"{args.year:04d}-{args.month:02d}-{args.day:02d}"
+    with closing(sqlite3.connect(args.db)) as conn:
+        layout = _layout_row_full(conn, args.year, args.month,
+                                  args.day, args.page)
+        if layout is None:
+            return emit_error(cmd, "not_found",
+                              f"no page_layouts row for {issue} p{args.page}")
+        boundaries = json.loads(layout["boundary_positions"])
+        new_pct = _round_pct(args.at)
+        # Reject near-duplicates (would create a sub-pixel-thin column).
+        if any(abs(b - new_pct) < 0.05 for b in boundaries):
+            return emit_error(cmd, "validation_error",
+                              f"--at {new_pct} duplicates an existing "
+                              f"boundary (within 0.05 pct)")
+        new_boundaries = sorted(boundaries + [new_pct])
+
+        ok, result, _, after_state = _apply_layout_change(
+            conn, args.year, args.month, args.day, args.page,
+            cmd, new_boundaries,
+        )
+        if not ok:
+            return emit_error(cmd, "validation_error", result)
+        conn.commit()
+        history_id = result
+
+    return emit_ok(cmd, {
+        "issue": issue,
+        "page": args.page,
+        "added_pct": new_pct,
+        "boundaries_after": after_state["boundary_positions"],
+        "num_columns_after": after_state["num_columns"],
+    }, transaction_id=history_id)
+
+
+def cmd_delete_boundary(args) -> int:
+    cmd = "delete-boundary"
+    ok, err = _validate_date_page(args.year, args.month, args.day, args.page)
+    if not ok:
+        return emit_error(cmd, "validation_error", err)
+
+    issue = f"{args.year:04d}-{args.month:02d}-{args.day:02d}"
+    with closing(sqlite3.connect(args.db)) as conn:
+        layout = _layout_row_full(conn, args.year, args.month,
+                                  args.day, args.page)
+        if layout is None:
+            return emit_error(cmd, "not_found",
+                              f"no page_layouts row for {issue} p{args.page}")
+        boundaries = json.loads(layout["boundary_positions"])
+        n_b = len(boundaries)
+        if not (0 <= args.boundary_idx < n_b):
+            return emit_error(cmd, "validation_error",
+                              f"--boundary-idx {args.boundary_idx} out of "
+                              f"range 0..{n_b - 1}")
+        if n_b <= 2:
+            return emit_error(cmd, "validation_error",
+                              f"cannot delete: only {n_b} boundaries "
+                              f"left (need at least 2 for one column)")
+        deleted_pct = boundaries[args.boundary_idx]
+        new_boundaries = (boundaries[:args.boundary_idx]
+                          + boundaries[args.boundary_idx + 1:])
+
+        ok, result, _, after_state = _apply_layout_change(
+            conn, args.year, args.month, args.day, args.page,
+            cmd, new_boundaries,
+        )
+        if not ok:
+            return emit_error(cmd, "validation_error", result)
+        conn.commit()
+        history_id = result
+
+    return emit_ok(cmd, {
+        "issue": issue,
+        "page": args.page,
+        "boundary_idx": args.boundary_idx,
+        "deleted_pct": deleted_pct,
+        "boundaries_after": after_state["boundary_positions"],
+        "num_columns_after": after_state["num_columns"],
+    }, transaction_id=history_id)
+
+
+# ── adjust-ad / delete-ad ────────────────────────────────────────────
+
+def cmd_adjust_ad(args) -> int:
+    cmd = "adjust-ad"
+    if all(v is None for v in
+           (args.x_pct, args.y_pct, args.w_pct, args.h_pct)):
+        return emit_error(cmd, "validation_error",
+                          "specify at least one of --x-pct/--y-pct/"
+                          "--w-pct/--h-pct")
+
+    with closing(sqlite3.connect(args.db)) as conn:
+        ad = _ad_row_full(conn, args.ad_id)
+        if ad is None:
+            return emit_error(cmd, "not_found",
+                              f"no detected_ads row with uuid={args.ad_id}")
+
+        new_x = _round_pct(args.x_pct) if args.x_pct is not None else ad["x_pct"]
+        new_y = _round_pct(args.y_pct) if args.y_pct is not None else ad["y_pct"]
+        new_w = _round_pct(args.w_pct) if args.w_pct is not None else ad["w_pct"]
+        new_h = _round_pct(args.h_pct) if args.h_pct is not None else ad["h_pct"]
+
+        # Range checks. y_end > 100 by 0.001 is tolerated as a rounding
+        # artefact (matches the crop validator above).
+        if not (0 <= new_x <= 100):
+            return emit_error(cmd, "validation_error",
+                              f"x_pct {new_x} out of 0..100")
+        if not (0 <= new_y <= 100):
+            return emit_error(cmd, "validation_error",
+                              f"y_pct {new_y} out of 0..100")
+        if not (0 < new_w <= 100):
+            return emit_error(cmd, "validation_error",
+                              f"w_pct {new_w} out of (0..100]")
+        if not (0 < new_h <= 100):
+            return emit_error(cmd, "validation_error",
+                              f"h_pct {new_h} out of (0..100]")
+        new_x_end = _round_pct(new_x + new_w)
+        new_y_end = _round_pct(new_y + new_h)
+        if new_x_end > 100.001:
+            return emit_error(cmd, "validation_error", "x + w exceeds 100%")
+        if new_y_end > 100.001:
+            return emit_error(cmd, "validation_error", "y + h exceeds 100%")
+
+        before_state = {
+            "x_pct": ad["x_pct"], "y_pct": ad["y_pct"],
+            "w_pct": ad["w_pct"], "h_pct": ad["h_pct"],
+            "x_end_pct": ad["x_end_pct"], "y_end_pct": ad["y_end_pct"],
+            "hand_edited": bool(ad["hand_edited"]),
+        }
+        after_state = {
+            "x_pct": new_x, "y_pct": new_y,
+            "w_pct": new_w, "h_pct": new_h,
+            "x_end_pct": new_x_end, "y_end_pct": new_y_end,
+            "hand_edited": True,
+        }
+
+        conn.execute(
+            "UPDATE detected_ads SET x_pct=?, y_pct=?, w_pct=?, h_pct=?, "
+            "x_end_pct=?, y_end_pct=?, hand_edited=1 WHERE uuid=?",
+            (new_x, new_y, new_w, new_h, new_x_end, new_y_end, args.ad_id),
+        )
+        history_id = _record_history(
+            conn, cmd, "detected_ads",
+            {"uuid": args.ad_id}, before_state, after_state,
+        )
+        conn.commit()
+
+    return emit_ok(cmd, {
+        "ad_id": args.ad_id,
+        "before": before_state,
+        "after": after_state,
+    }, transaction_id=history_id)
+
+
+def cmd_delete_ad(args) -> int:
+    cmd = "delete-ad"
+    with closing(sqlite3.connect(args.db)) as conn:
+        ad = _ad_row_full(conn, args.ad_id)
+        if ad is None:
+            return emit_error(cmd, "not_found",
+                              f"no detected_ads row with uuid={args.ad_id}")
+        # Stash full row for re-INSERT on undo. Drop the auto-increment
+        # `id` (a re-INSERT will get a fresh one; uuid is the stable key).
+        before_full = {k: v for k, v in ad.items() if k != "id"}
+
+        conn.execute(
+            "DELETE FROM detected_ads WHERE uuid=?", (args.ad_id,),
+        )
+        history_id = _record_history(
+            conn, cmd, "detected_ads",
+            {"uuid": args.ad_id}, before_full, None,
+        )
+        conn.commit()
+
+    issue = f"{ad['year']:04d}-{ad['month']:02d}-{ad['day']:02d}"
+    return emit_ok(cmd, {
+        "ad_id": args.ad_id,
+        "issue": issue,
+        "page": ad["page"],
+        "deleted_bbox_pct": {
+            "x": ad["x_pct"], "y": ad["y_pct"],
+            "w": ad["w_pct"], "h": ad["h_pct"],
+        },
+    }, transaction_id=history_id)
+
+
+# ── undo ─────────────────────────────────────────────────────────────
+
+def _undo_apply(conn, table, row_key, before, after):
+    """Apply the inverse of a recorded operation. Returns (ok, msg).
+
+    Three op shapes by before/after presence:
+      - INSERT: before=None, after=row → undo by DELETE on the key
+      - UPDATE: both present → undo by UPDATE restoring before
+      - DELETE: before=row, after=None → undo by INSERT before
+
+    Currently only UPDATE and DELETE inverses are implemented (we don't
+    yet have any mutator that produces a pure INSERT — add-boundary is
+    an UPDATE on page_layouts, not an INSERT).
+    """
+    if before is not None and after is not None:
+        # UPDATE undo
+        if table == "page_layouts":
+            conn.execute(
+                "UPDATE page_layouts SET boundary_positions=?, "
+                "column_widths=?, num_columns=?, hand_edited=? "
+                "WHERE year=? AND month=? AND day=? AND page=?",
+                (json.dumps(before["boundary_positions"]),
+                 json.dumps(before["column_widths"]),
+                 before["num_columns"],
+                 1 if before["hand_edited"] else 0,
+                 row_key["year"], row_key["month"],
+                 row_key["day"], row_key["page"]),
+            )
+            return True, None
+        if table == "detected_ads":
+            conn.execute(
+                "UPDATE detected_ads SET x_pct=?, y_pct=?, w_pct=?, "
+                "h_pct=?, x_end_pct=?, y_end_pct=?, hand_edited=? "
+                "WHERE uuid=?",
+                (before["x_pct"], before["y_pct"],
+                 before["w_pct"], before["h_pct"],
+                 before["x_end_pct"], before["y_end_pct"],
+                 1 if before["hand_edited"] else 0,
+                 row_key["uuid"]),
+            )
+            return True, None
+        return False, f"undo (UPDATE) not supported for table {table}"
+
+    if before is not None and after is None:
+        # DELETE undo → re-INSERT
+        if table == "detected_ads":
+            cols = list(before.keys())
+            placeholders = ", ".join("?" for _ in cols)
+            colnames = ", ".join(cols)
+            conn.execute(
+                f"INSERT INTO detected_ads ({colnames}) VALUES ({placeholders})",
+                [before[c] for c in cols],
+            )
+            return True, None
+        return False, f"undo (DELETE) not supported for table {table}"
+
+    if before is None and after is not None:
+        return False, ("undo for pure-INSERT history entries not "
+                       "implemented (no current mutator produces this "
+                       "shape)")
+
+    return False, "history entry has no before and no after — nothing to undo"
+
+
+def cmd_undo(args) -> int:
+    cmd = "undo"
+    with closing(sqlite3.connect(args.db)) as conn:
+        # Latest non-undone, non-undo entry. We ignore rows whose
+        # command starts 'undo' so a chain of undos doesn't recursively
+        # un-undo itself; stepping back N times peels back the N most
+        # recent real edits.
+        cur = conn.execute(
+            "SELECT id, command, table_name, row_key_json, "
+            "before_json, after_json "
+            "FROM cli_history "
+            "WHERE undone_at IS NULL AND command NOT LIKE 'undo%' "
+            "ORDER BY id DESC LIMIT 1"
+        )
+        r = cur.fetchone()
+        if r is None:
+            return emit_error(cmd, "not_found",
+                              "no undoable history entry")
+        h = _row_to_dict(cur, r)
+        target_id = h["id"]
+        original_cmd = h["command"]
+        table = h["table_name"]
+        row_key = json.loads(h["row_key_json"])
+        before = json.loads(h["before_json"]) if h["before_json"] else None
+        after = json.loads(h["after_json"]) if h["after_json"] else None
+
+        ok, err = _undo_apply(conn, table, row_key, before, after)
+        if not ok:
+            return emit_error(cmd, "pipeline_error", err)
+
+        # Mark target as undone and write a reciprocal history entry.
+        # The reciprocal entry has before/after swapped so a subsequent
+        # `undo` (after another real edit lands) sees a clean stack.
+        conn.execute(
+            "UPDATE cli_history SET undone_at=CURRENT_TIMESTAMP "
+            "WHERE id=?", (target_id,),
+        )
+        history_id = _record_history(
+            conn, f"undo:{original_cmd}", table, row_key,
+            before=after, after=before, undoes_id=target_id,
+        )
+        conn.commit()
+
+    return emit_ok(cmd, {
+        "undone_id": target_id,
+        "undone_command": original_cmd,
+        "table": table,
+        "row_key": row_key,
+        "restored_state": before,
+    }, transaction_id=history_id)
+
+
 # ── Argparse plumbing ────────────────────────────────────────────────
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -971,6 +1444,82 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Render DPI (50..600). Default 150.",
     )
     crop.set_defaults(func=cmd_crop)
+
+    # ── Mutators (boundary) ──
+    mb = sub.add_parser(
+        "move-boundary",
+        help="Move one column boundary on a page to a new x_pct. "
+             "boundary_idx is 0-indexed across the full list "
+             "(0 = leftmost edge, N = rightmost edge).",
+    )
+    mb.add_argument("year", type=int)
+    mb.add_argument("month", type=int)
+    mb.add_argument("day", type=int)
+    mb.add_argument("page", type=int)
+    mb.add_argument("--boundary-idx", type=int, required=True,
+                    dest="boundary_idx",
+                    help="0-indexed boundary to move.")
+    mb.add_argument("--to", type=float, required=True,
+                    help="New x_pct for this boundary (0..100).")
+    mb.set_defaults(func=cmd_move_boundary)
+
+    ab = sub.add_parser(
+        "add-boundary",
+        help="Insert a new column boundary at the given x_pct, "
+             "splitting the column it falls inside into two.",
+    )
+    ab.add_argument("year", type=int)
+    ab.add_argument("month", type=int)
+    ab.add_argument("day", type=int)
+    ab.add_argument("page", type=int)
+    ab.add_argument("--at", type=float, required=True,
+                    help="New boundary x_pct (must be strictly between "
+                         "two existing boundaries).")
+    ab.set_defaults(func=cmd_add_boundary)
+
+    db_ = sub.add_parser(
+        "delete-boundary",
+        help="Remove one boundary, merging the two columns it separated.",
+    )
+    db_.add_argument("year", type=int)
+    db_.add_argument("month", type=int)
+    db_.add_argument("day", type=int)
+    db_.add_argument("page", type=int)
+    db_.add_argument("--boundary-idx", type=int, required=True,
+                     dest="boundary_idx",
+                     help="0-indexed boundary to delete.")
+    db_.set_defaults(func=cmd_delete_boundary)
+
+    # ── Mutators (ad) ──
+    aa = sub.add_parser(
+        "adjust-ad",
+        help="Update an ad's bbox. Any combination of x/y/w/h_pct may "
+             "be given; unspecified fields keep their current value.",
+    )
+    aa.add_argument("--ad-id", required=True, dest="ad_id",
+                    help="Ad uuid (from `mvtm show`).")
+    aa.add_argument("--x-pct", type=float, default=None, dest="x_pct")
+    aa.add_argument("--y-pct", type=float, default=None, dest="y_pct")
+    aa.add_argument("--w-pct", type=float, default=None, dest="w_pct")
+    aa.add_argument("--h-pct", type=float, default=None, dest="h_pct")
+    aa.set_defaults(func=cmd_adjust_ad)
+
+    da = sub.add_parser(
+        "delete-ad",
+        help="Remove an ad row (e.g. a phantom detection that's "
+             "actually body text).",
+    )
+    da.add_argument("--ad-id", required=True, dest="ad_id",
+                    help="Ad uuid (from `mvtm show`).")
+    da.set_defaults(func=cmd_delete_ad)
+
+    # ── Undo ──
+    un = sub.add_parser(
+        "undo",
+        help="Reverse the most recent CLI mutation. Walks back one "
+             "real edit per call (undo entries themselves are skipped).",
+    )
+    un.set_defaults(func=cmd_undo)
 
     return p
 
