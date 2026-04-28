@@ -1001,14 +1001,16 @@ def _update_viewer_data(db_path, columns_dir):
 
         ad_rows = conn.execute("""
             SELECT uuid, page, cols, confidence, image_filename,
-                   x_pct, y_pct, w_pct, h_pct
-            FROM detected_ads WHERE year=? AND month=? AND day=?
+                   x_pct, y_pct, w_pct, h_pct, hand_edited
+                   FROM detected_ads WHERE year=? AND month=? AND day=?
             ORDER BY page, uuid
         """, (year, month, day)).fetchall()
 
         ad_list = []
-        for ad_uuid, p, c, cf, fn, x, y, w, bh in ad_rows:
-            if _is_body_text_fp(p, cf, x, y, w, bh):
+        for ad_uuid, p, c, cf, fn, x, y, w, bh, he in ad_rows:
+            # Hand-edited ads bypass the body-text FP filter — the
+            # human has already validated the bbox.
+            if not he and _is_body_text_fp(p, cf, x, y, w, bh):
                 continue
             ad_list.append({"uuid": ad_uuid, "page": p, "cols": c,
                             "confidence": cf, "file": fn,

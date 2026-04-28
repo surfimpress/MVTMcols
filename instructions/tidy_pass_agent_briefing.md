@@ -1,0 +1,192 @@
+# Tidy-pass agent briefing
+
+Briefing for a subagent doing post-detection cleanup on column boundaries
+and ad bboxes via the `mvtm` CLI. Distilled from working through the
+1940-02-20 p10 SUPERIOR + DOMINION cases on 2026-04-28.
+
+This document is the durable instruction set. The verbal briefing in a
+specific session can be terser if it points here.
+
+---
+
+## Hard rules (do not violate, ever)
+
+### 1. One frame of reference: page-pct, top-left = (0, 0)
+
+All coordinates in this pipeline are **percent of page width / height,
+measured from the top-left corner of the PDF page**. Stay in that frame
+end to end. Don't drop into image-pixel coordinates as a "shortcut" for
+arithmetic and convert back — that's where direction errors come from.
+The DB schema stores page-pct, the CLI mutators take page-pct, the
+viewer displays page-pct. Use it throughout.
+
+If you find yourself thinking "let me work in pixels here and convert
+later", stop. Use `coordinates.py` if a conversion is genuinely needed.
+
+### 2. Replace before delete
+
+For any tidy operation that involves a swap (merging two ads, replacing
+one detection with another bbox, anything where N rows become M):
+
+1. Adjust the survivor row to the correct new bbox.
+2. Render and visually verify the new bbox aligns with the page.
+3. Get human confirmation (or, in autonomous mode, double-check against
+   a second criterion).
+4. *Only then* delete the redundant rows.
+
+Never delete first. If step 2 looks wrong, `mvtm undo` rolls back step 1
+and the redundant rows are still there as a fallback. Reverse the order
+and there is no fallback.
+
+### 3. Render the proposal *before* committing
+
+Workflow when proposing any bbox change:
+
+1. Compute the proposed bbox in page-pct.
+2. Draw it overlaid on `columns/{issue}/p{page}/page_raw.png` using
+   PIL — a thick coloured rectangle.
+3. Save the overlay to `columns/{issue}/p{page}/tidy_proposal*.png` so
+   it's accessible at the public viewer URL.
+4. Read the proposal image yourself (and have the human read it, if
+   in interactive mode). Verify all four edges align with the visual
+   frame.
+5. Only after the proposal looks right do you call the mutator.
+
+Rendering after the mutator is *also* required, but it's not a
+substitute for rendering before.
+
+---
+
+## How to measure (the method)
+
+### Use the pre-cut column files on disk
+
+For every processed page, `columns/{issue}/p{page}/` contains
+`{date}-{page}_col1.png` through `_col{N}.png`. These are full
+page-height strips already cut by the pipeline. **Use them.** Don't
+re-render the page from the PDF — those files exist for exactly this
+reason.
+
+File naming is 1-indexed: `_col1.png` is the leftmost column (column
+index 0 in the DB).
+
+### Determine column span by inspecting column files
+
+For each column strip in turn, look: does it contain (part of) the ad
+in question? You get a yes/no list: e.g. col1=yes, col2=yes, col3=no.
+That gives you the column span *exactly*. No estimation, no overlap
+math.
+
+The x bounds of the ad are then the corresponding entries in
+`page_layouts.boundary_positions`: `bps[first_col_idx]` to
+`bps[last_col_idx + 1]`.
+
+### Read y-extents off a numbered ruler
+
+To measure the y-extent of an ad:
+
+1. Open the column strip that contains the ad (any one of the
+   spanning columns; they all have the same y axis).
+2. Draw horizontal ruler lines at every 1% (and half-percent ticks at
+   0.5%, and bold lines at 5% / 10% with bigger labels).
+3. **Label every line with its number.** Not just the 5% lines.
+   You'll need 0.5% precision for sharp ad edges, and an unlabeled
+   tick is a guess.
+4. Save as `tidy_ruled_{range}.png` in the page directory.
+5. Read the y-pct of the ad's top edge and bottom edge directly off
+   the labeled ticks.
+
+A reference render script is in `instructions/_examples/draw_ruler.py`
+(write one if it doesn't exist; PIL `ImageDraw.line` + `ImageDraw.text`
+plus a system font). Use a high-contrast colour scheme: 5%/10% =
+red on yellow background, 1% = blue, 0.5% = green tick. Yellow
+background under the labels keeps them readable over text.
+
+### Measure each edge independently
+
+For stacked ads (e.g. SUPERIOR above DOMINION on 1940-02-20 p10), the
+*bottom* of A and the *top* of B are not the same y. There's almost
+always a small gap (~0.5–1.0% page height) between two adjacent ad
+frames. Read each edge separately. Don't assume they share a value
+because they're "close to each other" — that conflation cost an
+iteration on this page.
+
+### What precision to use
+
+The pre-cut column strips at typical scan DPI support reading to
+**0.5% precision** comfortably. Round half-percent values to one
+decimal (e.g. `64.5`, not `64`). Don't round to integer or to nearest
+5% — that's lossy enough to land outside the visual frame.
+
+### x-bounds: snap to column boundaries
+
+Even when the visual ad frame sits a hair inside the column boundary
+(thin white margin), set x and x_end to the boundary values. The
+project convention is column-grid-aligned ad bboxes, since downstream
+clipping operates on column pitch. The user has confirmed this for
+multi-column ads on 2026-04-28.
+
+---
+
+## Mutator order recap
+
+For a "merge two stacked detections into one outer-frame bbox" tidy:
+
+```
+1. Adjust survivor to outer-frame bbox          (replace step)
+2. mvtm view --overlay ads ...                   (verify)
+3. ─── human confirmation ───
+4. delete-ad on the redundant inner panels       (delete step)
+5. mvtm view --overlay ads ...                   (post-state check)
+6. _update_viewer_data to refresh viewer JSON    (publish)
+```
+
+For a "shrink an over-extended ad" tidy:
+
+```
+1. Adjust to correct bbox                        (replace step)
+2. mvtm view --overlay ads ...                   (verify)
+3. ─── human confirmation ───
+4. _update_viewer_data                            (publish)
+```
+
+No delete needed in the shrink case.
+
+---
+
+## Visibility in the viewer
+
+`_update_viewer_data` filters out low-confidence ads that look like
+body-text false positives. As of 2026-04-28, this filter respects
+`hand_edited = 1` — any ad that has been adjusted via the CLI is
+trusted and shown in the viewer regardless of confidence. So a tidy
+edit on a low-confidence ad WILL show up in the viewer after running
+`_update_viewer_data`.
+
+If the user reports an edit didn't appear in the viewer, check:
+1. Did `_update_viewer_data` run? It's not automatic on mutator calls.
+2. Is `hand_edited = 1` on the row? `mvtm show` will tell you.
+3. Did the viewer's JS cache get cleared? Hard refresh.
+
+---
+
+## What this briefing supersedes
+
+An earlier informal briefing (in conversation) said "use headlines or
+detection coordinates as the starting point for outer-frame bboxes."
+That was wrong. The starting point is the **visual frame**, measured
+on the page image. Detection coordinates are the *thing being fixed* —
+trusting them is self-defeating.
+
+It also implied integer-percent precision was sufficient because the
+user gave "66%" as an example. The example was illustrative; the actual
+precision is whatever the column strip supports (0.5% in practice).
+
+---
+
+## Update history
+
+- **2026-04-28** — File created. Captures the SUPERIOR + DOMINION tidy
+  workflow on 1940-02-20 p10, the half-percent measurement discipline,
+  the pre-cut column files convention, and the `hand_edited`
+  filter-bypass commit.
