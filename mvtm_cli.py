@@ -1297,6 +1297,150 @@ def _undo_apply(conn, table, row_key, before, after):
     return False, "history entry has no before and no after — nothing to undo"
 
 
+def cmd_regenerate_page(args) -> int:
+    """Re-extract derived per-page artefacts from the current DB
+    state. Mutators (adjust-ad, delete-ad, move-boundary, etc.) change
+    only the DB rows; the on-disk PNGs (per-ad crops, per-column
+    strips) are stale until this command re-cuts them. viewer_data.json
+    is also rebuilt so the public viewer reflects the new state.
+
+    Scope:
+      ads     — re-extract ad PNGs only (preserves uuid → filename map)
+      columns — re-cut column strip PNGs only (with ad-region punch-out)
+      both    — both of the above (default)
+      viewer  — only refresh viewer_data.json from DB
+
+    Always re-runs the viewer_data refresh as the last step (unless
+    scope=ads only — viewer reads ad metadata from DB, not the PNGs,
+    so it's still worth refreshing).
+    """
+    cmd = "regenerate-page"
+    ok_v, err = _validate_date_page(args.year, args.month, args.day,
+                                    args.page)
+    if not ok_v:
+        return emit_error(cmd, "invalid_args", err)
+
+    scope = (args.scope or "both").lower()
+    if scope not in ("ads", "columns", "both", "viewer"):
+        return emit_error(cmd, "invalid_args",
+                          f"--scope must be one of ads, columns, both, "
+                          f"viewer (got {scope!r})")
+
+    pdf_path = _locate_cached_pdf(args.year, args.month, args.day,
+                                  args.page)
+    if scope != "viewer" and pdf_path is None:
+        return emit_error(
+            cmd, "not_found",
+            f"no cached PDF for {args.year:04d}-{args.month:02d}-"
+            f"{args.day:02d} p{args.page}. Run process_issue first.")
+
+    issue_dir = (f"{args.year:04d}-{args.month:02d}-{args.day:02d}")
+    page_dir = os.path.join(args.output_root, issue_dir,
+                            f"p{args.page}")
+    if scope != "viewer" and not os.path.isdir(page_dir):
+        return emit_error(cmd, "not_found",
+                          f"page directory missing: {page_dir}")
+
+    # Imports are deferred so `mvtm` start-up stays light for read-only
+    # commands. The detector modules pull in numpy/PIL.
+    from detect_ads import extract_ad_images
+    from split_page import extract_columns
+    from process_issue import _update_viewer_data
+    import shutil
+
+    actions = []
+
+    with closing(sqlite3.connect(args.db)) as conn:
+        layout = _fetch_layout(conn, args.year, args.month, args.day,
+                               args.page)
+        if layout is None:
+            return emit_error(cmd, "not_found",
+                              f"no page_layouts row for "
+                              f"{issue_dir} p{args.page}")
+        bps = layout["boundaries_pct"]
+
+        ads = conn.execute(
+            "SELECT uuid, x_pct, y_pct, w_pct, h_pct, x_end_pct, "
+            "y_end_pct, image_filename FROM detected_ads "
+            "WHERE year=? AND month=? AND day=? AND page=? ORDER BY id",
+            (args.year, args.month, args.day, args.page),
+        ).fetchall()
+
+    # Sort ads into multi-col vs single-col by filename prefix; both
+    # use extract_ad_images but with different name_prefix and indexed
+    # output, so we re-render each set in its own filename order.
+    multi = []
+    single = []
+    for uu, x, y, w, h, xe, ye, fn in ads:
+        rec = {"uuid": uu, "x_pct": x, "y_pct": y, "w_pct": w,
+               "h_pct": h, "x_end_pct": xe, "y_end_pct": ye,
+               "image_filename": fn}
+        (single if (fn and "_sc_ad" in fn) else multi).append(rec)
+
+    def _re_extract_set(records, name_prefix):
+        if not records:
+            return 0
+        # Preserve existing image_filename (e.g. _ad4.png) by sorting
+        # records to match the index suffix in their stored filename.
+        def _idx(r):
+            fn = r.get("image_filename") or ""
+            try:
+                return int(fn.rsplit(name_prefix, 1)[-1].split(".")[0])
+            except (ValueError, IndexError):
+                return 1 << 30
+        records.sort(key=_idx)
+        results = extract_ad_images(pdf_path, records, page_dir,
+                                    page_number=0, dpi=450,
+                                    name_prefix=name_prefix)
+        # extract_ad_images writes _<prefix>{i+1}.png by enumeration.
+        # Move each output back to the original image_filename so the
+        # uuid → filename mapping in DB stays valid.
+        for new, old in zip(results, records):
+            desired = os.path.join(page_dir, old["image_filename"])
+            written = new["image_path"]
+            if os.path.abspath(written) != os.path.abspath(desired):
+                shutil.move(written, desired)
+        return len(records)
+
+    if scope in ("ads", "both"):
+        n_multi = _re_extract_set(multi, "ad")
+        n_single = _re_extract_set(single, "sc_ad")
+        actions.append({"step": "ads",
+                        "multi_col_rerendered": n_multi,
+                        "single_col_rerendered": n_single})
+
+    if scope in ("columns", "both"):
+        ads_for_cut = [
+            {"uuid": r["uuid"], "x_pct": r["x_pct"], "y_pct": r["y_pct"],
+             "x_end_pct": r["x_end_pct"], "y_end_pct": r["y_end_pct"]}
+            for r in (multi + single)
+        ]
+        # extract_columns expects boundaries as list of dicts with
+        # x_pct, plus peak_darkness + confidence used only to populate
+        # the returned ColumnResult metadata (not for the PNG output).
+        # We discard the return value, so stub values are fine.
+        bps_for_cut = [{"x_pct": x, "peak_darkness": 0,
+                        "confidence": 0.0, "drift": 0} for x in bps]
+        col_results = extract_columns(pdf_path, bps_for_cut,
+                                      page_number=0,
+                                      dpi=450, output_dir=page_dir,
+                                      ads_with_uuids=ads_for_cut)
+        actions.append({"step": "columns",
+                        "rerendered": len(col_results)})
+
+    # viewer_data refresh: always, unless caller asked for ads-only
+    # AND explicitly opted out via --no-viewer-refresh (not exposed yet).
+    _update_viewer_data(args.db, args.output_root)
+    actions.append({"step": "viewer_data", "rebuilt": True})
+
+    return emit_ok(cmd, {
+        "issue": issue_dir,
+        "page": args.page,
+        "scope": scope,
+        "actions": actions,
+    })
+
+
 def cmd_undo(args) -> int:
     cmd = "undo"
     with closing(sqlite3.connect(args.db)) as conn:
@@ -1517,6 +1661,26 @@ def _build_parser() -> argparse.ArgumentParser:
     da.add_argument("--ad-id", required=True, dest="ad_id",
                     help="Ad uuid (from `mvtm show`).")
     da.set_defaults(func=cmd_delete_ad)
+
+    # ── Regenerate per-page artefacts ──
+    rp = sub.add_parser(
+        "regenerate-page",
+        help="Re-cut on-disk PNGs (column strips, ad crops) and "
+             "viewer_data.json from current DB state. Run after a "
+             "batch of mutator edits to bring filesystem state back "
+             "in sync with DB. PDF must already be cached.",
+    )
+    rp.add_argument("year", type=int)
+    rp.add_argument("month", type=int)
+    rp.add_argument("day", type=int)
+    rp.add_argument("page", type=int)
+    rp.add_argument(
+        "--scope", default="both",
+        choices=["ads", "columns", "both", "viewer"],
+        help="Which artefacts to regenerate. Default: both. "
+             "'viewer' refreshes only viewer_data.json (no PNG re-cut).",
+    )
+    rp.set_defaults(func=cmd_regenerate_page)
 
     # ── Undo ──
     un = sub.add_parser(
