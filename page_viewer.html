@@ -327,7 +327,12 @@ window.addEventListener('mouseup', () => {
 // ── Init ───────────────────────────────────────────────────
 async function init() {
     try {
-        const resp = await fetch(BASE + '/viewer_data.json');
+        // Cache-buster — viewer_data.json is rewritten each pipeline
+        // run; without this users on different machines can see stale
+        // counts (observed: 26 vs 27 ads on the same issue).
+        const resp = await fetch(
+            BASE + '/viewer_data.json?v=' + Date.now(),
+            { cache: 'no-store' });
         const data = await resp.json();
         const issues = data.issues || data;
         issueData = issues.find(i => i.dir === issueDir);
@@ -404,7 +409,10 @@ async function init() {
 
 async function loadPageMeta() {
     try {
-        const resp = await fetch(`${BASE}/${issueDir}/p${pageNum}/page_meta.json`);
+        // Cache-buster — page_meta.json is rewritten each pipeline run.
+        const resp = await fetch(
+            `${BASE}/${issueDir}/p${pageNum}/page_meta.json?v=${Date.now()}`,
+            { cache: 'no-store' });
         const meta = await resp.json();
         window._columns = meta.columns || [];
         window._ads = (issueData.ads || []).filter(a => a.page == pageNum);

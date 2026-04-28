@@ -59,7 +59,12 @@ const BASE = '/MVTM/columns';
 
 async function init() {
     try {
-        const resp = await fetch(BASE + '/viewer_data.json');
+        // Cache-buster — viewer_data.json is rewritten each pipeline
+        // run; without this users on different machines can see stale
+        // counts (observed: 26 vs 27 ads on the same issue).
+        const resp = await fetch(
+            BASE + '/viewer_data.json?v=' + Date.now(),
+            { cache: 'no-store' });
         const data = await resp.json();
         const issues = data.issues || data;  // handle both formats
         document.getElementById('loading').style.display = 'none';

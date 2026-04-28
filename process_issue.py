@@ -32,6 +32,47 @@ from column_pipeline import detect_strips, cluster_boundaries, place_columns
 from db_writer import DBWriter, DirectDBWriter
 
 
+def is_body_text_fp(confidence, x_pct, y_pct, w_pct, h_pct, body_text_regions):
+    """
+    True if a low-confidence ad rectangle is mostly covered by body_text
+    regions and spans 2+ columns.
+
+    Body-text-shaped FPs from the ad detector (squarish 2-col clippings
+    of body text columns) overlap heavily with the body_text regions
+    written by detect_body_text. Medium- and high-confidence ads have a
+    real border and are trusted, so this filter only fires on `low`.
+
+    Used in two places that must agree:
+      * `process_issue` — before column hole-punching, so a low-conf FP
+        doesn't carve a transparency hole through legitimate body text.
+      * `_update_viewer_data` — when assembling the viewer ad gallery.
+
+    Hand-edited ads are NOT filtered here — caller checks `hand_edited`
+    upstream. body_text_regions come from detect_body_text and look like
+    [{x1_pct, y1_pct, x2_pct, y2_pct, col_idx}, ...].
+    """
+    if confidence != "low":
+        return False
+    if not body_text_regions:
+        return False
+    if w_pct <= 0 or h_pct <= 0:
+        return False
+    ad_x2 = x_pct + w_pct
+    ad_y2 = y_pct + h_pct
+    ad_area = w_pct * h_pct
+    total_overlap = 0.0
+    cols_overlapping = set()
+    for r in body_text_regions:
+        ox1 = max(x_pct, r["x1_pct"])
+        ox2 = min(ad_x2, r["x2_pct"])
+        oy1 = max(y_pct, r["y1_pct"])
+        oy2 = min(ad_y2, r["y2_pct"])
+        if ox2 > ox1 and oy2 > oy1:
+            total_overlap += (ox2 - ox1) * (oy2 - oy1)
+            cols_overlapping.add(r.get("col_idx"))
+    return (total_overlap / ad_area) > 0.5 and len(cols_overlapping) >= 2
+
+
 def download_issue(year, month, day, db_path="data/mvtm.db",
                    download_dir=None):
     """
@@ -295,6 +336,38 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         prof = profile_page(pdf_path)
         page_profiles[page_num] = prof
         ads = detect_ads(pdf_path, column_pitch=None, page_profile=prof)
+
+        # Corroboration upgrade — bump landscape multi-col ads from
+        # 'low' to 'medium' when there is independent evidence they are
+        # real ads. Two signals, both required:
+        #   * cols >= 3 (real wide display ads have this; body-text FPs
+        #     are typically 2 columns squarish)
+        #   * a raw single-col candidate sits inside the bbox (an inner
+        #     panel of the ad showed up to detect_single_col_ads's own
+        #     contour pass, before _inside_multi suppresses it).
+        # Without this, a wide landscape ad (low rect_ratio because
+        # whitespace + multi-panel internal layout) gets stuck at 'low'
+        # and is silently filtered by _is_body_text_fp at viewer time.
+        # Anchor: 1947-02-27 p8 OBrien "PRICES AND RATIONS QUERIES
+        # ANSWERED", cols=3 rect_ratio=0.668, with one inner panel that
+        # detect_single_col_ads picks up as a 1-col candidate.
+        raw_sc = detect_single_col_ads(pdf_path, multi_col_ads=[],
+                                       page_profile=prof)
+        for ad in ads:
+            if ad.get("confidence") != "low" or ad.get("cols", 1) < 3:
+                continue
+            inside = False
+            for sc in raw_sc:
+                if (sc["x_pct"] >= ad["x_pct"] - 0.5 and
+                    sc["x_end_pct"] <= ad["x_end_pct"] + 0.5 and
+                    sc["y_pct"] >= ad["y_pct"] - 0.5 and
+                    sc["y_end_pct"] <= ad["y_end_pct"] + 0.5):
+                    inside = True
+                    break
+            if inside:
+                ad["confidence"] = "medium"
+                ad["corroborated"] = True
+
         if ads:
             ad_out = os.path.join(ads_dir, f"p{page_num}")
             ads_with_images = extract_ad_images(pdf_path, ads, ad_out, dpi=dpi)
@@ -541,7 +614,12 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         quality_flags = list(layout.get('quality_flags', []))
         page_t0 = time.time()
 
-        # Extract columns
+        # Extract-columns is the expensive step (PDF → 450 DPI raster
+        # per column with optional alpha hole-punching). Defer it until
+        # all detectors and the FP filter and v2 column validation have
+        # finalised both the boundary list AND the ads_with_uuids list,
+        # so we cut once. Provisional meta_cols are derived from `final`
+        # so detectors can run beforehand.
         page_out = os.path.join(output_dir, f"p{page_num}")
         if os.path.exists(page_out):
             for f in os.listdir(page_out):
@@ -556,17 +634,20 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
                       page_single_col_ads.get(page_num, []))
             if "uuid" in a
         ]
-        columns = extract_columns(pdf_path, final, 0, dpi, page_out,
-                                  ads_with_uuids=ads_with_uuids)
-        result = PageResult(
-            pdf_path=pdf_path, page_number=0, dpi=dpi,
-            page_width_px=0, page_height_px=0,
-            num_columns=len(columns), columns=columns,
-            detection_row=[], quality_flags=quality_flags,
-            error=None, elapsed_seconds=0,
-        )
-        # page_meta.json is saved later, after the post-detection
-        # validator has had a chance to drop phantom edge columns.
+
+        def _meta_cols_from_final(final_):
+            out = []
+            for i in range(len(final_) - 1):
+                left = final_[i]["x_pct"]
+                right = final_[i + 1]["x_pct"]
+                if right - left < 3.0:
+                    continue
+                out.append({
+                    "index": len(out),
+                    "left_vw": left,
+                    "right_vw": right,
+                })
+            return out
 
         # Save analysis data for the viewer (profile chart + strip profiles
         # + raw detected boundary positions before placement)
@@ -648,16 +729,11 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         except Exception:
             pass
 
-        # Body text detection — runs after column placement
+        # Body text detection — runs against provisional column metadata
+        # derived from `final` (no rasterisation needed here).
         try:
             from detect_body_text import detect_body_text
-            meta_cols = []
-            for c in result.columns:
-                meta_cols.append({
-                    'index': c.index,
-                    'left_vw': c.left_vw,
-                    'right_vw': c.right_vw,
-                })
+            meta_cols = _meta_cols_from_final(final)
             r2_prof = prof.get("r2", {})
             body_regions, body_charts, blur_img, h_rules, large_type = \
                 detect_body_text(pdf_path, meta_cols,
@@ -680,11 +756,43 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         except Exception:
             pass
 
+        # ── Body-text FP filter (no re-cut; just trim ads_with_uuids) ──
+        # is_body_text_fp identifies low-confidence multi-col ads whose
+        # bbox sits mostly inside body_text regions (i.e. squarish 2-col
+        # body-text false positives). Previously this filter ran only at
+        # _update_viewer_data time, so a body-text FP would silently
+        # punch a transparency hole in the column PNGs while being
+        # hidden from the viewer's ad gallery — column / gallery
+        # disagree on what is an ad. We now apply it BEFORE the single
+        # extract_columns call below, so the filtered set governs both
+        # hole-punching and the gallery. Hand-edited rows always bypass.
+        body_regions = analysis.get("body_text", [])
+        all_page_ads = (page_ads.get(page_num, []) +
+                        page_single_col_ads.get(page_num, []))
+        kept_uuids = set()
+        for a in all_page_ads:
+            if "uuid" not in a:
+                continue
+            if a.get("hand_edited") or not is_body_text_fp(
+                a.get("confidence"),
+                a["x_pct"], a["y_pct"], a["w_pct"], a["h_pct"],
+                body_regions,
+            ):
+                kept_uuids.add(a["uuid"])
+        original_uuids = {a["uuid"] for a in ads_with_uuids
+                          if "uuid" in a}
+        ads_with_uuids = [a for a in ads_with_uuids
+                          if a.get("uuid") in kept_uuids]
+        n_filtered = len(original_uuids) - len(kept_uuids)
+        if n_filtered > 0:
+            print(f"  P{page_num}: {n_filtered} body-text FP ad(s) "
+                  f"filtered from column hole-punching")
+
         # ── Post-detection edge-column validation (v2) ───────────────
         # v1 (Phase A) drops obviously empty edges by ink alone.
         # v2 catches scan-bleed/edge-rule "columns" that have ink
-        # but fail every detector: no body text, no ad coverage,
-        # no headline. See validate_columns.validate_columns_v2.
+        # but fail every detector. Modifies `final` and renumbers
+        # analysis data; no rasterisation here.
         try:
             from validate_columns import validate_columns_v2
             ads_for_v2 = list(page_ads.get(page_num, [])) + \
@@ -701,15 +809,7 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
                 survivors = [i for i in range(original_n)
                              if i not in dropped_idx]
                 idx_remap = {old: new for new, old in enumerate(survivors)}
-
-                # Re-extract PNGs against new boundaries
                 final = new_final
-                for f in os.listdir(page_out):
-                    if "_col" in f and f.endswith(".png"):
-                        os.remove(os.path.join(page_out, f))
-                columns = extract_columns(pdf_path, final, 0, dpi,
-                                          page_out,
-                                          ads_with_uuids=ads_with_uuids)
 
                 # Filter and renumber per-column data in analysis
                 def _filter_renumber(items):
@@ -728,22 +828,30 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
                     if k in analysis:
                         analysis[k] = _filter_renumber(analysis[k])
 
-                quality_flags = list(quality_flags)
                 for side, _sig in drop_log:
                     quality_flags.append(f"col_v2_drop_{side}")
-                result = PageResult(
-                    pdf_path=pdf_path, page_number=0, dpi=dpi,
-                    page_width_px=0, page_height_px=0,
-                    num_columns=len(columns), columns=columns,
-                    detection_row=[], quality_flags=quality_flags,
-                    error=None, elapsed_seconds=0,
-                )
                 sides_summary = [d[0] for d in drop_log]
                 print(f"  P{page_num}: v2 dropped phantom edge "
                       f"col(s) {sides_summary} "
                       f"(orig idx {sorted(dropped_idx)})")
         except Exception as e:
             print(f"  P{page_num}: v2 validation skipped ({e})")
+
+        # ── Single extract_columns call ───────────────────────────────
+        # Runs once per page, AFTER the FP filter and v2 validation
+        # have finalised both `final` and `ads_with_uuids`. This is the
+        # expensive step (PDF → 450 DPI raster per column with optional
+        # alpha hole-punching for ads); the rest of the loop is
+        # deliberately structured so we never re-cut.
+        columns = extract_columns(pdf_path, final, 0, dpi, page_out,
+                                  ads_with_uuids=ads_with_uuids)
+        result = PageResult(
+            pdf_path=pdf_path, page_number=0, dpi=dpi,
+            page_width_px=0, page_height_px=0,
+            num_columns=len(columns), columns=columns,
+            detection_row=[], quality_flags=quality_flags,
+            error=None, elapsed_seconds=0,
+        )
 
         # Save page_meta.json with the final (post-v2) boundaries.
         _save_metadata(result, os.path.join(page_out, "page_meta.json"))
@@ -974,31 +1082,6 @@ def _update_viewer_data(db_path, columns_dir):
             else:
                 body_text_by_page[page] = []
 
-        def _is_body_text_fp(page, conf_, x, y, w, h):
-            """True if a low-confidence ad rectangle is mostly covered
-            by body_text regions and spans 2+ columns. Only `low`
-            confidence (rect_ratio < 0.70) is filtered — medium and
-            high confidence have a real border and are trusted, even
-            when they contain body-text-like internal content."""
-            if conf_ != "low":
-                return False
-            bt = body_text_by_page.get(page) or []
-            if not bt:
-                return False
-            ad_x2, ad_y2 = x + w, y + h
-            if w <= 0 or h <= 0:
-                return False
-            ad_area = w * h
-            total_overlap = 0.0
-            cols_overlapping = set()
-            for r in bt:
-                ox1 = max(x, r["x1_pct"]); ox2 = min(ad_x2, r["x2_pct"])
-                oy1 = max(y, r["y1_pct"]); oy2 = min(ad_y2, r["y2_pct"])
-                if ox2 > ox1 and oy2 > oy1:
-                    total_overlap += (ox2 - ox1) * (oy2 - oy1)
-                    cols_overlapping.add(r.get("col_idx"))
-            return (total_overlap / ad_area) > 0.5 and len(cols_overlapping) >= 2
-
         ad_rows = conn.execute("""
             SELECT uuid, page, cols, confidence, image_filename,
                    x_pct, y_pct, w_pct, h_pct, hand_edited
@@ -1009,8 +1092,12 @@ def _update_viewer_data(db_path, columns_dir):
         ad_list = []
         for ad_uuid, p, c, cf, fn, x, y, w, bh, he in ad_rows:
             # Hand-edited ads bypass the body-text FP filter — the
-            # human has already validated the bbox.
-            if not he and _is_body_text_fp(p, cf, x, y, w, bh):
+            # human has already validated the bbox. Same predicate as
+            # the column hole-punching filter in the detection pass, so
+            # gallery and column PNGs agree.
+            if not he and is_body_text_fp(
+                cf, x, y, w, bh, body_text_by_page.get(p) or [],
+            ):
                 continue
             ad_list.append({"uuid": ad_uuid, "page": p, "cols": c,
                             "confidence": cf, "file": fn,
