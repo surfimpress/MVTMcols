@@ -30,6 +30,7 @@ from detect_ads import (detect_ads, detect_single_col_ads,
 from page_context import build_context
 from column_pipeline import detect_strips, cluster_boundaries, place_columns
 from db_writer import DBWriter, DirectDBWriter
+import page_cv
 
 
 def is_body_text_fp(confidence, x_pct, y_pct, w_pct, h_pct, body_text_regions):
@@ -333,6 +334,16 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     os.makedirs(ads_dir, exist_ok=True)
 
     for page_num, pdf_path in pages:
+        # Compute the shared CV pre-processing artefact once per page.
+        # Cached at columns/{issue}/p{N}/page_cv.{npz,json} so detectors
+        # in this run AND subsequent diagnostic tools can re-use it
+        # without re-thresholding. Stage 1 wiring: not yet consumed by
+        # detect_ads (Stage 2 will swap the inline binarise).
+        page_out_early = os.path.join(output_dir, f"p{page_num}")
+        os.makedirs(page_out_early, exist_ok=True)
+        page_cv.compute_or_load(pdf_path, page_number=0, render_dpi=150,
+                                cache_dir=page_out_early)
+
         prof = profile_page(pdf_path)
         page_profiles[page_num] = prof
         ads = detect_ads(pdf_path, column_pitch=None, page_profile=prof)

@@ -675,6 +675,74 @@ defence against single-page detection failures.
 
 ---
 
+### 19. Shared CV pre-processing artefact (`page_cv`)
+
+**File:** `page_cv.py`, `compute_or_load()`
+**Cache:** `columns/{issue}/p{N}/page_cv.{npz,json}`
+**DPI:** 150
+
+**What:** A per-page bundle of cleaned binary + structural summaries
+that downstream detectors can consume without each re-running adaptive
+threshold + connected-component cleanup. Computed once per page in
+`process_issue.py` before `detect_ads`; persisted to a small (~25 KB
+compressed) cache so re-runs and diagnostic tools share the artefact.
+
+**Pipeline (validated against 1947-02-27 p8 ad bench):**
+1. `cv2.adaptiveThreshold` (MEAN_C, block 21, C 10, INV).
+2. `cv2.connectedComponentsWithStats` (8-conn).
+3. **Shadow filter — rule A:** drop CCs whose bbox covers > 50 % of
+   the page AND whose fill (CC area / bbox area) < 0.05. Targets the
+   page-spanning binding/edge shadow blob that 8-connectivity glues
+   most of the page into on noisy scans.
+4. **Shadow filter — rule B:** drop CCs whose bottom > 90 % page,
+   width > 50 % page, height < 10 % page. Targets the bottom-band
+   shadow strip.
+5. CC area ≥ 500 px (drops scan speckle).
+6. `cv2.dilate` 3×3, 1 iteration. Closes small frame-line gaps
+   without growing strokes enough to merge unrelated content
+   (validated dilate-only — `MORPH_CLOSE` was the existing detect_ads
+   approach but dilation alone was the variant that recovered
+   open-frame ads on p8).
+
+**Outputs:**
+- `cleaned_binary` (uint8 0/255, full page resolution).
+- `shadow_regions`: dropped CCs as `(x, y, w, h, rule_id)`.
+- `large_components`: surviving CCs ≥ 1 % page area as
+  `(x, y, w, h, area, fill)`.
+- `ink_projection_h` / `ink_projection_v`: per-column / per-row ink
+  counts from `cleaned_binary`. Primary signal for projection-derived
+  text-area horizontal extent (consumer: strategy #4 in a future stage).
+
+**Caching:** keyed on `pipeline_version` + source PDF mtime. The plan
+originally proposed keying on `page_raw.png` mtime, but that file is
+written *after* `detect_ads` runs in the orchestrator, so it isn't
+available when page_cv is consumed. PDF mtime is the actual upstream
+input.
+
+**Effectiveness (Stage 1 acceptance, 16 pages of 1947-02-27 +
+1947-11-06):**
+- Per-page compute time: ~12 ms (well under the 60 ms budget).
+- Vectorised CC classification matches the scalar reference
+  byte-for-byte.
+- Cache files: ~25 KB npz + ~500 B JSON per page. Cache invalidation
+  by version bump and source mtime both verified.
+- For framed ads, the frame CC is preserved (separate from the
+  page-spanning blob) — Stage 2 consumes this for ad-recall recovery.
+- For unframed/whitespace ads, inner content is removed by 8-conn
+  glue into the rule-A blob — this is expected behaviour and is
+  Stage 4's domain to recover.
+
+**What it lacks:** This is a precursor to Stage 2 (`detect_ads` swaps
+its inline `cv2.adaptiveThreshold` for `page_cv.cleaned_binary` and
+adds post-contour cleanup) and Stage 3 (`page_profile` uses
+`ink_projection_h` to fix `text_area_left/right`). Until those land,
+the artefact is computed and cached but not yet read.
+
+**Production suitability:** Stage 1 — landed as a passive artefact.
+Consumers light up in Stages 2 and 3.
+
+---
+
 ## Summary table — strategies in production
 
 | # | Strategy | Verdict | Role |
@@ -698,6 +766,7 @@ defence against single-page detection failures.
 | 16 | Multi-column headline (gutter-fill) | **Keep** | Pair with single-column headline detection later |
 | 17 | Body-text rhythm (300 DPI) | **Keep** | Higher DPI cost is justified |
 | 18 | Era priors & layout templates | **Keep** | Cross-issue learning |
+| 19 | Shared CV pre-processing artefact (`page_cv`) | **Keep — Stage 1 passive** | Cleaned binary + shadow regions + ink projections, cached per page; Stage 2 (`detect_ads`) and Stage 3 (`page_profile` text-area edges) will consume it |
 
 ---
 
@@ -734,6 +803,20 @@ This file is meant to evolve. When a strategy is added, retired, or
 materially changed, append a dated note here so the catalogue's drift is
 auditable.
 
+- **2026-04-28 — Stage 1: `page_cv` shared CV pre-processing
+  artefact added.** New `page_cv.py` module with `compute_or_load()`,
+  cached per-page at `columns/{issue}/p{N}/page_cv.{npz,json}`. Lifts
+  the validated cleanup pipeline from `/tmp/closure_sweep_p8.py`
+  (adaptive threshold MEAN_C 21/10 → CC filter ≥500 px → shadow rules
+  A+B → dilate 3×3) and exposes `cleaned_binary`, `shadow_regions`,
+  `large_components`, `ink_projection_h`, `ink_projection_v`. Wired
+  into `process_issue.py` immediately before `detect_ads`; not yet
+  consumed (Stage 2 and Stage 3 of the reinforcement plan land the
+  consumers). New strategy entry #19 added. Per-page compute ~12 ms
+  on the bench issues (1947-02-27, 1947-11-06); vectorised CC
+  classification verified byte-identical to the scalar reference;
+  cache invalidation by source-mtime and pipeline_version both
+  verified.
 - **2026-04-28 — `detect_ads` boundary extension + edge-filter
   softening.** `_extend_to_rules` helper added: post-contour, each
   multi-col candidate's bbox snaps outward to the nearest ≥80%-ink rule
