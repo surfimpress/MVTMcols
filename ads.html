@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ads: Almonte Gazette</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-padding-top: 100px; }
+body { background: #f0f0f0; color: #222; font-family: -apple-system, system-ui, sans-serif; }
+
+.ads-header {
+    position: sticky; top: 0; z-index: 100;
+    background: #fafafa; border-bottom: 1px solid #ddd;
+    padding: 12px 2rem;
+    display: flex; align-items: center; gap: 24px;
+}
+.ads-header h1 { font-size: 1.4em; font-weight: 500; flex: 0 0 auto; }
+
+/* Decade nav between title and column buttons. min-width: 0 lets it
+   shrink inside the flex row; overflow-x: auto means it scrolls
+   horizontally if there are too many decades to fit, instead of
+   wrapping or pushing the column buttons off the edge. */
+.decade-nav {
+    flex: 1 1 auto; min-width: 0;
+    display: flex; gap: 4px;
+    overflow-x: auto;
+    padding: 2px 0;
+    scrollbar-width: thin;
+}
+.decade-nav a {
+    color: #4488ff; text-decoration: none;
+    padding: 4px 10px; border-radius: 4px;
+    font-size: 0.95em; cursor: pointer;
+    white-space: nowrap;
+}
+.decade-nav a:hover { background: #e8e8e0; text-decoration: underline; }
+
+.col-buttons { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; font-size: 0.9em; color: #555; }
+.col-buttons .label { margin-right: 6px; }
+.col-buttons button {
+    font: inherit;
+    padding: 5px 12px;
+    border: 1px solid #ccc;
+    background: white;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #333;
+    min-width: 40px;
+}
+.col-buttons button:hover { background: #f0f0f0; }
+.col-buttons button.active {
+    background: #4488ff; color: white; border-color: #2266dd;
+}
+
+.totals { color: #777; font-size: 0.85em; padding: 8px 2rem; }
+
+/*
+ * The grid is one block whose density is set by a class
+ * (.cols-8 / .cols-12 / ...). Each variant is fully static — no
+ * calc(), no custom-property math. Row tracks are a fixed vw
+ * value tuned to make cells roughly square at the chosen density.
+ *
+ * Item spans are computed once at load time from each ad's
+ * w_pct/h_pct relative to a "page = 8 cols" baseline. So when
+ * the user picks a denser grid (12, 16, ...), the spans don't
+ * change — but each col is narrower, so every ad shrinks
+ * proportionally. No re-render, no relayout cost beyond what
+ * the browser does for a single CSS class swap.
+ */
+.ads-grid {
+    display: grid;
+    grid-auto-flow: row dense;
+    gap: 1vmax;
+    padding: 0 2rem 4rem;
+}
+.ads-grid.cols-8  { grid-template-columns: repeat(8,  1fr); grid-auto-rows: 11vw;  }
+.ads-grid.cols-12 { grid-template-columns: repeat(12, 1fr); grid-auto-rows: 7.3vw; }
+.ads-grid.cols-16 { grid-template-columns: repeat(16, 1fr); grid-auto-rows: 5.4vw; }
+.ads-grid.cols-20 { grid-template-columns: repeat(20, 1fr); grid-auto-rows: 4.3vw; }
+.ads-grid.cols-24 { grid-template-columns: repeat(24, 1fr); grid-auto-rows: 3.5vw; }
+
+.ad-item {
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
+    display: block;
+}
+
+/*
+ * Decade markers: full-width grid item slotted in whenever the
+ * sequence crosses a decade boundary. Span 1 row with overflow
+ * visible + an absolutely-positioned span inside, so the giant
+ * 18vw type bleeds outside the marker's small grid cell. With
+ * z-index: -1 the marker paints behind sibling ad items in normal
+ * flow, so ads in the rows above and below visually crop into the
+ * top and bottom of the text — the "passing over" effect.
+ */
+.decade-marker {
+    grid-column: 1 / -1;
+    grid-row: span 1;
+    position: relative;
+    z-index: -1;
+    overflow: visible;
+    pointer-events: none;
+    height: 10vw;    /* small slice — most of the type spills above & below */
+}
+.decade-marker span {
+    position: absolute;
+    top: 50%; left: 0;
+    transform: translateY(-50%);
+    font-size: 30vw;
+    font-weight: 900;
+    line-height: 1;
+    white-space: nowrap;
+    color: black;
+    opacity: 0.15;
+}
+
+/* Loader: spinner + label + progress bar. Used during initial
+   fetch+render and during column-density swaps (which trigger an
+   expensive relayout for thousands of items). */
+.loader {
+    position: fixed; top: 78px; left: 50%; transform: translateX(-50%);
+    background: rgba(34, 34, 34, 0.95); color: white;
+    padding: 14px 22px; border-radius: 6px;
+    z-index: 200; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    display: flex; flex-direction: column; gap: 10px;
+    min-width: 260px; pointer-events: none;
+}
+.loader.hidden { display: none; }
+.loader-text { display: flex; align-items: center; gap: 10px; font-size: 0.9em; }
+.loader-text::before {
+    content: ""; width: 14px; height: 14px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+}
+.progress { width: 100%; height: 4px; background: rgba(255,255,255,0.2); border-radius: 2px; overflow: hidden; }
+.progress.hidden { display: none; }
+.progress-fill { height: 100%; background: white; width: 0%; transition: width 0.12s linear; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<header class="ads-header">
+    <h1>Ads: Almonte Gazette</h1>
+    <nav class="decade-nav" id="decade-nav"></nav>
+    <div class="col-buttons" id="col-buttons">
+        <span class="label">Columns per page:</span>
+        <button data-cols="8" class="active">8</button>
+        <button data-cols="12">12</button>
+        <button data-cols="16">16</button>
+        <button data-cols="20">20</button>
+        <button data-cols="24">24</button>
+    </div>
+</header>
+<div id="loader" class="loader">
+    <div class="loader-text" id="loader-text">Loading ads…</div>
+    <div class="progress" id="progress"><div class="progress-fill" id="progress-fill"></div></div>
+</div>
+<div id="totals" class="totals"></div>
+<main class="ads-grid cols-8" id="ads-grid"></main>
+
+<script>
+const BASE = '/MVTM/columns';
+const PAGE_COLS = 8;          // grid cols that make up "one page" — the span-basis
+const PAGE_ASPECT = 1.413;    // page height / width (1241×1754 PDF render)
+
+const loader = document.getElementById('loader');
+const loaderText = document.getElementById('loader-text');
+const progressEl = document.getElementById('progress');
+const progressFill = document.getElementById('progress-fill');
+const grid = document.getElementById('ads-grid');
+
+function setLoader({ text, progress }) {
+    loaderText.textContent = text;
+    if (progress == null) {
+        progressEl.classList.add('hidden');
+    } else {
+        progressEl.classList.remove('hidden');
+        progressFill.style.width = progress + '%';
+    }
+    loader.classList.remove('hidden');
+}
+function hideLoader() { loader.classList.add('hidden'); }
+
+/*
+ * Image loading: instead of <img loading="lazy">, render every
+ * ad as an empty rectangle (correct grid spans, no background)
+ * and use IntersectionObserver to swap in a CSS background-image
+ * (with background-size: contain) only as the rectangle approaches
+ * the viewport. Decade markers don't carry data-src and are
+ * skipped by the observer.
+ */
+const lazyObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const el = entry.target;
+        el.style.backgroundImage = `url("${el.dataset.src}")`;
+        lazyObserver.unobserve(el);
+    }
+}, { rootMargin: '600px 0px' });
+
+const renderItem = ({ issue, ad }) => {
+    // Spans are computed against PAGE_COLS so the whole sheet
+    // works as if the grid were exactly one page wide. The visual
+    // density slider (8 / 12 / 16 / 20 / 24) just narrows the
+    // cells underneath without touching these numbers.
+    const cs = Math.max(1, Math.min(PAGE_COLS, Math.round(ad.w_pct / 100 * PAGE_COLS)));
+    const rs = Math.max(1, Math.round(ad.h_pct / 100 * PAGE_COLS * PAGE_ASPECT));
+    const url = `${BASE}/${issue.dir}/ads/p${ad.page}/${ad.file}`;
+    const inspector = `page_viewer.html?issue=${issue.dir}&page=${ad.page}`;
+    const date = `${issue.year}-${String(issue.month).padStart(2,'0')}-${String(issue.day).padStart(2,'0')}`;
+    return `<a class="ad-item" href="${inspector}" target="_blank" style="grid-column:span ${cs};grid-row:span ${rs}" data-src="${url}" title="${date} p${ad.page}"></a>`;
+};
+
+const renderDecadeMarker = (decade) =>
+    `<div class="decade-marker" id="decade-${decade}"><span>${decade}</span></div>`;
+
+function renderDecadeNav(decades) {
+    document.getElementById('decade-nav').innerHTML = decades.map(d =>
+        `<a href="#decade-${d}" onclick="gotoDecade(${d}, event)">${d}</a>`
+    ).join('');
+}
+
+function gotoDecade(decade, ev) {
+    if (ev) ev.preventDefault();
+    const target = document.getElementById('decade-' + decade);
+    if (target) target.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+window.gotoDecade = gotoDecade;
+
+async function init() {
+    try {
+        // Caching is fine for ads.html — viewer_data.json
+        // changes are irrelevant for this gallery view and the
+        // browser handles revalidation on its own.
+        setLoader({ text: 'Loading data…' });
+        const resp = await fetch(BASE + '/viewer_data.json');
+        const data = await resp.json();
+        const issues = data.issues || [];
+
+        // Sequence: by issue (already date-sorted), then page,
+        // then top-to-bottom / left-to-right within a page. The
+        // walker emits a decade-marker token whenever the issue's
+        // decade changes — these become full-width grid items in
+        // the same DOM stream as the ads.
+        const tokens = [];           // 'decade' or 'ad' tokens, in order
+        const decades = [];          // unique decades, for the nav
+        let lastDecade = null;
+        for (const issue of issues) {
+            const decade = Math.floor(issue.year / 10) * 10;
+            if (decade !== lastDecade) {
+                tokens.push({ type: 'decade', decade });
+                decades.push(decade);
+                lastDecade = decade;
+            }
+            const ads = (issue.ads || []).slice().sort((a, b) => {
+                if (a.page !== b.page) return a.page - b.page;
+                if (a.y_pct !== b.y_pct) return a.y_pct - b.y_pct;
+                return a.x_pct - b.x_pct;
+            });
+            for (const ad of ads) tokens.push({ type: 'ad', issue, ad });
+        }
+
+        renderDecadeNav(decades);
+
+        const adCount = tokens.filter(t => t.type === 'ad').length;
+
+        // Chunked render: append batches, observe each chunk for
+        // lazy bg-image loading, yield to the browser between
+        // chunks so the progress bar updates and the top of the
+        // page becomes interactive while the tail keeps appending.
+        const CHUNK = 400;
+        let firstAfter = 0;
+        for (let i = 0; i < tokens.length; i += CHUNK) {
+            const slice = tokens.slice(i, Math.min(tokens.length, i + CHUNK));
+            const html = slice.map(t =>
+                t.type === 'decade' ? renderDecadeMarker(t.decade) : renderItem(t)
+            ).join('');
+            grid.insertAdjacentHTML('beforeend', html);
+            // Observe only the new rectangles that carry an image
+            // src; decade markers have no data-src and are skipped.
+            const all = grid.children;
+            for (let k = firstAfter; k < all.length; k++) {
+                if (all[k].dataset && all[k].dataset.src) lazyObserver.observe(all[k]);
+            }
+            firstAfter = all.length;
+
+            const done = Math.min(tokens.length, i + CHUNK);
+            setLoader({
+                text: `Rendering ${done.toLocaleString()} / ${tokens.length.toLocaleString()}…`,
+                progress: Math.round(done / tokens.length * 100),
+            });
+            await new Promise(r => requestAnimationFrame(r));
+        }
+
+        document.getElementById('totals').textContent =
+            `${adCount} ads from ${issues.length} issues`;
+        hideLoader();
+    } catch (e) {
+        setLoader({ text: 'Failed to load: ' + e.message });
+    }
+}
+
+/*
+ * Column-density swap is cheap on paper (one CSS class change)
+ * but reflowing thousands of grid items costs a perceptible beat.
+ * Pattern per the user: click → show loader → 150 ms → swap class
+ * → 1 s overrun → hide. The 150 ms gives the loader a frame to
+ * paint before we kick the layout work; the 1 s overrun absorbs
+ * any tail jank and reads as deliberate progress feedback rather
+ * than a stutter.
+ */
+const wait = (ms) => new Promise(r => setTimeout(r, ms));
+
+document.getElementById('col-buttons').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-cols]');
+    if (!btn) return;
+    if (btn.classList.contains('active')) return;
+    document.querySelectorAll('#col-buttons button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    setLoader({ text: `Reflowing to ${btn.dataset.cols} columns…` });
+    await wait(150);
+    grid.className = `ads-grid cols-${btn.dataset.cols}`;
+    await wait(1000);
+    hideLoader();
+});
+
+init();
+</script>
+</body>
+</html>

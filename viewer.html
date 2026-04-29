@@ -6,7 +6,15 @@
 <title>Almonte Gazette — Processed Issues</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, system-ui, sans-serif; background: #f5f5f0; color: #333; padding: 20px; }
+html { scroll-padding-top: 120px; }
+body { font-family: -apple-system, system-ui, sans-serif; background: #f5f5f0; color: #333; padding: 0 20px 20px; }
+#page-header { position: sticky; top: 0; background: #f5f5f0; padding: 14px 20px 10px; margin: 0 -20px 14px; z-index: 10; border-bottom: 1px solid #ddd; }
+#page-header h1 { margin-bottom: 8px; }
+#decade-nav { display: flex; gap: 4px; flex-wrap: wrap; }
+#decade-nav a { color: #4488ff; text-decoration: none; padding: 4px 10px; border-radius: 4px; font-size: 0.95em; cursor: pointer; }
+#decade-nav a:hover { background: #e8e8e0; text-decoration: underline; }
+.decade-header { font-size: 1.1em; color: #555; margin-top: 6px; padding-top: 12px; border-top: 1px solid #ddd; }
+.decade-header:first-child { border-top: none; padding-top: 0; margin-top: 0; }
 h1 { font-size: 1.8em; margin-bottom: 5px; }
 .subtitle { color: #666; margin-bottom: 20px; }
 .issue-list { display: grid; gap: 15px; margin-bottom: 30px; }
@@ -26,6 +34,9 @@ h1 { font-size: 1.8em; margin-bottom: 5px; }
 .cols-row a:hover img { transform: none; }
 .flag { display: inline-block; background: #fff3cd; color: #856404; font-size: 0.75em; padding: 1px 6px; border-radius: 3px; margin-right: 4px; }
 .detail-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.detail-header-left { display: flex; align-items: center; gap: 30px; }
+.inspector-btn { background: #4488ff; color: white; border-color: #2266dd; }
+.inspector-btn:hover { background: #5599ff; color: white; }
 .expand-ctrl { font-size: 0.85em; color: #4488ff; }
 .expand-ctrl a { color: #4488ff; cursor: pointer; text-decoration: none; }
 .expand-ctrl a:hover { text-decoration: underline; }
@@ -47,7 +58,10 @@ details.ads-section summary { background: #f8f5ee; }
 </style>
 </head>
 <body>
+<header id="page-header">
 <h1>Almonte Gazette</h1>
+<nav id="decade-nav"></nav>
+</header>
 <p class="subtitle">Processed Issues — Column Extraction Pipeline</p>
 <div id="totals" class="totals"></div>
 <div id="loading">Loading data...</div>
@@ -70,6 +84,7 @@ async function init() {
         document.getElementById('loading').style.display = 'none';
         renderList(issues);
         renderDetails(issues);
+        renderDecadeNav(issues);
         const totalCols = issues.reduce((s, i) => s + i.n_cols, 0);
         const totalAds = data.total_ads || issues.reduce((s, i) => s + i.n_ads, 0);
         const totalPages = data.total_gazette_pages || 0;
@@ -86,10 +101,17 @@ async function init() {
 
 function renderList(issues) {
     const el = document.getElementById('issue-list');
+    let lastDecade = null;
     el.innerHTML = issues.map(issue => {
+        const decade = Math.floor(issue.year / 10) * 10;
+        let prefix = '';
+        if (decade !== lastDecade) {
+            lastDecade = decade;
+            prefix = `<h3 class="decade-header" id="decade-${decade}">${decade}</h3>`;
+        }
         const date = `${issue.year}-${String(issue.month).padStart(2,'0')}-${String(issue.day).padStart(2,'0')}`;
         const lastRan = issue.last_ran ? new Date(issue.last_ran + 'Z').toLocaleString() : '';
-        return `<div class="issue-card" onclick="showIssue('${issue.dir}')">
+        return prefix + `<div class="issue-card" onclick="showIssue('${issue.dir}')">
             <h2>${date}</h2>
             <div class="stats">
                 ${issue.n_pages} pages \u2022
@@ -99,6 +121,23 @@ function renderList(issues) {
             </div>
         </div>`;
     }).join('');
+}
+
+function renderDecadeNav(issues) {
+    const decades = [...new Set(issues.map(i => Math.floor(i.year / 10) * 10))].sort((a, b) => a - b);
+    document.getElementById('decade-nav').innerHTML = decades.map(d =>
+        `<a href="#decade-${d}" onclick="gotoDecade(${d}, event)">${d}</a>`
+    ).join('');
+}
+
+function gotoDecade(decade, ev) {
+    if (ev) ev.preventDefault();
+    // Close any active detail and restore the list before scrolling
+    document.querySelectorAll('.issue-detail.active').forEach(d => d.classList.remove('active'));
+    document.getElementById('issue-list').style.display = 'grid';
+    history.replaceState(null, '', window.location.pathname);
+    const target = document.getElementById('decade-' + decade);
+    if (target) target.scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 
 function renderDetails(issues) {
@@ -155,7 +194,10 @@ function renderDetails(issues) {
 
         return `<div class="issue-detail" id="detail-${issue.dir}">
             <div class="detail-header">
-                <a class="back-btn" onclick="hideIssue('${issue.dir}')">\u2190 Back to list</a>
+                <div class="detail-header-left">
+                    <a class="back-btn" onclick="hideIssue('${issue.dir}')">\u2190 Back to list</a>
+                    <a class="back-btn inspector-btn" href="page_viewer.html?issue=${issue.dir}&page=1" target="_blank">Inspector \u2192</a>
+                </div>
                 <span class="expand-ctrl">
                     <a onclick="setAllDetails('${issue.dir}', true)">open all</a>
                     |
