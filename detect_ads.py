@@ -250,12 +250,12 @@ def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
         at_bottom_edge = bool(y_end_pct > (100 - EDGE_MARGIN))
         edges = [at_left_edge, at_right_edge, at_top_edge, at_bottom_edge]
 
-        # If touching two opposing edges (left+right or top+bottom),
-        # it's a full-width/height element, not a boxed ad
-        if (at_left_edge and at_right_edge) or (at_top_edge and at_bottom_edge):
-            _emit("edges_opposing", kept=False, **common, edges=edges,
-                  **(_rule_proximity(x, y, x + bw, y + bh) if verbose else {}))
-            continue
+        # Opposing-edge contact (left+right or top+bottom). Full-page
+        # banner ads exist in later issues but are rare; floor the
+        # confidence at "low" rather than hard-reject so downstream
+        # filters (body-text FP filter) can still reach them.
+        opposing_edges = ((at_left_edge and at_right_edge) or
+                          (at_top_edge and at_bottom_edge))
 
         # Edge-touching with low rectangularity used to be a hard reject
         # ("shadow/artifact"). Demoted to confidence downgrade — the
@@ -306,6 +306,10 @@ def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
                 confidence = "medium"
             elif confidence == "medium":
                 confidence = "low"
+
+        # Opposing-edge contact (rare full-page banner) → floor at low
+        if opposing_edges:
+            confidence = "low"
 
         # Estimate column span
         cols = max(1, round(bw / w * 100 / pitch))
@@ -736,12 +740,11 @@ def detect_single_col_ads(pdf_path, multi_col_ads=None, page_number=0,
         y_pct = px_to_pct(y, h)
         x_end_pct = px_to_pct(x + bw, w)
         y_end_pct = px_to_pct(y + bh, h)
-        # Edge margin
-        if (x_pct < edge_margin_pct or
-            x_end_pct > 100 - edge_margin_pct or
-            y_pct < edge_margin_pct or
-            y_end_pct > 100 - edge_margin_pct):
-            continue
+        # Edge margin: do NOT hard-reject candidates touching a page
+        # edge — open-frame ads at the top/bottom of a column are real
+        # and were being lost. Mirrors the multi-col allowance in
+        # _detect_ads_pass: edge-touch downgrades confidence in
+        # section F below; it does not exclude the candidate.
         # R2 photograph-edge match (mirrors detect_ads:167-176)
         if page_profile and "r2" in page_profile:
             r2 = page_profile["r2"]
@@ -1021,6 +1024,28 @@ def detect_single_col_ads(pdf_path, multi_col_ads=None, page_number=0,
             confidence = "medium"
         else:
             confidence = "low"
+
+        # Edge-touch confidence downgrade (mirrors _detect_ads_pass):
+        # candidates whose bbox sits within edge_margin_pct of any page
+        # edge are demoted one tier (high→medium→low). Open-frame ads
+        # at column top/bottom are real but rare enough that we want
+        # the body-text FP filter downstream to have lowered-confidence
+        # reach. Opposing edges (top+bottom or left+right) are rarer
+        # still — full-page-height/width ads exist in later issues but
+        # we floor those at low.
+        at_left = c["x_pct"] < edge_margin_pct
+        at_right = c["x_end_pct"] > 100 - edge_margin_pct
+        at_top = c["y_pct"] < edge_margin_pct
+        at_bottom = c["y_end_pct"] > 100 - edge_margin_pct
+        opposing = (at_left and at_right) or (at_top and at_bottom)
+        if opposing:
+            confidence = "low"
+        elif at_left or at_right or at_top or at_bottom:
+            if confidence == "high":
+                confidence = "medium"
+            elif confidence == "medium":
+                confidence = "low"
+
         out.append({
             "x_pct": round(c["x_pct"], 2),
             "y_pct": round(c["y_pct"], 2),

@@ -194,6 +194,13 @@ the existing edge-touch downgrade. Anchor: 1947-02-27 p8 top-right
 "EYRES AND HATTON" was rejected even though it's a real ad below the
 running-head rule.
 
+**Opposing-edge contact (softened 2026-04-28):** Candidates touching
+both opposing edges (left+right or top+bottom) used to be hard-rejected
+as full-width/height non-ads. Full-page banner ads exist in later
+issues — rare but real — so opposing-edge contact now floors the
+confidence at `low` instead of rejecting. Body-text FP filter
+downstream still has reach.
+
 **What it lacks:** The 145 magic number is a single-point cutoff. Ads
 without borders (run-in display, large bold text) are not detected as ads
 and may be picked up later by headline detection instead. Photo-edge
@@ -219,6 +226,14 @@ recovery to assemble pieces of a broken ad border into one rectangle.
 their borders are too narrow to clear the area threshold. Sibling-merge
 logic extends full-height ads to absorb short fragments with ≤6 px shared
 boundaries.
+
+**Edge-margin alignment (2026-04-28):** Previously hard-rejected any
+candidate whose bbox sat within `edge_margin_pct` (default 3%) of a
+page edge — exactly the class of open-frame ad at column top/bottom
+that the plan targets. Now mirrors the multi-col allowance: candidates
+touching a single edge are admitted with a one-step confidence
+downgrade (high→medium→low); opposing-edge contact floors at `low`.
+Body-text FP filter downstream still gates these.
 
 **Production suitability:** Keep. Together with strategy #6, gives full
 coverage of bordered display content.
@@ -803,6 +818,25 @@ This file is meant to evolve. When a strategy is added, retired, or
 materially changed, append a dated note here so the catalogue's drift is
 auditable.
 
+- **2026-04-28 — Edge-margin alignment across ad detectors.** The
+  hard-reject for candidates within `edge_margin_pct` (default 3%) of
+  any page edge in `detect_single_col_ads` — mismatched against the
+  softened "downgrade-don't-reject" allowance already in
+  `_detect_ads_pass` — was dropping open-frame ads at column top/bottom
+  before they could be reinforced. Now aligned: single-edge contact
+  downgrades confidence one tier (high→medium→low); opposing-edge
+  contact (left+right or top+bottom) floors at `low` rather than
+  hard-rejecting (full-page banner ads exist in later issues). Sweep of
+  the codebase for similar hardwired top/bottom exclusions found this as
+  the only candidate-rejection gate driven by raw page-position; nine
+  other 20–80%/15–85%-style bands across `find_columns.py`,
+  `find_splits.py`, `validate_columns.py`, `page_profile.py`,
+  `detect_sliver.py`, and `page_cv.py` are sampling/calibration
+  regions, not candidate-rejection gates, and were left as-is.
+  Bench: production multi-col output unchanged on 1947-02-27 and
+  1947-11-06; single-col path admits more candidates near edges at
+  appropriately downgraded confidence (1947-11-06 p4: 0→6 single-col
+  candidates surfaced at medium confidence).
 - **2026-04-28 — Stage 1: `page_cv` shared CV pre-processing
   artefact added.** New `page_cv.py` module with `compute_or_load()`,
   cached per-page at `columns/{issue}/p{N}/page_cv.{npz,json}`. Lifts
