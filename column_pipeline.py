@@ -349,13 +349,21 @@ def place_page2_editorial(boundaries, ctx):
         for iv in intervals:
             grid.append(round(grid[-1] + iv, 2))
 
-        # Allow binding slack
+        # Allow binding-side and clean-side slack — same rationale as
+        # place_standard: the binding side often loses width to spine
+        # curvature (large slack), the clean side can have an edge column
+        # whose boundary lands just outside R3 when R3 is text-driven
+        # (small slack). The clean slack matters here because the page_cv
+        # R3 clamp can pull r3_left exactly onto text_area_left, leaving
+        # the slide loop's best-fit grid with its leftmost boundary just
+        # outside the new r3_left.
         bind_slack = pitch * 0.5
+        clean_slack = pitch * 0.2
         if ctx.binding_side == "left":
             left_limit = ctx.r3_left - bind_slack
-            right_limit = ctx.r3_right
+            right_limit = ctx.r3_right + clean_slack
         else:
-            left_limit = ctx.r3_left
+            left_limit = ctx.r3_left - clean_slack
             right_limit = ctx.r3_right + bind_slack
         grid = [g for g in grid if left_limit <= g <= right_limit]
         if len(grid) < 3:

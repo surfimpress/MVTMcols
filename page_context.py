@@ -179,7 +179,9 @@ def build_context(gazette_page, year, db_path="data/mvtm.db",
 
     # Constrain to R3 bounds — the grid cannot extend outside
     # the newspaper page boundary. All coordinates in PDF page space.
-    expected = [b for b in expected if r3_left < b < r3_right]
+    # Use <= so a boundary that lands exactly on the R3 edge is kept
+    # (happens when text_area == r3 after the page_cv R3 clamp).
+    expected = [b for b in expected if r3_left <= b <= r3_right]
 
     return PageContext(
         gazette_page=gazette_page,

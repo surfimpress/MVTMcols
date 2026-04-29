@@ -853,6 +853,20 @@ This file is meant to evolve. When a strategy is added, retired, or
 materially changed, append a dated note here so the catalogue's drift is
 auditable.
 
+- **2026-04-29 — Follow-up: clean-side slack in `place_page2_editorial` + edge-inclusive `expected_boundaries` filter.**
+  Two latent bugs were exposed when the R3 clamp moved `r3_left` to land
+  exactly on `text_area_left` (rather than 0.02% inside, as before).
+  (1) `page_context.build_context` used `r3_left < b < r3_right` to constrain
+  expected boundaries — the leading boundary at `r3_left` got dropped
+  because `<` is strict. Relaxed to `<=`. (2) `column_pipeline.place_page2_editorial`
+  applied `bind_slack` only to the binding side; the clean side had no slack,
+  so a best-fit grid whose leftmost boundary landed marginally outside R3
+  (1.5% on 1947-01-23 P2) lost that boundary to the clamp. Mirrored
+  `place_standard`'s `clean_slack = pitch * 0.2` rationale. Result:
+  1947-01-23 P2 returns to 6c [17% 17% 11% 11% 11% 11%] (the editorial
+  template) instead of regressing to 5c after Stage 3 landed. No change
+  on 1940-02-20, 1947-02-27, 1947-11-06.
+
 - **2026-04-29 — Stage 3 (revised): R3 post-clamp via `page_cv`.**
   `page_profile._clamp_r3_with_page_cv` consumes `page_cv.ink_projection_h`
   to detect the bleed-strip pattern at R3 edges and clamp inward when
