@@ -201,6 +201,23 @@ issues — rare but real — so opposing-edge contact now floors the
 confidence at `low` instead of rejecting. Body-text FP filter
 downstream still has reach.
 
+**CV reinforcement (2026-04-28, gated by `use_cv_cleanup` kwarg):**
+After production STRICT/LOOSE passes plus `_extend_to_rules` complete
+unchanged, an optional CV pass runs `_detect_ads_pass` on
+`page_cv.cleaned_binary` (strategy #19) — bypassing inline binarisation
+so frame fragments that the production thresholder loses to scan noise
+are still detected. CV candidates are deduped internally
+(80%-area-containment) then merged against production by IoU ≥ 0.30:
+matches *boost* the production candidate's confidence one tier
+(low→medium→high, capped); unmatched CV candidates are appended at
+`low` with `cv_only=True`. Reinforcement only — production candidates
+are never dropped or downgraded. CV-only ads still flow through the
+downstream body-text FP filter. Bench (1947-02-27 + 1947-11-06):
+30 productions boosted, 18 cv_only adds, zero regressions. Anchor:
+1947-11-06 p6 where naïve replacement-mode dropped 3 of 4 production
+ads via the page_cv 500-px CC filter — reinforcement mode preserves
+all four.
+
 **What it lacks:** The 145 magic number is a single-point cutoff. Ads
 without borders (run-in display, large bold text) are not detected as ads
 and may be picked up later by headline detection instead. Photo-edge
@@ -781,7 +798,7 @@ Consumers light up in Stages 2 and 3.
 | 16 | Multi-column headline (gutter-fill) | **Keep** | Pair with single-column headline detection later |
 | 17 | Body-text rhythm (300 DPI) | **Keep** | Higher DPI cost is justified |
 | 18 | Era priors & layout templates | **Keep** | Cross-issue learning |
-| 19 | Shared CV pre-processing artefact (`page_cv`) | **Keep — Stage 1 passive** | Cleaned binary + shadow regions + ink projections, cached per page; Stage 2 (`detect_ads`) and Stage 3 (`page_profile` text-area edges) will consume it |
+| 19 | Shared CV pre-processing artefact (`page_cv`) | **Keep** | Cleaned binary + shadow regions + ink projections, cached per page; consumed by `detect_ads` (#6) for CV reinforcement; Stage 3 (`page_profile` text-area edges) still pending |
 
 ---
 
@@ -818,6 +835,26 @@ This file is meant to evolve. When a strategy is added, retired, or
 materially changed, append a dated note here so the catalogue's drift is
 auditable.
 
+- **2026-04-28 — Stage 2: `detect_ads` CV reinforcement integration.**
+  `detect_ads` gains a `use_cv_cleanup` kwarg that, when set, runs an
+  *additional* `_detect_ads_pass` against `page_cv.cleaned_binary`
+  after the production STRICT/LOOSE passes finish. Production output
+  is unchanged byte-for-byte; CV output is merged in as corroboration:
+  IoU ≥ 0.30 against any production ad boosts that production
+  candidate one confidence tier (low→medium→high, capped); unmatched
+  CV candidates append as `cv_only=True` at `low` confidence. CV pass
+  is internally deduped by 80%-area-containment before the merge.
+  Designed as a reinforcement layer rather than a replacement after
+  the initial replacement-mode prototype regressed badly on
+  1947-11-06 p6 — `page_cv`'s 500-px CC filter wipes fragmented frame
+  ink (B4 Naismith ad: 30.8 % ink in raw binary, 0.8 % after cleanup).
+  Reinforcement keeps the production path's recall floor while CV's
+  shadow-pruned signal lifts confidence on borderline cases and adds
+  open-frame candidates (e.g. 1947-02-27 p7: 1 → 5, four cv_only
+  adds). Bench: 1947-02-27 + 1947-11-06 → 30 boosted productions,
+  18 cv_only adds, zero production drops, zero confidence
+  downgrades. Strategy #6 entry updated; strategy #19 promoted from
+  Stage-1-passive to active consumer.
 - **2026-04-28 — Edge-margin alignment across ad detectors.** The
   hard-reject for candidates within `edge_margin_pct` (default 3%) of
   any page edge in `detect_single_col_ads` — mismatched against the

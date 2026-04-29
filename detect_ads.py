@@ -58,7 +58,8 @@ CONTRAST_TIER1_THRESHOLD = 145
 def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
                      min_width_pct, min_height_pct, gather_min_height_pct,
                      min_rect_ratio, pitch, page_profile,
-                     verbose=False, pass_id="strict"):
+                     verbose=False, pass_id="strict",
+                     cleaned_binary=None):
     """
     One threshold-and-contour pass. Returns the per-contour-filtered ad
     candidate list (still carrying the internal _y1_px / _is_short fields
@@ -95,12 +96,26 @@ def _detect_ads_pass(grey, h, w, *, block_size, C, kernel_size, iterations,
         rec.update(extra)
         sys.stderr.write(json.dumps(rec) + "\n")
 
-    binary = cv2.adaptiveThreshold(
-        grey, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY_INV, block_size, C,
-    )
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size))
-    closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=iterations)
+    # When ``cleaned_binary`` is supplied (CV reinforcement path), skip
+    # the inline adaptive-threshold + morph-close and consume the shared
+    # `page_cv` artefact directly — already cleaned by shadow rules A+B
+    # and dilated 3×3. Block-size / C / kernel kwargs are ignored on
+    # that path; the rule-proximity diagnostic still uses `binary`,
+    # which becomes the same cleaned tensor (close enough for log
+    # purposes). Production STRICT/LOOSE passes use the inline binarise
+    # — their behaviour is unchanged.
+    if cleaned_binary is not None:
+        closed = cleaned_binary
+        binary = cleaned_binary
+    else:
+        binary = cv2.adaptiveThreshold(
+            grey, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY_INV, block_size, C,
+        )
+        kernel = cv2.getStructuringElement(
+            cv2.MORPH_RECT, (kernel_size, kernel_size))
+        closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel,
+                                  iterations=iterations)
 
     contours, hierarchy = cv2.findContours(
         closed, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE,
@@ -465,7 +480,8 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
                min_width_pct=15, min_height_pct=5,
                gather_min_height_pct=3.0,
                min_rect_ratio=0.85, column_pitch=None,
-               page_profile=None, verbose=False):
+               page_profile=None, verbose=False,
+               use_cv_cleanup=False, cv_cache_dir=None):
     """
     Detect bordered display advertisements on a PDF page.
 
@@ -629,6 +645,86 @@ def detect_ads(pdf_path, page_number=0, render_dpi=150,
         cv2.THRESH_BINARY_INV, p["block_size"], p["C"],
     )
     full = _extend_to_rules(full, binary_for_rules, h, w)
+
+    # ── CV reinforcement (gated on use_cv_cleanup) ───────────────────
+    # Production STRICT/LOOSE/dedup/extend has run unchanged. Now run
+    # _detect_ads_pass on `cleaned_binary` from the shared page_cv
+    # artefact to gather a parallel candidate set. Each CV candidate
+    # either:
+    #   - corroborates a production candidate (IoU ≥ 0.30) → boost the
+    #     production candidate's confidence one tier (low→medium,
+    #     medium→high), capped at high; or
+    #   - is unmatched (CV-only) → emit as a NEW candidate at "low"
+    #     confidence. CV-only candidates still go through the body-text
+    #     FP filter downstream (process_issue.py) at their downgraded
+    #     confidence.
+    # No replacement, no _drop_no_base, no _nested_dedup — this is
+    # corroboration only, not a swap of the working detection path.
+    # See plan: /Users/peter/.claude/plans/happy-prancing-crescent.md
+    if use_cv_cleanup:
+        import page_cv as _page_cv
+        pcv = _page_cv.compute_or_load(
+            pdf_path, page_number=page_number, render_dpi=render_dpi,
+            cache_dir=cv_cache_dir)
+        cv_ads = _detect_ads_pass(
+            grey, h, w, **STRICT_PARAMS, **pass_kwargs,
+            verbose=verbose, pass_id="cv",
+            cleaned_binary=pcv.cleaned_binary,
+        )
+        # Drop short candidates (CV path has no sibling-merge pass to
+        # absorb them; keep only PROD-grade full-height candidates).
+        cv_ads = [a for a in cv_ads if not a.get("_is_short")]
+
+        # Internal dedup of CV candidates by 80%-area-containment
+        # (mirrors production dedup at the top of this function).
+        cv_ads.sort(key=lambda a: a["w_pct"] * a["h_pct"], reverse=True)
+        cv_deduped = []
+        for ad in cv_ads:
+            is_contained = False
+            for ex in cv_deduped:
+                ol = max(ad["x_pct"], ex["x_pct"])
+                orr = min(ad["x_end_pct"], ex["x_end_pct"])
+                ot = max(ad["y_pct"], ex["y_pct"])
+                ob = min(ad["y_end_pct"], ex["y_end_pct"])
+                if orr > ol and ob > ot:
+                    inter = (orr - ol) * (ob - ot)
+                    a_area = ad["w_pct"] * ad["h_pct"]
+                    if a_area > 0 and inter / a_area > 0.8:
+                        is_contained = True
+                        break
+            if not is_contained:
+                cv_deduped.append(ad)
+
+        # IoU-on-pct helper (areas in pct² are commensurate)
+        def _iou_pct(a, b):
+            ix1 = max(a["x_pct"], b["x_pct"])
+            iy1 = max(a["y_pct"], b["y_pct"])
+            ix2 = min(a["x_end_pct"], b["x_end_pct"])
+            iy2 = min(a["y_end_pct"], b["y_end_pct"])
+            iw = max(0.0, ix2 - ix1)
+            ih = max(0.0, iy2 - iy1)
+            inter = iw * ih
+            ua = a["w_pct"] * a["h_pct"] + b["w_pct"] * b["h_pct"] - inter
+            return inter / ua if ua > 0 else 0.0
+
+        _BOOST = {"low": "medium", "medium": "high", "high": "high"}
+        boosted = set()
+        IOU_MATCH = 0.30
+        for cv in cv_deduped:
+            best_i, best_iou = -1, 0.0
+            for i, prod in enumerate(full):
+                iou = _iou_pct(cv, prod)
+                if iou > best_iou:
+                    best_iou, best_i = iou, i
+            if best_iou >= IOU_MATCH:
+                if best_i not in boosted:
+                    full[best_i]["confidence"] = _BOOST[full[best_i]["confidence"]]
+                    full[best_i]["cv_corroborated"] = True
+                    boosted.add(best_i)
+            else:
+                cv["confidence"] = "low"
+                cv["cv_only"] = True
+                full.append(cv)
 
     # Strip internal fields and emit only full-height ads.
     for a in full:

@@ -337,8 +337,11 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         # Compute the shared CV pre-processing artefact once per page.
         # Cached at columns/{issue}/p{N}/page_cv.{npz,json} so detectors
         # in this run AND subsequent diagnostic tools can re-use it
-        # without re-thresholding. Stage 1 wiring: not yet consumed by
-        # detect_ads (Stage 2 will swap the inline binarise).
+        # without re-thresholding. Consumed by detect_ads below as a
+        # reinforcement signal (Stage 2): production STRICT/LOOSE passes
+        # run unchanged; the CV pass is merged in to boost matched
+        # production ads' confidence and to add cv_only candidates at
+        # 'low' confidence for downstream body-text FP filtering.
         page_out_early = os.path.join(output_dir, f"p{page_num}")
         os.makedirs(page_out_early, exist_ok=True)
         page_cv.compute_or_load(pdf_path, page_number=0, render_dpi=150,
@@ -346,7 +349,8 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
 
         prof = profile_page(pdf_path)
         page_profiles[page_num] = prof
-        ads = detect_ads(pdf_path, column_pitch=None, page_profile=prof)
+        ads = detect_ads(pdf_path, column_pitch=None, page_profile=prof,
+                         use_cv_cleanup=True, cv_cache_dir=page_out_early)
 
         # Corroboration upgrade — bump landscape multi-col ads from
         # 'low' to 'medium' when there is independent evidence they are
