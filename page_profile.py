@@ -28,6 +28,103 @@ from scipy.ndimage import gaussian_filter1d
 from pdf_utils import open_clean_pdf as _open_clean, render_grey
 
 
+def _clamp_r3_with_page_cv(r3, w, ink_projection_h):
+    """Post-process R3 boundaries using the page_cv ink projection.
+
+    On scans where R3 detection lands on facing-page bleed-through
+    (visible at the OUTER edge of recto and verso pages in two-page
+    spread scans), R3 is too wide. This helper detects the
+    bleed-strip pattern at each R3 edge and clamps inward when found:
+
+        [R3 edge] [narrow ink strip <6%] [wide trough ≥2.5%] [text]
+
+    The pattern requires ALL three components. If the first
+    above-threshold run inside R3 is wide (real columns), or the
+    trough is too narrow (column gutter, not a margin), or the
+    pattern doesn't match (verso binding edge with text running to
+    the page edge), R3 is left unchanged.
+
+    Args:
+        r3: dict with 'left', 'right', 'top', 'bottom' as % of page.
+        w: page width in pixels.
+        ink_projection_h: page_cv per-column ink count, shape (W,).
+
+    Returns:
+        dict — R3 with 'left' and 'right' possibly clamped inward.
+        'top' / 'bottom' unchanged.
+    """
+    if ink_projection_h is None:
+        return r3
+
+    def _clamp_edge(edge_pct, side):
+        edge_px = pct_to_px(edge_pct, w)
+        search_pct = 10.0
+        search_px = max(int(search_pct / 100.0 * w), 32)
+        if side == "left":
+            s = edge_px
+            e = min(edge_px + search_px, len(ink_projection_h) - 1)
+            window = ink_projection_h[s:e + 1].astype(float)
+        else:
+            s = max(edge_px - search_px, 0)
+            e = edge_px
+            window = ink_projection_h[s:e + 1][::-1].astype(float)
+        if len(window) < 16:
+            return edge_pct
+
+        sigma = max(int(0.005 * w), 3)
+        proj_s = gaussian_filter1d(window, sigma=sigma)
+        pmax = proj_s.max()
+        if pmax <= 0:
+            return edge_pct
+        threshold = 0.10 * pmax
+        above = proj_s >= threshold
+
+        # Find above-threshold runs in the inward-walking window.
+        n = len(above)
+        runs = []
+        i = 0
+        while i < n:
+            if above[i]:
+                j = i
+                while j < n and above[j]:
+                    j += 1
+                runs.append((i, j - 1))
+                i = j
+            else:
+                i += 1
+        if not runs:
+            return edge_pct
+
+        narrow_max = int(0.06 * w)
+        # 2.5% page width: cleanly splits page-margin troughs (2-5%
+        # wide) from column gutters (1-2% wide).
+        trough_min = max(int(0.025 * w), 20)
+
+        first_start, first_end = runs[0]
+        if first_start > narrow_max:
+            return edge_pct
+        first_width = first_end - first_start + 1
+        if first_width >= narrow_max:
+            return edge_pct
+        if len(runs) < 2:
+            return edge_pct
+        second_start, _second_end = runs[1]
+        trough_width = second_start - first_end - 1
+        if trough_width < trough_min:
+            return edge_pct
+
+        # Bleed-strip pattern matched — clamp to inner edge of trough.
+        if side == "left":
+            new_px = s + second_start
+        else:
+            new_px = e - second_start
+        return px_to_pct(new_px, w)
+
+    new_left = _clamp_edge(r3["left"], "left")
+    new_right = _clamp_edge(r3["right"], "right")
+    return {**r3, "left": new_left, "right": new_right}
+
+
 def find_rectangles(inv, h, w, gazette_page=None, pdf_image_rect=None):
     """
     Detect the three nested rectangles in a scanned newspaper PDF page.
@@ -363,7 +460,8 @@ def _extract_gazette_page(pdf_path):
     return None
 
 
-def profile_page(pdf_path, page_number=0, profile_dpi=150, gazette_page=None):
+def profile_page(pdf_path, page_number=0, profile_dpi=150, gazette_page=None,
+                 page_cv_artefact=None):
     """
     Analyse a page and return a calibration profile with bounding boxes.
 
@@ -416,6 +514,20 @@ def profile_page(pdf_path, page_number=0, profile_dpi=150, gazette_page=None):
     # ── Detect nested rectangles ─────────────────────────────────────
     rects = find_rectangles(inv, h, w, gazette_page=gazette_page,
                             pdf_image_rect=pdf_image_rect)
+
+    # ── R3 post-clamp via page_cv ink projection ─────────────────────
+    # On scans where R3 lands on facing-page bleed, clamp R3 inward to
+    # the inner edge of the page margin. text_area is clamped to the
+    # new R3 (the existing detector's value is preserved when it falls
+    # inside the clamped R3).
+    if page_cv_artefact is not None:
+        ink_proj = getattr(page_cv_artefact, "ink_projection_h", None)
+        if ink_proj is not None:
+            new_r3 = _clamp_r3_with_page_cv(rects["r3"], w, ink_proj)
+            rects["r3"] = new_r3
+            ta = rects["text_area"]
+            ta["left"] = max(ta["left"], new_r3["left"])
+            ta["right"] = min(ta["right"], new_r3["right"])
 
     # ── Body region statistics (within text area) ────────────────────
     ta = rects["text_area"]

@@ -344,10 +344,10 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         # 'low' confidence for downstream body-text FP filtering.
         page_out_early = os.path.join(output_dir, f"p{page_num}")
         os.makedirs(page_out_early, exist_ok=True)
-        page_cv.compute_or_load(pdf_path, page_number=0, render_dpi=150,
-                                cache_dir=page_out_early)
+        pcv = page_cv.compute_or_load(pdf_path, page_number=0, render_dpi=150,
+                                      cache_dir=page_out_early)
 
-        prof = profile_page(pdf_path)
+        prof = profile_page(pdf_path, page_cv_artefact=pcv)
         page_profiles[page_num] = prof
         ads = detect_ads(pdf_path, column_pitch=None, page_profile=prof,
                          use_cv_cleanup=True, cv_cache_dir=page_out_early)

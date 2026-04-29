@@ -124,6 +124,24 @@ intended remedy for the binding side.
 defer to grid projection from interior columns rather than to the text-area
 edge directly.
 
+**R3 post-clamp (2026-04-29):** When a `page_cv` artefact is passed in,
+`_clamp_r3_with_page_cv` runs after `find_rectangles` and inspects the
+ink projection inside R3 looking for the bleed-strip pattern:
+
+  `[R3 edge] [narrow ink strip <6%] [wide trough ≥2.5%] [text]`
+
+Pattern matches on facing-page bleed-through visible at the OUTER edge of
+recto and verso pages in two-page-spread scans (e.g. 1947-01-23 P2 LHS
+where R3_left landed on the previous page's right column visible in
+bleed). When matched, R3 is clamped to the inner edge of the trough and
+text_area is clamped to the new R3. When the pattern doesn't match
+(verso binding edge with text running to the page edge, no bleed,
+contiguous bleed-and-text without a clean trough), R3 is unchanged.
+
+Verified on 24-page bench (1947-02-27, 1947-11-06, 1947-01-23): 9 pages
+clamp on the OUTER edge, 15 pages unchanged, 0 false-positive clamps on
+spot-checked verso edges with text running to page edge.
+
 ---
 
 ### 5. Adaptive thresholds & quality flags
@@ -834,6 +852,18 @@ detection.
 This file is meant to evolve. When a strategy is added, retired, or
 materially changed, append a dated note here so the catalogue's drift is
 auditable.
+
+- **2026-04-29 — Stage 3 (revised): R3 post-clamp via `page_cv`.**
+  `page_profile._clamp_r3_with_page_cv` consumes `page_cv.ink_projection_h`
+  to detect the bleed-strip pattern at R3 edges and clamp inward when
+  matched. Wired into `profile_page` via a new `page_cv_artefact` kwarg;
+  `process_issue` passes the cached page_cv. Stage 3's original framing
+  (text_area projection refinement) was redirected to fix R3 first after
+  visual review showed the pressing defect was R3 itself landing in
+  facing-page bleed (e.g. 1947-01-23 P2 LHS at 16.3% — inside the
+  previous page's bleed-through), with text_area falling back to R3.
+  Fixing text_area in isolation could not have helped on those pages
+  because text_area was correctly defaulting to a wrong R3.
 
 - **2026-04-28 — Stage 2: `detect_ads` CV reinforcement integration.**
   `detect_ads` gains a `use_cv_cleanup` kwarg that, when set, runs an
