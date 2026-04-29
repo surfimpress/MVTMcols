@@ -33,8 +33,15 @@ body { background: #f0f0f0; color: #222; font-family: -apple-system, system-ui, 
     padding: 4px 10px; border-radius: 4px;
     font-size: 0.95em; cursor: pointer;
     white-space: nowrap;
+    /* Reserve space for the active-state underline so toggling the
+       active class doesn't cause layout shift. */
+    border-bottom: 3px solid transparent;
 }
 .decade-nav a:hover { background: #e8e8e0; text-decoration: underline; }
+.decade-nav a.active {
+    border-bottom-color: black;
+    border-radius: 4px 4px 0 0;
+}
 
 .col-buttons { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; font-size: 0.9em; color: #555; }
 .col-buttons .label { margin-right: 6px; }
@@ -98,12 +105,11 @@ body { background: #f0f0f0; color: #222; font-family: -apple-system, system-ui, 
  */
 .decade-marker {
     grid-column: 1 / -1;
-    grid-row: span 1;
+    grid-row: span 2;
     position: relative;
     z-index: -1;
     overflow: visible;
     pointer-events: none;
-    height: 10vw;    /* small slice — most of the type spills above & below */
 }
 .decade-marker span {
     position: absolute;
@@ -235,6 +241,75 @@ function gotoDecade(decade, ev) {
 }
 window.gotoDecade = gotoDecade;
 
+/*
+ * Active-decade tracking: as the user scrolls the page, mark the
+ * latest decade marker we've scrolled past with `.active` on its nav
+ * link. This is purely visual feedback (black underline) — no layout
+ * effect, no fetch, no DOM beyond a class toggle.
+ *
+ * We use a scroll listener (rAF-throttled) rather than IntersectionObserver
+ * because we want "the most recent decade we've passed", which is a
+ * positional question, not a visibility question. If the viewport
+ * sits between two decade markers (mid-1940s, say) we still want
+ * "1940" highlighted — IO wouldn't trigger because nothing intersects
+ * the viewport edge.
+ *
+ * The nav is horizontally scrollable when there are too many decades
+ * to fit, so we also nudge the active link into view inside its own
+ * scroll container (without scrolling the page).
+ */
+function setupActiveDecadeTracking(decades) {
+    const nav = document.querySelector('.decade-nav');
+    const links = {};
+    for (const d of decades) {
+        const a = nav.querySelector(`a[href="#decade-${d}"]`);
+        if (a) links[d] = a;
+    }
+    const header = document.querySelector('.ads-header');
+    let currentActive = null;
+
+    function update() {
+        const headerBottom = header.getBoundingClientRect().bottom;
+        // Find the latest decade whose marker top is at or above the
+        // header bottom (i.e., we've scrolled past it). If none yet,
+        // default to the first decade.
+        let active = decades[0];
+        for (const d of decades) {
+            const el = document.getElementById('decade-' + d);
+            if (!el) continue;
+            const top = el.getBoundingClientRect().top;
+            if (top <= headerBottom + 10) active = d;
+            else break;
+        }
+        if (active === currentActive) return;
+        currentActive = active;
+        for (const d of decades) {
+            if (links[d]) links[d].classList.toggle('active', d === active);
+        }
+        // Nudge the active nav link into view in the horizontally
+        // scrolling decade-nav, without affecting page scroll.
+        const link = links[active];
+        if (link && nav.scrollWidth > nav.clientWidth) {
+            const navRect = nav.getBoundingClientRect();
+            const linkRect = link.getBoundingClientRect();
+            if (linkRect.left < navRect.left || linkRect.right > navRect.right) {
+                nav.scrollLeft += (linkRect.left + linkRect.right) / 2
+                                - (navRect.left + navRect.right) / 2;
+            }
+        }
+    }
+
+    let scheduled = false;
+    function onScroll() {
+        if (scheduled) return;
+        scheduled = true;
+        requestAnimationFrame(() => { scheduled = false; update(); });
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    update();
+}
+
 async function init() {
     try {
         // Plain fetch — no cache-buster, no `cache: 'no-store'`.
@@ -305,6 +380,7 @@ async function init() {
 
         document.getElementById('totals').textContent =
             `${adCount} ads from ${issueCount} issues`;
+        setupActiveDecadeTracking(decades);
         hideLoader();
     } catch (e) {
         setLoader({ text: 'Failed to load: ' + e.message });

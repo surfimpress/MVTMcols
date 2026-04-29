@@ -11,8 +11,19 @@ body { font-family: -apple-system, system-ui, sans-serif; background: #f5f5f0; c
 #page-header { position: sticky; top: 0; background: #f5f5f0; padding: 14px 20px 10px; margin: 0 -20px 14px; z-index: 10; border-bottom: 1px solid #ddd; }
 #page-header h1 { margin-bottom: 8px; }
 #decade-nav { display: flex; gap: 4px; flex-wrap: wrap; }
-#decade-nav a { color: #4488ff; text-decoration: none; padding: 4px 10px; border-radius: 4px; font-size: 0.95em; cursor: pointer; }
+#decade-nav a {
+    color: #4488ff; text-decoration: none;
+    padding: 4px 10px; border-radius: 4px;
+    font-size: 0.95em; cursor: pointer;
+    /* Reserve space for the active-state underline so toggling the
+       active class doesn't cause layout shift. */
+    border-bottom: 3px solid transparent;
+}
 #decade-nav a:hover { background: #e8e8e0; text-decoration: underline; }
+#decade-nav a.active {
+    border-bottom-color: black;
+    border-radius: 4px 4px 0 0;
+}
 .decade-header { font-size: 1.1em; color: #555; margin-top: 6px; padding-top: 12px; border-top: 1px solid #ddd; }
 .decade-header:first-child { border-top: none; padding-top: 0; margin-top: 0; }
 h1 { font-size: 1.8em; margin-bottom: 5px; }
@@ -248,6 +259,57 @@ function renderDecadeNav(issues) {
     document.getElementById('decade-nav').innerHTML = decades.map(d =>
         `<a href="#decade-${d}" onclick="gotoDecade(${d}, event)">${d}</a>`
     ).join('');
+    setupActiveDecadeTracking(decades);
+}
+
+/*
+ * Active-decade tracking: as the user scrolls the issue list, mark
+ * the latest decade marker we've scrolled past with `.active` on its
+ * nav link (visual: black underline). Only runs while the list view
+ * is showing — when an issue detail is open the list is hidden and
+ * decade markers don't apply.
+ */
+function setupActiveDecadeTracking(decades) {
+    const nav = document.getElementById('decade-nav');
+    const links = {};
+    for (const d of decades) {
+        const a = nav.querySelector(`a[href="#decade-${d}"]`);
+        if (a) links[d] = a;
+    }
+    const header = document.getElementById('page-header');
+    let currentActive = null;
+
+    function update() {
+        // Skip while a detail is showing — list is hidden and markers
+        // are not in the visual flow the user is looking at.
+        const list = document.getElementById('issue-list');
+        if (list && list.style.display === 'none') return;
+
+        const headerBottom = header.getBoundingClientRect().bottom;
+        let active = decades[0];
+        for (const d of decades) {
+            const el = document.getElementById('decade-' + d);
+            if (!el) continue;
+            const top = el.getBoundingClientRect().top;
+            if (top <= headerBottom + 10) active = d;
+            else break;
+        }
+        if (active === currentActive) return;
+        currentActive = active;
+        for (const d of decades) {
+            if (links[d]) links[d].classList.toggle('active', d === active);
+        }
+    }
+
+    let scheduled = false;
+    function onScroll() {
+        if (scheduled) return;
+        scheduled = true;
+        requestAnimationFrame(() => { scheduled = false; update(); });
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    update();
 }
 
 function gotoDecade(decade, ev) {
