@@ -979,10 +979,17 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
 
     # ── Update viewer data ──────────────────────────────────────────
     if not skip_aggregates:
-        # _update_viewer_data reads ALL issues from the DB to rebuild the
-        # listing JSON. The parallel batch driver runs it once at
-        # end-of-batch instead of per-issue.
-        _update_viewer_data(db_path, "columns")
+        # Standalone path: write only THIS issue's file + refresh
+        # index.json + ads.json. Cheap (single-issue DB query, then a
+        # walk over small per-issue files).
+        update_issue_data(db_path, "columns", year, month, day)
+    else:
+        # Batch path: route through the writer so the file write
+        # happens on the coordinator thread AFTER all of this issue's
+        # DB writes have flushed (FIFO queue ordering). The viewer
+        # then sees the issue land moments after it completes,
+        # without the worker fighting other workers for write access.
+        writer.update_issue_data(year, month, day)
 
     # ── Summary ──────────────────────────────────────────────────────
     elapsed = time.time() - t0
@@ -1017,165 +1024,296 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
     }
 
 
-def _update_viewer_data(db_path, columns_dir):
+# ─── Viewer data layout ──────────────────────────────────────────────
+#
+# Historically a single monolithic `columns/viewer_data.json` (3+ MB at
+# scale) was rebuilt end-of-batch — meaning the viewer showed nothing
+# new until the whole batch finished, and a crash mid-batch left the
+# user with no live snapshot of what had completed. The new layout
+# breaks this up so each issue's payload is its own atomic file:
+#
+#   columns/issues/{YYYY-MM-DD}.json   one file per issue (full payload)
+#   columns/index.json                 lightweight: stats + issue list
+#   columns/ads.json                   flat ad list (used by ads.html)
+#
+# Atomicity: each file is written tempfile-then-rename so a reader
+# never sees a half-written JSON. Per-issue files are touched only by
+# the work for that issue, so a concurrent issue completing cannot
+# corrupt them.
+#
+# Live updates: in batch mode the coordinator dispatches an
+# `update_issue_data(year, month, day)` call as the LAST writer
+# message for each issue (FIFO queue → all of that issue's prior
+# writes have already flushed). This rewrites that issue's file and
+# refreshes index.json + ads.json from the on-disk per-issue files,
+# so the viewer reflects the issue moments after it completes.
+#
+# index.json + ads.json are rebuilt by walking the on-disk per-issue
+# files (not the DB), keeping them consistent with the truth the
+# viewer actually reads.
+
+
+def _atomic_write_json(path, data):
+    """tmp + rename to avoid half-written reads. Creates parent dirs."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, separators=(",", ":"))
+    os.replace(tmp, path)
+
+
+def _build_issue_payload(conn, year, month, day, columns_dir):
+    """One issue's full payload — pages + ads + summary fields.
+
+    Same shape as the legacy `viewer_data.json["issues"][i]` entry,
+    so per-issue files are drop-in for any consumer that already
+    indexed by `dir` + reached into pages/ads.
     """
-    Dump processed issue data from SQLite as JSON for the viewer.
-    Called automatically after each issue is processed.
-    """
-    import sqlite3 as _sql
-    conn = _sql.connect(db_path)
+    layouts = conn.execute(
+        "SELECT page, num_columns, column_widths, quality_flags, confidence "
+        "FROM page_layouts WHERE year=? AND month=? AND day=? "
+        "ORDER BY page",
+        (year, month, day),
+    ).fetchall()
 
-    # Get all issues with layouts
-    issues_raw = conn.execute("""
-        SELECT DISTINCT year, month, day FROM page_layouts ORDER BY year, month, day
-    """).fetchall()
+    pages = []
+    for page, num_cols, widths_json, flags_json, conf in layouts:
+        widths = json.loads(widths_json) if widths_json else []
+        flags = json.loads(flags_json) if flags_json else []
+        page_type = "recto" if page % 2 == 1 else "verso"
 
-    issues = []
-    for year, month, day in issues_raw:
-        layouts = conn.execute("""
-            SELECT page, num_columns, column_widths, quality_flags, confidence
-            FROM page_layouts WHERE year=? AND month=? AND day=?
-            ORDER BY page
-        """, (year, month, day)).fetchall()
+        page_dir = os.path.join(
+            columns_dir, f"{year}-{month:02d}-{day:02d}", f"p{page}")
+        col_files = sorted(
+            f for f in os.listdir(page_dir)
+            if "_col" in f and f.endswith(".png")
+        ) if os.path.exists(page_dir) else []
+        has_page_raw = os.path.exists(
+            os.path.join(page_dir, "page_raw.png")
+        ) if os.path.exists(page_dir) else False
 
-        pages = []
-        for page, num_cols, widths_json, flags_json, conf in layouts:
-            widths = json.loads(widths_json) if widths_json else []
-            flags = json.loads(flags_json) if flags_json else []
-            page_type = "recto" if page % 2 == 1 else "verso"
+        geom = conn.execute(
+            "SELECT r2_left, r2_right, r3_left, r3_right, "
+            "       text_left, text_right FROM page_geometry "
+            "WHERE year=? AND month=? AND day=? AND page=?",
+            (year, month, day, page),
+        ).fetchone()
+        if geom:
+            r2 = {"left": geom[0], "right": geom[1]}
+            r3 = {"left": geom[2], "right": geom[3]}
+            text_area = {"left": geom[4], "right": geom[5]}
+        else:
+            r2 = r3 = text_area = None
 
-            # Check what files exist
-            page_dir = os.path.join(columns_dir, f"{year}-{month:02d}-{day:02d}", f"p{page}")
-            col_files = sorted(f for f in os.listdir(page_dir)
-                              if "_col" in f and f.endswith(".png")) if os.path.exists(page_dir) else []
-            has_page_raw = os.path.exists(os.path.join(page_dir, "page_raw.png")) if os.path.exists(page_dir) else False
-
-            # Get geometry for this page
-            geom = conn.execute("""
-                SELECT r2_left, r2_right, r3_left, r3_right,
-                       text_left, text_right FROM page_geometry
-                WHERE year=? AND month=? AND day=? AND page=?
-            """, (year, month, day, page)).fetchone()
-            if geom:
-                r2 = {"left": geom[0], "right": geom[1]}
-                r3 = {"left": geom[2], "right": geom[3]}
-                text_area = {"left": geom[4], "right": geom[5]}
-            else:
-                r2 = r3 = text_area = None
-
-            pages.append({
-                "page": page,
-                "page_type": page_type,
-                "num_columns": num_cols,
-                "widths": widths,
-                "flags": flags,
-                "confidence": conf,
-                "col_files": col_files,
-                "has_page_raw": has_page_raw,
-                "r2": r2,
-                "r3": r3,
-                "text_area": text_area,
-            })
-
-        # Read body_text per page for ad false-positive filtering.
-        # Body-text-shaped FPs from the ad detector (squarish 2-col
-        # clippings of body text columns) overlap heavily with the
-        # body_text regions written by detect_body_text. High-confidence
-        # ads (strong borders, rect_ratio > 0.85) are trusted as-is and
-        # never filtered.
-        body_text_by_page = {}
-        for page, *_ in layouts:
-            page_dir = os.path.join(
-                columns_dir, f"{year}-{month:02d}-{day:02d}", f"p{page}")
-            pa_path = os.path.join(page_dir, "page_analysis.json")
-            if os.path.exists(pa_path):
-                try:
-                    with open(pa_path) as f:
-                        body_text_by_page[page] = json.load(f).get("body_text", [])
-                except Exception:
-                    body_text_by_page[page] = []
-            else:
-                body_text_by_page[page] = []
-
-        ad_rows = conn.execute("""
-            SELECT uuid, page, cols, confidence, image_filename,
-                   x_pct, y_pct, w_pct, h_pct, hand_edited
-                   FROM detected_ads WHERE year=? AND month=? AND day=?
-            ORDER BY page, uuid
-        """, (year, month, day)).fetchall()
-
-        ad_list = []
-        for ad_uuid, p, c, cf, fn, x, y, w, bh, he in ad_rows:
-            # Hand-edited ads bypass the body-text FP filter — the
-            # human has already validated the bbox. Same predicate as
-            # the column hole-punching filter in the detection pass, so
-            # gallery and column PNGs agree.
-            if not he and is_body_text_fp(
-                cf, x, y, w, bh, body_text_by_page.get(p) or [],
-            ):
-                continue
-            ad_list.append({"uuid": ad_uuid, "page": p, "cols": c,
-                            "confidence": cf, "file": fn,
-                            "x_pct": x, "y_pct": y,
-                            "w_pct": w, "h_pct": bh})
-
-        issue_dir = f"{year}-{month:02d}-{day:02d}"
-        summary_path = os.path.join(columns_dir, issue_dir, "issue_summary.json")
-        pitch = None
-        if os.path.exists(summary_path):
-            with open(summary_path) as f:
-                s = json.load(f)
-                pitch = s.get("pitch")
-
-        # Get last processed timestamp
-        last_ran = conn.execute("""
-            SELECT MAX(created_at) FROM page_layouts
-            WHERE year=? AND month=? AND day=?
-        """, (year, month, day)).fetchone()
-        last_ran_str = last_ran[0] if last_ran and last_ran[0] else None
-
-        issues.append({
-            "year": year, "month": month, "day": day,
-            "dir": issue_dir,
-            "pitch": pitch,
-            "last_ran": last_ran_str,
-            "n_pages": len(pages),
-            "n_cols": sum(len(p["col_files"]) for p in pages),
-            "n_ads": len(ad_list),
-            "pages": pages,
-            "ads": ad_list,
+        pages.append({
+            "page": page,
+            "page_type": page_type,
+            "num_columns": num_cols,
+            "widths": widths,
+            "flags": flags,
+            "confidence": conf,
+            "col_files": col_files,
+            "has_page_raw": has_page_raw,
+            "r2": r2, "r3": r3, "text_area": text_area,
         })
 
-    conn.close()
+    # Read body_text per page for ad FP filtering — see is_body_text_fp.
+    body_text_by_page = {}
+    for page, *_ in layouts:
+        page_dir = os.path.join(
+            columns_dir, f"{year}-{month:02d}-{day:02d}", f"p{page}")
+        pa_path = os.path.join(page_dir, "page_analysis.json")
+        if os.path.exists(pa_path):
+            try:
+                with open(pa_path) as f:
+                    body_text_by_page[page] = json.load(f).get("body_text", [])
+            except Exception:
+                body_text_by_page[page] = []
+        else:
+            body_text_by_page[page] = []
 
-    # Add global stats
-    total_gazette_pages = conn.execute(
-        "SELECT COUNT(*) FROM files WHERE file_type='pdf'"
-    ).fetchone()[0] if False else 0
-    # Re-open for stats
-    conn2 = _sql.connect(db_path)
-    total_gazette_pages = conn2.execute(
-        "SELECT COUNT(*) FROM files WHERE file_type='pdf'"
-    ).fetchone()[0]
-    total_processed = conn2.execute(
-        "SELECT COUNT(DISTINCT year||'-'||month||'-'||day||'-'||page) FROM page_layouts"
-    ).fetchone()[0]
-    total_ads = conn2.execute("SELECT COUNT(*) FROM detected_ads").fetchone()[0]
-    conn2.close()
+    ad_rows = conn.execute(
+        "SELECT uuid, page, cols, confidence, image_filename, "
+        "       x_pct, y_pct, w_pct, h_pct, hand_edited "
+        "FROM detected_ads WHERE year=? AND month=? AND day=? "
+        "ORDER BY page, uuid",
+        (year, month, day),
+    ).fetchall()
 
-    viewer_data = {
+    ad_list = []
+    for ad_uuid, p, c, cf, fn, x, y, w, bh, he in ad_rows:
+        if not he and is_body_text_fp(
+            cf, x, y, w, bh, body_text_by_page.get(p) or [],
+        ):
+            continue
+        ad_list.append({
+            "uuid": ad_uuid, "page": p, "cols": c,
+            "confidence": cf, "file": fn,
+            "x_pct": x, "y_pct": y, "w_pct": w, "h_pct": bh,
+        })
+
+    issue_dir = f"{year}-{month:02d}-{day:02d}"
+    summary_path = os.path.join(columns_dir, issue_dir, "issue_summary.json")
+    pitch = None
+    if os.path.exists(summary_path):
+        try:
+            with open(summary_path) as f:
+                pitch = json.load(f).get("pitch")
+        except Exception:
+            pitch = None
+
+    last_ran = conn.execute(
+        "SELECT MAX(created_at) FROM page_layouts "
+        "WHERE year=? AND month=? AND day=?",
+        (year, month, day),
+    ).fetchone()
+    last_ran_str = last_ran[0] if last_ran and last_ran[0] else None
+
+    return {
+        "year": year, "month": month, "day": day,
+        "dir": issue_dir,
+        "pitch": pitch,
+        "last_ran": last_ran_str,
+        "n_pages": len(pages),
+        "n_cols": sum(len(p["col_files"]) for p in pages),
+        "n_ads": len(ad_list),
+        "pages": pages,
+        "ads": ad_list,
+    }
+
+
+def _build_global_stats(db_path):
+    """Cheap counters for the index header. One DB hit, no per-issue scan."""
+    import sqlite3 as _sql
+    with closing(_sql.connect(db_path)) as conn:
+        total_gazette_pages = conn.execute(
+            "SELECT COUNT(*) FROM files WHERE file_type='pdf'"
+        ).fetchone()[0]
+        total_processed = conn.execute(
+            "SELECT COUNT(DISTINCT year||'-'||month||'-'||day||'-'||page) "
+            "FROM page_layouts"
+        ).fetchone()[0]
+        total_ads = conn.execute(
+            "SELECT COUNT(*) FROM detected_ads"
+        ).fetchone()[0]
+    return {
         "total_gazette_pages": total_gazette_pages,
         "total_processed": total_processed,
         "total_ads": total_ads,
         "pct_done": round(total_processed / total_gazette_pages * 100, 2)
             if total_gazette_pages > 0 else 0,
-        "issues": issues,
     }
 
-    # Write JSON for the viewer
-    viewer_data_path = os.path.join(columns_dir, "viewer_data.json")
-    with open(viewer_data_path, "w") as f:
-        json.dump(viewer_data, f, separators=(",", ":"))
+
+def _rebuild_index_and_ads(db_path, columns_dir, write_legacy=False):
+    """Rebuild index.json + ads.json from the per-issue files on disk.
+
+    Reading from the per-issue files (not the DB) means index.json and
+    ads.json always reflect the same body-text-FP-filtered ad set the
+    viewer would see if it expanded the issue. The DB is only used for
+    the global counters in the index header.
+
+    `write_legacy=True` also writes the monolithic `viewer_data.json`.
+    That file is kept as a compatibility shim for any pre-migration
+    viewer.html (cached client-side, or briefly out-of-sync on the
+    static host) until the new HTML is universally adopted. It's only
+    rewritten on full rebuilds (end-of-batch / standalone) — refreshing
+    it per-issue would re-serialise a 3 MB blob ~430 times in a batch.
+    The legacy file's existing cadence was already end-of-batch only,
+    so this matches it.
+    """
+    issues_dir = os.path.join(columns_dir, "issues")
+    if not os.path.isdir(issues_dir):
+        os.makedirs(issues_dir, exist_ok=True)
+
+    index_issues = []
+    full_issues = []  # only used when write_legacy=True
+    flat_ads = []
+    for fname in sorted(os.listdir(issues_dir)):
+        if not fname.endswith(".json") or fname.endswith(".tmp"):
+            continue
+        try:
+            with open(os.path.join(issues_dir, fname)) as f:
+                p = json.load(f)
+        except Exception:
+            continue
+        index_issues.append({
+            "dir": p["dir"],
+            "year": p["year"], "month": p["month"], "day": p["day"],
+            "pitch": p.get("pitch"),
+            "last_ran": p.get("last_ran"),
+            "n_pages": p.get("n_pages", 0),
+            "n_cols": p.get("n_cols", 0),
+            "n_ads": p.get("n_ads", 0),
+        })
+        if write_legacy:
+            full_issues.append(p)
+        for ad in p.get("ads", []):
+            flat_ads.append({
+                "issue_dir": p["dir"],
+                "year": p["year"], "month": p["month"], "day": p["day"],
+                **ad,
+            })
+
+    stats = _build_global_stats(db_path)
+    index_payload = {**stats, "issues": index_issues}
+    ads_payload = {"ads": flat_ads, "n_ads": len(flat_ads)}
+
+    _atomic_write_json(os.path.join(columns_dir, "index.json"), index_payload)
+    _atomic_write_json(os.path.join(columns_dir, "ads.json"), ads_payload)
+
+    if write_legacy:
+        _atomic_write_json(
+            os.path.join(columns_dir, "viewer_data.json"),
+            {**stats, "issues": full_issues},
+        )
+
+
+def update_issue_data(db_path, columns_dir, year, month, day):
+    """Write one issue's per-issue file, then refresh index.json + ads.json.
+
+    Cheap (single-issue DB query + walk over small per-issue files).
+    Called by the coordinator in batch mode for each completed issue,
+    and by standalone runs at end-of-issue.
+    """
+    import sqlite3 as _sql
+    with closing(_sql.connect(db_path)) as conn:
+        payload = _build_issue_payload(conn, year, month, day, columns_dir)
+    _atomic_write_json(
+        os.path.join(columns_dir, "issues", f"{payload['dir']}.json"),
+        payload,
+    )
+    _rebuild_index_and_ads(db_path, columns_dir)
+
+
+def _update_viewer_data(db_path, columns_dir):
+    """Full rebuild — every per-issue file + index + ads + legacy
+    viewer_data.json, from scratch.
+
+    Used at end-of-batch (after all worker writes have flushed) and by
+    standalone runs that want to be defensive after a sequence of edits.
+    Slower than `update_issue_data` (touches every issue) but produces
+    a consistent snapshot regardless of what was on disk before.
+
+    Name kept for backwards compatibility — `mvtm_cli.py regenerate-page`
+    and other callers still import it.
+    """
+    import sqlite3 as _sql
+    issues_dir = os.path.join(columns_dir, "issues")
+    os.makedirs(issues_dir, exist_ok=True)
+
+    with closing(_sql.connect(db_path)) as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT year, month, day FROM page_layouts "
+            "ORDER BY year, month, day"
+        ).fetchall()
+        for year, month, day in rows:
+            payload = _build_issue_payload(conn, year, month, day, columns_dir)
+            _atomic_write_json(
+                os.path.join(issues_dir, f"{payload['dir']}.json"),
+                payload,
+            )
+    _rebuild_index_and_ads(db_path, columns_dir, write_legacy=True)
 
 
 if __name__ == "__main__":

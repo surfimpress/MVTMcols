@@ -327,15 +327,19 @@ window.addEventListener('mouseup', () => {
 // ── Init ───────────────────────────────────────────────────
 async function init() {
     try {
-        // Cache-buster — viewer_data.json is rewritten each pipeline
-        // run; without this users on different machines can see stale
-        // counts (observed: 26 vs 27 ads on the same issue).
-        const resp = await fetch(
-            BASE + '/viewer_data.json?v=' + Date.now(),
-            { cache: 'no-store' });
-        const data = await resp.json();
-        const issues = data.issues || data;
-        issueData = issues.find(i => i.dir === issueDir);
+        // Plain fetch — HTTP cache + If-Modified-Since handles freshness:
+        // a 304 reply is a tiny round trip if the file hasn't changed.
+        // We fetch ONLY this issue's file (~10 KB) instead of the full
+        // monolithic listing (~3 MB). The per-issue file is rewritten
+        // via tmp+rename whenever this issue is reprocessed, so its
+        // mtime is the truth for cache revalidation.
+        const resp = await fetch(`${BASE}/issues/${issueDir}.json`);
+        if (!resp.ok) {
+            document.getElementById('page-title').textContent =
+                resp.status === 404 ? 'Issue not found' : 'Failed to load: ' + resp.status;
+            return;
+        }
+        issueData = await resp.json();
         if (!issueData) { document.getElementById('page-title').textContent = 'Issue not found'; return; }
         pageData = issueData.pages.find(p => p.page === pageNum);
         if (!pageData) { document.getElementById('page-title').textContent = 'Page not found'; return; }

@@ -204,16 +204,18 @@ const lazyObserver = new IntersectionObserver((entries) => {
     }
 }, { rootMargin: '600px 0px' });
 
-const renderItem = ({ issue, ad }) => {
+const renderItem = ({ ad }) => {
     // Spans are computed against PAGE_COLS so the whole sheet
     // works as if the grid were exactly one page wide. The visual
     // density slider (8 / 12 / 16 / 20 / 24) just narrows the
-    // cells underneath without touching these numbers.
+    // cells underneath without touching these numbers. Each flat
+    // ad row carries its own issue_dir/year/month/day, so this
+    // function is a pure transform — no issue-side join needed.
     const cs = Math.max(1, Math.min(PAGE_COLS, Math.round(ad.w_pct / 100 * PAGE_COLS)));
     const rs = Math.max(1, Math.round(ad.h_pct / 100 * PAGE_COLS * PAGE_ASPECT));
-    const url = `${BASE}/${issue.dir}/ads/p${ad.page}/${ad.file}`;
-    const inspector = `page_viewer.html?issue=${issue.dir}&page=${ad.page}`;
-    const date = `${issue.year}-${String(issue.month).padStart(2,'0')}-${String(issue.day).padStart(2,'0')}`;
+    const url = `${BASE}/${ad.issue_dir}/ads/p${ad.page}/${ad.file}`;
+    const inspector = `page_viewer.html?issue=${ad.issue_dir}&page=${ad.page}`;
+    const date = `${ad.year}-${String(ad.month).padStart(2,'0')}-${String(ad.day).padStart(2,'0')}`;
     return `<a class="ad-item" href="${inspector}" target="_blank" style="grid-column:span ${cs};grid-row:span ${rs}" data-src="${url}" title="${date} p${ad.page}"></a>`;
 };
 
@@ -235,40 +237,43 @@ window.gotoDecade = gotoDecade;
 
 async function init() {
     try {
-        // Caching is fine for ads.html — viewer_data.json
-        // changes are irrelevant for this gallery view and the
-        // browser handles revalidation on its own.
+        // Plain fetch — no cache-buster, no `cache: 'no-store'`.
+        // The browser keeps the file in its HTTP cache and asks the
+        // server `If-Modified-Since` on the next load. Server returns
+        // 304 (unchanged) or 200 with the fresh body. ads.json is
+        // rewritten via tmp+rename whenever any issue lands new ad
+        // data, so its mtime is the truth — that's all the cache
+        // logic we need.
         setLoader({ text: 'Loading data…' });
-        const resp = await fetch(BASE + '/viewer_data.json');
+        const resp = await fetch(BASE + '/ads.json');
         const data = await resp.json();
-        const issues = data.issues || [];
+        const ads = data.ads || [];
 
-        // Sequence: by issue (already date-sorted), then page,
-        // then top-to-bottom / left-to-right within a page. The
-        // walker emits a decade-marker token whenever the issue's
-        // decade changes — these become full-width grid items in
-        // the same DOM stream as the ads.
-        const tokens = [];           // 'decade' or 'ad' tokens, in order
-        const decades = [];          // unique decades, for the nav
+        // ads.json is already a flat list, ordered by issue (date),
+        // then page, then position. Walk it and emit a decade marker
+        // whenever the year crosses a decade boundary. Group ads by
+        // their owning issue so we can build the link to the page
+        // inspector without rejoining.
+        const tokens = [];
+        const decades = [];
         let lastDecade = null;
-        for (const issue of issues) {
-            const decade = Math.floor(issue.year / 10) * 10;
+        // The flat list is already sorted server-side (issues are
+        // emitted in date order, then ads ordered by page/y/x), so
+        // we just stream through.
+        for (const ad of ads) {
+            const decade = Math.floor(ad.year / 10) * 10;
             if (decade !== lastDecade) {
                 tokens.push({ type: 'decade', decade });
                 decades.push(decade);
                 lastDecade = decade;
             }
-            const ads = (issue.ads || []).slice().sort((a, b) => {
-                if (a.page !== b.page) return a.page - b.page;
-                if (a.y_pct !== b.y_pct) return a.y_pct - b.y_pct;
-                return a.x_pct - b.x_pct;
-            });
-            for (const ad of ads) tokens.push({ type: 'ad', issue, ad });
+            tokens.push({ type: 'ad', ad });
         }
 
         renderDecadeNav(decades);
 
-        const adCount = tokens.filter(t => t.type === 'ad').length;
+        const adCount = ads.length;
+        const issueCount = new Set(ads.map(a => a.issue_dir)).size;
 
         // Chunked render: append batches, observe each chunk for
         // lazy bg-image loading, yield to the browser between
@@ -299,7 +304,7 @@ async function init() {
         }
 
         document.getElementById('totals').textContent =
-            `${adCount} ads from ${issues.length} issues`;
+            `${adCount} ads from ${issueCount} issues`;
         hideLoader();
     } catch (e) {
         setLoader({ text: 'Failed to load: ' + e.message });

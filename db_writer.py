@@ -63,6 +63,17 @@ class DBWriter(ABC):
     def record_geometry(self, year, month, day, page, profile):
         """Insert one page_geometry row."""
 
+    @abstractmethod
+    def update_issue_data(self, year, month, day):
+        """Refresh the on-disk viewer files for one issue.
+
+        Writes `columns/issues/{date}.json` for the issue and rebuilds
+        the lightweight `columns/index.json` + flat `columns/ads.json`.
+        Workers send this as their last message per issue — by the time
+        the coordinator dispatches it, every prior write for the issue
+        has already been applied (FIFO queue).
+        """
+
 
 class DirectDBWriter(DBWriter):
     """Default writer: writes straight to local SQLite.
@@ -178,6 +189,12 @@ class DirectDBWriter(DBWriter):
             return
         self._layout_db.record_geometry(year, month, day, page, profile)
 
+    def update_issue_data(self, year, month, day):
+        # Local import to keep db_writer free of process_issue's heavy
+        # detection-module deps at top-of-file.
+        from process_issue import update_issue_data as _update
+        _update(self.db_path, "columns", year, month, day)
+
 
 class ProxyDBWriter(DBWriter):
     """Worker-side writer: forwards every call to a coordinator queue.
@@ -218,3 +235,10 @@ class ProxyDBWriter(DBWriter):
 
     def record_geometry(self, year, month, day, page, profile):
         self._q.put(("record_geometry", (year, month, day, page, profile)))
+
+    def update_issue_data(self, year, month, day):
+        # Sent as the final message for the issue. FIFO ordering means
+        # all earlier writes for this issue (delete_*, store_ads,
+        # record_layout, record_geometry) have already been processed
+        # by the coordinator before it picks this up.
+        self._q.put(("update_issue_data", (year, month, day)))

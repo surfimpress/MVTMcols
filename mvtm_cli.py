@@ -1530,7 +1530,7 @@ def cmd_regenerate_page(args) -> int:
     # commands. The detector modules pull in numpy/PIL.
     from detect_ads import extract_ad_images
     from split_page import extract_columns
-    from process_issue import _update_viewer_data
+    from process_issue import update_issue_data
     import shutil
 
     actions = []
@@ -1671,9 +1671,11 @@ def cmd_regenerate_page(args) -> int:
         actions.append({"step": "columns",
                         "rerendered": len(col_results)})
 
-    # viewer_data refresh: always, unless caller asked for ads-only
-    # AND explicitly opted out via --no-viewer-refresh (not exposed yet).
-    _update_viewer_data(args.db, args.output_root)
+    # viewer_data refresh: per-issue (cheap). regenerate-page acts on
+    # one issue's page, so only that issue's payload needs rewriting.
+    # The full rebuild path (_update_viewer_data) stays available for
+    # callers that genuinely need a from-scratch consistency pass.
+    update_issue_data(args.db, args.output_root, args.year, args.month, args.day)
     actions.append({"step": "viewer_data", "rebuilt": True})
 
     return emit_ok(cmd, {

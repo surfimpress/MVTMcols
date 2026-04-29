@@ -853,6 +853,24 @@ This file is meant to evolve. When a strategy is added, retired, or
 materially changed, append a dated note here so the catalogue's drift is
 auditable.
 
+- **2026-04-29 — Viewer-data layout broken up for live updates and durability.**
+  The monolithic `columns/viewer_data.json` (3+ MB, rebuilt only at
+  end-of-batch) split into per-issue files at `columns/issues/{date}.json`,
+  a lightweight `columns/index.json` (issue list + global stats), and a
+  flat `columns/ads.json` (used by `ads.html`). New writer-facade method
+  `update_issue_data(year, month, day)` is sent by workers as the LAST
+  message per issue; FIFO ordering on the coordinator queue guarantees
+  every prior write for that issue has flushed before the file is
+  rewritten. Files are written via tmp+rename for atomicity, so a
+  reader never sees a half-written JSON. `viewer.html`, `ads.html`,
+  `page_viewer.html` migrated to plain `fetch()` (no cache-busting,
+  no `cache: 'no-store'`) so the browser's HTTP cache + Last-Modified
+  revalidation keeps images aggressively cached while JSONs revalidate
+  on each load (304 when unchanged, 200 with fresh body when changed).
+  `viewer_data.json` still written on full rebuilds for compatibility
+  with any pre-migration cached HTML; will be dropped once the
+  published viewer is confirmed on the new layout.
+
 - **2026-04-29 — Follow-up: clean-side slack in `place_page2_editorial` + edge-inclusive `expected_boundaries` filter.**
   Two latent bugs were exposed when the R3 clamp moved `r3_left` to land
   exactly on `text_area_left` (rather than 0.02% inside, as before).

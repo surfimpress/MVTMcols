@@ -71,32 +71,61 @@ details.ads-section summary { background: #f8f5ee; }
 <script>
 const BASE = '/MVTM/columns';
 
+// Caching strategy:
+// Plain `fetch(url)` with no cache-busting query string and no
+// `cache: 'no-store'` directive. The browser keeps each JSON in its
+// HTTP cache and asks the server `If-Modified-Since` on the next
+// load — which returns 304 (use cached) for unchanged files and 200
+// (fresh body) for changed files. Server-side, every JSON we write
+// uses `os.replace(tmp, path)`, which updates the file mtime — so
+// `Last-Modified` on the response is the source of truth. No client-
+// side TTL guesswork; the network handles it.
+//
+// Index is small (~60KB at 430 issues). Per-issue files are tiny
+// (2-40KB each) and fetched on demand only when the user expands
+// the issue. Once cached they're free until that issue is reprocessed.
+
+// In-memory cache of per-issue payloads we've already fetched.
+const issueCache = new Map();
+// Index issues, populated from index.json — keyed by `dir` for lookup.
+let indexIssues = [];
+const indexByDir = new Map();
+
 async function init() {
     try {
-        // Cache-buster — viewer_data.json is rewritten each pipeline
-        // run; without this users on different machines can see stale
-        // counts (observed: 26 vs 27 ads on the same issue).
-        const resp = await fetch(
-            BASE + '/viewer_data.json?v=' + Date.now(),
-            { cache: 'no-store' });
+        const resp = await fetch(BASE + '/index.json');
         const data = await resp.json();
-        const issues = data.issues || data;  // handle both formats
+        indexIssues = data.issues || [];
+        for (const i of indexIssues) indexByDir.set(i.dir, i);
+
         document.getElementById('loading').style.display = 'none';
-        renderList(issues);
-        renderDetails(issues);
-        renderDecadeNav(issues);
-        const totalCols = issues.reduce((s, i) => s + i.n_cols, 0);
-        const totalAds = data.total_ads || issues.reduce((s, i) => s + i.n_ads, 0);
+        renderList(indexIssues);
+        renderDecadeNav(indexIssues);
+
+        const totalCols = indexIssues.reduce((s, i) => s + (i.n_cols || 0), 0);
+        const totalAds = data.total_ads
+            ?? indexIssues.reduce((s, i) => s + (i.n_ads || 0), 0);
         const totalPages = data.total_gazette_pages || 0;
         const processed = data.total_processed || 0;
         const pct = data.pct_done || 0;
         const statsLine = totalPages > 0
-            ? `${processed} of ${totalPages.toLocaleString()} pages processed (${pct}%) \u2022 ${issues.length} issues \u2022 ${totalCols} columns \u2022 ${totalAds} ads`
-            : `${issues.length} issues \u2022 ${totalCols} columns \u2022 ${totalAds} ads`;
+            ? `${processed} of ${totalPages.toLocaleString()} pages processed (${pct}%) \u2022 ${indexIssues.length} issues \u2022 ${totalCols} columns \u2022 ${totalAds} ads`
+            : `${indexIssues.length} issues \u2022 ${totalCols} columns \u2022 ${totalAds} ads`;
         document.getElementById('totals').textContent = statsLine;
     } catch (e) {
         document.getElementById('loading').textContent = 'Failed to load data: ' + e.message;
     }
+}
+
+// Fetch one issue's full payload (pages + ads). Plain fetch — HTTP
+// cache + If-Modified-Since handles staleness.
+async function loadIssue(dir) {
+    if (issueCache.has(dir)) return issueCache.get(dir);
+    const resp = await fetch(`${BASE}/issues/${dir}.json`);
+    if (!resp.ok) throw new Error(`Failed to load ${dir}: ${resp.status}`);
+    const payload = await resp.json();
+    issueCache.set(dir, payload);
+    return payload;
 }
 
 function renderList(issues) {
@@ -114,13 +143,104 @@ function renderList(issues) {
         return prefix + `<div class="issue-card" onclick="showIssue('${issue.dir}')">
             <h2>${date}</h2>
             <div class="stats">
-                ${issue.n_pages} pages \u2022
-                ${issue.n_cols} columns \u2022
-                ${issue.n_ads} ads
+                ${issue.n_pages || 0} pages \u2022
+                ${issue.n_cols || 0} columns \u2022
+                ${issue.n_ads || 0} ads
                 ${lastRan ? '\u2022 ran ' + lastRan : ''}
             </div>
         </div>`;
     }).join('');
+}
+
+// Lazy detail rendering — replaces the eager `renderDetails(issues)`
+// pass that used to build a hidden detail-panel for every issue at
+// load time. With per-issue files we fetch + render only the panel
+// the user actually opens, then memoise it. Initial DOM stays small
+// and the per-issue JSON only loads on first expand.
+function renderOneIssueDetail(issue) {
+    const date = `${issue.year}-${String(issue.month).padStart(2,'0')}-${String(issue.day).padStart(2,'0')}`;
+    const idx = indexIssues.findIndex(i => i.dir === issue.dir);
+    const prev = idx > 0 ? indexIssues[idx - 1] : null;
+    const next = idx >= 0 && idx < indexIssues.length - 1 ? indexIssues[idx + 1] : null;
+    const fmtDate = i => `${i.year}-${String(i.month).padStart(2,'0')}-${String(i.day).padStart(2,'0')}`;
+    const prevLink = prev
+        ? `<a onclick="gotoIssue('${issue.dir}','${prev.dir}')">\u2190 ${fmtDate(prev)}</a>`
+        : `<span class="placeholder">\u2190 (first issue)</span>`;
+    const nextLink = next
+        ? `<a onclick="gotoIssue('${issue.dir}','${next.dir}')">${fmtDate(next)} \u2192</a>`
+        : `<span class="placeholder">(last issue) \u2192</span>`;
+
+    const pagesHtml = (issue.pages || []).map(pg => {
+        const widths = (pg.widths || []).map(w => Math.round(w) + '%').join(' ');
+        const conf = pg.confidence ? `conf=${pg.confidence}` : '';
+        const flags = (pg.flags || [])
+            .filter(f => f.includes('anchor') || f.includes('prior') || f.includes('sliver'))
+            .map(f => `<span class="flag">${f}</span>`).join('');
+
+        const url = `${BASE}/${issue.dir}/p${pg.page}/page_raw.png`;
+        const viewerUrl = `page_viewer.html?issue=${issue.dir}&page=${pg.page}`;
+        const overlayHtml = `<a href="${viewerUrl}" target="_blank"><img class="thumb thumb-wide" src="${url}" loading="lazy" onerror="retryImg(this)"></a>
+            <a href="${viewerUrl}" target="_blank" style="display:inline-block;margin-left:8px;font-size:0.8em;color:#4488ff;text-decoration:none">Open inspector \u2192</a>`;
+
+        const colsHtml = (pg.col_files || []).map(cf => {
+            const url = `${BASE}/${issue.dir}/p${pg.page}/${cf}`;
+            return `<a href="${url}" target="_blank"><img class="thumb" src="${url}" loading="lazy" onerror="retryImg(this)"></a>`;
+        }).join('');
+
+        return `<details>
+            <summary>Page ${pg.page} (${pg.page_type}) \u2014 ${pg.num_columns} cols [${widths}] ${conf} ${flags}</summary>
+            <div class="page-content">
+                ${overlayHtml}
+                <div class="cols-row" style="margin-top:8px">${colsHtml}</div>
+            </div>
+        </details>`;
+    }).join('');
+
+    let adsHtml = '';
+    const ads = issue.ads || [];
+    if (ads.length > 0) {
+        const adThumbs = ads.map(ad => {
+            const url = `${BASE}/${issue.dir}/ads/p${ad.page}/${ad.file}`;
+            return `<a href="${url}" target="_blank"><img class="thumb" src="${url}" loading="lazy" onerror="retryImg(this)"></a>`;
+        }).join('');
+        adsHtml = `<details class="ads-section">
+            <summary>Display Ads (${ads.length})</summary>
+            <div class="page-content"><div class="thumb-row">${adThumbs}</div></div>
+        </details>`;
+    }
+
+    return `<div class="issue-detail" id="detail-${issue.dir}">
+        <div class="detail-header">
+            <div class="detail-header-left">
+                <a class="back-btn" onclick="hideIssue('${issue.dir}')">\u2190 Back to list</a>
+                <a class="back-btn inspector-btn" href="page_viewer.html?issue=${issue.dir}&page=1" target="_blank">Inspector \u2192</a>
+            </div>
+            <span class="expand-ctrl">
+                <a onclick="setAllDetails('${issue.dir}', true)">open all</a>
+                |
+                <a onclick="setAllDetails('${issue.dir}', false)">close all</a>
+            </span>
+        </div>
+        <h2>${date}</h2>
+        <p class="stats" style="margin-bottom:15px">
+            ${issue.n_cols || 0} columns \u2022
+            ${ads.length} ads
+        </p>
+        ${pagesHtml}
+        ${adsHtml}
+        <div class="issue-nav">${prevLink}${nextLink}</div>
+    </div>`;
+}
+
+// Ensure a detail panel exists for `dir`. Fetches the per-issue JSON
+// the first time and inserts the rendered DOM. Idempotent — repeated
+// calls are no-ops once mounted.
+async function ensureDetailMounted(dir) {
+    if (document.getElementById('detail-' + dir)) return;
+    const issue = await loadIssue(dir);
+    const tmp = document.createElement('div');
+    tmp.innerHTML = renderOneIssueDetail(issue);
+    document.getElementById('details-container').appendChild(tmp.firstElementChild);
 }
 
 function renderDecadeNav(issues) {
@@ -140,98 +260,28 @@ function gotoDecade(decade, ev) {
     if (target) target.scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 
-function renderDetails(issues) {
-    const container = document.getElementById('details-container');
-    container.innerHTML = issues.map((issue, idx) => {
-        const date = `${issue.year}-${String(issue.month).padStart(2,'0')}-${String(issue.day).padStart(2,'0')}`;
-        const prev = issues[idx - 1];
-        const next = issues[idx + 1];
-        const fmtDate = i => `${i.year}-${String(i.month).padStart(2,'0')}-${String(i.day).padStart(2,'0')}`;
-        const prevLink = prev
-            ? `<a onclick="gotoIssue('${issue.dir}','${prev.dir}')">\u2190 ${fmtDate(prev)}</a>`
-            : `<span class="placeholder">\u2190 (first issue)</span>`;
-        const nextLink = next
-            ? `<a onclick="gotoIssue('${issue.dir}','${next.dir}')">${fmtDate(next)} \u2192</a>`
-            : `<span class="placeholder">(last issue) \u2192</span>`;
-
-        const pagesHtml = issue.pages.map(pg => {
-            const widths = pg.widths.map(w => Math.round(w) + '%').join(' ');
-            const conf = pg.confidence ? `conf=${pg.confidence}` : '';
-            const flags = (pg.flags || [])
-                .filter(f => f.includes('anchor') || f.includes('prior') || f.includes('sliver'))
-                .map(f => `<span class="flag">${f}</span>`).join('');
-
-            const url = `${BASE}/${issue.dir}/p${pg.page}/page_raw.png`;
-            const viewerUrl = `page_viewer.html?issue=${issue.dir}&page=${pg.page}`;
-            const overlayHtml = `<a href="${viewerUrl}" target="_blank"><img class="thumb thumb-wide" src="${url}" loading="lazy" onerror="retryImg(this)"></a>
-                <a href="${viewerUrl}" target="_blank" style="display:inline-block;margin-left:8px;font-size:0.8em;color:#4488ff;text-decoration:none">Open inspector →</a>`;
-
-            const colsHtml = pg.col_files.map(cf => {
-                const url = `${BASE}/${issue.dir}/p${pg.page}/${cf}`;
-                return `<a href="${url}" target="_blank"><img class="thumb" src="${url}" loading="lazy" onerror="retryImg(this)"></a>`;
-            }).join('');
-
-            return `<details>
-                <summary>Page ${pg.page} (${pg.page_type}) \u2014 ${pg.num_columns} cols [${widths}] ${conf} ${flags}</summary>
-                <div class="page-content">
-                    ${overlayHtml}
-                    <div class="cols-row" style="margin-top:8px">${colsHtml}</div>
-                </div>
-            </details>`;
-        }).join('');
-
-        let adsHtml = '';
-        if (issue.ads.length > 0) {
-            const adThumbs = issue.ads.map(ad => {
-                const url = `${BASE}/${issue.dir}/ads/p${ad.page}/${ad.file}`;
-                return `<a href="${url}" target="_blank"><img class="thumb" src="${url}" loading="lazy" onerror="retryImg(this)"></a>`;
-            }).join('');
-            adsHtml = `<details class="ads-section">
-                <summary>Display Ads (${issue.ads.length})</summary>
-                <div class="page-content"><div class="thumb-row">${adThumbs}</div></div>
-            </details>`;
-        }
-
-        return `<div class="issue-detail" id="detail-${issue.dir}">
-            <div class="detail-header">
-                <div class="detail-header-left">
-                    <a class="back-btn" onclick="hideIssue('${issue.dir}')">\u2190 Back to list</a>
-                    <a class="back-btn inspector-btn" href="page_viewer.html?issue=${issue.dir}&page=1" target="_blank">Inspector \u2192</a>
-                </div>
-                <span class="expand-ctrl">
-                    <a onclick="setAllDetails('${issue.dir}', true)">open all</a>
-                    |
-                    <a onclick="setAllDetails('${issue.dir}', false)">close all</a>
-                </span>
-            </div>
-            <h2>${date}</h2>
-            <p class="stats" style="margin-bottom:15px">
-                ${issue.n_cols} columns \u2022
-                ${issue.n_ads} ads
-            </p>
-            ${pagesHtml}
-            ${adsHtml}
-            <div class="issue-nav">${prevLink}${nextLink}</div>
-        </div>`;
-    }).join('');
-}
-
-function showIssue(name) {
+async function showIssue(name) {
     document.getElementById('issue-list').style.display = 'none';
-    document.getElementById('detail-' + name).classList.add('active');
     history.replaceState(null, '', '?issue=' + name);
     window.scrollTo(0, 0);
+    await ensureDetailMounted(name);
+    const el = document.getElementById('detail-' + name);
+    if (el) el.classList.add('active');
 }
 function hideIssue(name) {
-    document.getElementById('detail-' + name).classList.remove('active');
+    const el = document.getElementById('detail-' + name);
+    if (el) el.classList.remove('active');
     document.getElementById('issue-list').style.display = 'grid';
     history.replaceState(null, '', window.location.pathname);
 }
-function gotoIssue(from, to) {
-    document.getElementById('detail-' + from).classList.remove('active');
-    document.getElementById('detail-' + to).classList.add('active');
+async function gotoIssue(from, to) {
+    const fromEl = document.getElementById('detail-' + from);
+    if (fromEl) fromEl.classList.remove('active');
     history.replaceState(null, '', '?issue=' + to);
     window.scrollTo(0, 0);
+    await ensureDetailMounted(to);
+    const toEl = document.getElementById('detail-' + to);
+    if (toEl) toEl.classList.add('active');
 }
 function setAllDetails(name, open) {
     document.querySelectorAll('#detail-' + name + ' details').forEach(d => {
@@ -251,19 +301,18 @@ function retryImg(img) {
     }, 400 * Math.pow(2, tries));  // 400ms, 800ms, 1600ms
 }
 
-function applyDeepLink() {
+async function applyDeepLink() {
     const params = new URLSearchParams(window.location.search);
     const issue = params.get('issue');
-    if (issue) {
+    if (issue && indexByDir.has(issue)) {
+        document.getElementById('issue-list').style.display = 'none';
+        await ensureDetailMounted(issue);
         const el = document.getElementById('detail-' + issue);
-        if (el) {
-            document.getElementById('issue-list').style.display = 'none';
-            el.classList.add('active');
-        }
+        if (el) el.classList.add('active');
     }
 }
 
-(async () => { await init(); applyDeepLink(); })();
+(async () => { await init(); await applyDeepLink(); })();
 </script>
 </body>
 </html>
