@@ -1,0 +1,17 @@
+venv/
+embeddings.npz
+ads_index.json
+clusters.json
+*.tmp
+__pycache__/
+
+# Phase 1+ derived artefacts (rebuildable from clusters.json + cluster_labels.yaml)
+recurrence.db
+recurrence.db-wal
+recurrence.db-shm
+snapshots/
+
+# Phase 2+ feature cache (rebuildable from page PNGs)
+page_features/
+
+*.bak

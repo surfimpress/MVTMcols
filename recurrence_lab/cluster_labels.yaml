@@ -1,0 +1,679 @@
+# Cluster triage labels — the durable record.
+#
+# Edit in-browser via viewer.html's Triage panel, then click
+# "Export labels.yaml" to download the full state. Save the download
+# here and run:
+#
+#     python apply_labels.py
+#
+# Match key: `exemplar` is the path to the cluster's exemplar
+# (`columns/<issue>/ads/p<n>/<file>.png`). Labels bind to the
+# exemplar, not the volatile cluster_id, so they survive re-runs of
+# `cluster.py` even when IDs renumber.
+#
+# Categories (one of):
+#   ad             — real recurring ad (positive query for goal-1 recall)
+#   body_text_fp   — body text falsely caught as an ad (negative query)
+#   furniture      — masthead / banner / standing section header
+#   unclassified   — default; record appearances but emit no proposals
+#
+# `reject_members:` — list of image_filenames that don't belong in the
+# cluster. Authoritative-overwrite: anything not listed gets un-rejected.
+# `name` shared across two clusters (same category) is a logical merge.
+
+labels:
+  - exemplar: columns/1948-12-30/ads/p2/1948-12-30-02_ad4.png
+    category: body_text_fp
+    name: "body text"
+  - exemplar: columns/1946-10-10/ads/p5/1946-10-10-05_sc_ad1.png
+    category: ad
+    name: "Public Utilities Commission"
+    reject_members:
+      - 1946-08-15-05_sc_ad2.png
+      - 1946-08-22-05_sc_ad2.png
+      - 1946-08-29-05_sc_ad1.png
+      - 1946-09-03-05_sc_ad3.png
+      - 1947-03-06-04_sc_ad5.png
+      - 1948-02-26-04_sc_ad3.png
+      - 1948-10-07-08_sc_ad3.png
+      - 1948-10-28-05_sc_ad2.png
+      - 1948-11-11-05_sc_ad4.png
+      - 1948-11-18-07_sc_ad2.png
+      - 1948-12-02-07_sc_ad1.png
+      - 1948-12-09-02_sc_ad2.png
+      - 1948-12-09-04_sc_ad3.png
+      - 1948-12-23-03_sc_ad3.png
+      - 1948-12-30-03_sc_ad1.png
+  - exemplar: columns/1947-04-24/ads/p5/1947-04-24-05_ad4.png
+    category: ad
+    name: "Star Theatre"
+  - exemplar: columns/1948-10-14/ads/p8/1948-10-14-08_ad7.png
+    category: ad
+    name: "Almonte Garage"
+  - exemplar: columns/1947-04-17/ads/p8/1947-04-17-08_ad1.png
+    category: ad
+    name: "OBrien Cinema"
+  - exemplar: columns/1947-12-04/ads/p5/1947-12-04-05_sc_ad1.png
+    category: ad
+    name: "AF Campbell and Son Builders Supplies"
+  - exemplar: columns/1948-05-20/ads/p4/1948-05-20-04_ad1.png
+    category: ad
+    name: "Karls Grocery"
+  - exemplar: columns/1946-01-24/ads/p4/1946-01-24-04_sc_ad1.png
+    category: ad
+    name: "Jas F Patterson Chemist"
+    reject_members:
+      - 1948-04-01-03_sc_ad1.png
+      - 1948-04-08-03_sc_ad1.png
+      - 1948-04-15-03_sc_ad1.png
+      - 1948-04-22-03_sc_ad2.png
+      - 1948-05-13-06_sc_ad1.png
+      - 1948-05-20-03_sc_ad1.png
+      - 1948-05-27-03_sc_ad2.png
+      - 1948-06-10-04_sc_ad2.png
+      - 1948-06-17-08_sc_ad2.png
+      - 1948-07-15-08_sc_ad2.png
+      - 1948-07-22-08_sc_ad2.png
+  - exemplar: columns/1946-11-07/ads/p5/1946-11-07-05_ad5.png
+    category: ad
+    name: "Davis Boyce and Co Accountants"
+  - exemplar: columns/1948-08-26/ads/p3/1948-08-26-03_ad4.png
+    category: ad
+    name: "George D Smith Auction Sales"
+  - exemplar: columns/1948-09-23/ads/p3/1948-09-23-03_ad7.png
+    category: ad
+    name: "AW Quayle and Company Accountants"
+  - exemplar: columns/1947-05-15/ads/p4/1947-05-15-04_ad4.png
+    category: ad
+    name: "Mels Grill"
+  - exemplar: columns/1946-03-21/ads/p7/1946-03-21-07_ad2.png
+    category: ad
+    name: "Town Clerk Notice"
+  - exemplar: columns/1946-12-05/ads/p2/1946-12-05-02_sc_ad2.png
+    category: ad
+    name: "WJ Hughes Optometrist"
+  - exemplar: columns/1948-02-19/ads/p2/1948-02-19-02_sc_ad1.png
+    category: ad
+    name: "JA Ryde Optometrist"
+  - exemplar: columns/1948-03-25/ads/p3/1948-03-25-03_ad4.png
+    category: ad
+    name: "Combas Furniture"
+  - exemplar: columns/1948-01-29/ads/p4/1948-01-29-04_sc_ad2.png
+    category: ad
+    name: "Scotts Furniture"
+  - exemplar: columns/1948-03-25/ads/p4/1948-03-25-04_sc_ad4.png
+    category: ad
+    name: "Ken Beaton Watchmaker"
+  - exemplar: columns/1946-06-13/ads/p4/1946-06-13-04_ad7.png
+    category: ad
+    name: "Almonte Coop Cold Storage"
+  - exemplar: columns/1946-10-03/ads/p4/1946-10-03-04_sc_ad5.png
+    category: ad
+    name: "AF Campbell and Son Builders Supplies"
+  - exemplar: columns/1948-07-08/ads/p4/1948-07-08-04_ad3.png
+    category: ad
+    name: "DW Snedden and Scotts Furniture store - paired"
+  - exemplar: columns/1946-06-20/ads/p5/1946-06-20-05_sc_ad2.png
+    category: ad
+    name: "WE Scott Furnishings and Funerals"
+  - exemplar: columns/1946-05-09/ads/p3/1946-05-09-03_ad2.png
+    category: ad
+    name: "R Eldon Brown Accountant"
+  - exemplar: columns/1947-05-15/ads/p5/1947-05-15-05_sc_ad1.png
+    category: ad
+    name: "WJ Hughes Optometrist"
+  - exemplar: columns/1948-12-02/ads/p6/1948-12-02-06_ad4.png
+    category: ad
+    name: "T McDonald Insurance"
+  - exemplar: columns/1946-03-07/ads/p4/1946-03-07-04_ad7.png
+    category: ad
+    name: "Almonte Coop Cold Storage"
+  - exemplar: columns/1946-02-21/ads/p4/1946-02-21-04_sc_ad3.png
+    category: ad
+    name: "EC Edwards Baby Chicks"
+    reject_members:
+      - 1947-08-14-04_sc_ad4.png
+  - exemplar: columns/1946-03-28/ads/p4/1946-03-28-04_ad7.png
+    category: ad
+    name: "Davis Boyce and Co Accountants"
+  - exemplar: columns/1947-03-20/ads/p4/1947-03-20-04_ad2.png
+    category: ad
+    name: "John Lindsay Electrical Goods"
+  - exemplar: columns/1947-05-22/ads/p4/1947-05-22-04_ad2.png
+    category: ad
+    name: "John Lindsay Electrical Goods"
+  - exemplar: columns/1947-07-10/ads/p3/1947-07-10-03_ad3.png
+    category: ad
+    name: "Ottawa Valley Grain Products"
+  - exemplar: columns/1947-07-24/ads/p8/1947-07-24-08_ad6.png
+    category: ad
+    name: "Almonte Garage Tires"
+  - exemplar: columns/1948-09-16/ads/p4/1948-09-16-04_sc_ad4.png
+    category: ad
+    name: "AF Campbell and Son Builders Supplies taller ad"
+  - exemplar: columns/1946-08-22/ads/p8/1946-08-22-08_ad5.png
+    category: ad
+    name: "Almonte Garage Miracles"
+    reject_members:
+      - 1946-06-20-04_ad2.png
+      - 1948-12-09-08_ad4.png
+  - exemplar: columns/1947-03-27/ads/p8/1947-03-27-08_ad2.png
+    category: ad
+    name: "Almonte Garage accessories"
+    reject_members:
+      - 1946-11-21-04_ad2.png
+      - 1946-11-28-05_ad2.png
+  - exemplar: columns/1947-02-13/ads/p4/1947-02-13-04_sc_ad3.png
+    category: ad
+    name: "EC Edwards Baby Chicks"
+  - exemplar: columns/1947-05-15/ads/p3/1947-05-15-03_ad2.png
+    category: ad
+    name: "North Lanark Coop Seed Grain"
+  - exemplar: columns/1947-10-23/ads/p2/1947-10-23-02_ad4.png
+    category: ad
+    name: "The Superior Hamburgs"
+  - exemplar: columns/1948-08-05/ads/p6/1948-08-05-06_ad7.png
+    category: ad
+    name: "AW Quayle and Company wide format"
+  - exemplar: columns/1948-08-12/ads/p8/1948-08-12-08_ad3.png
+    category: ad
+    name: "OBrien Cinema"
+  - exemplar: columns/1946-07-14/ads/p1/1946-07-14-01_sc_ad1.png
+    category: body_text_fp
+    name: "Headline and leader"
+  - exemplar: columns/1946-05-23/ads/p4/1946-05-23-04_sc_ad4.png
+    category: ad
+    name: "Lorne Millar Bicycle Repair"
+  - exemplar: columns/1946-09-03/ads/p3/1946-09-03-03_sc_ad1.png
+    category: ad
+    name: "AF Campbell and Son Builders Supplies"
+  - exemplar: columns/1946-11-21/ads/p7/1946-11-21-07_ad3.png
+    category: ad
+    name: "New Ideas for your Home"
+  - exemplar: columns/1946-08-08/ads/p5/1946-08-08-05_ad4.png
+    category: ad
+    name: "Almonte Coop Cold Storage Gooseberries"
+  - exemplar: columns/1946-08-22/ads/p8/1946-08-22-08_ad4.png
+    category: ad
+    name: "The Superior Sundaes"
+  - exemplar: columns/1946-08-01/ads/p3/1946-08-01-03_sc_ad3.png
+    category: ad
+    name: "Combas Furniture"
+  - exemplar: columns/1946-08-08/ads/p7/1946-08-08-07_sc_ad1.png
+    category: body_text_fp
+    name: "more body text"
+  - exemplar: columns/1946-11-14/ads/p5/1946-11-14-05_ad3.png
+    category: ad
+    name: "Nomination Meeting"
+    reject_members:
+      - 1946-09-03-08_ad5.png
+  - exemplar: columns/1946-10-10/ads/p4/1946-10-10-04_sc_ad5.png
+    category: ad
+    name: "Smolkins Overcoats"
+  - exemplar: columns/1946-10-24/ads/p4/1946-10-24-04_ad1.png
+    category: ad
+    name: "Karls Grocery"
+  - exemplar: columns/1947-01-09/ads/p5/1947-01-09-05_ad2.png
+    category: ad
+    name: "Almonte Food Market"
+  - exemplar: columns/1947-12-11/ads/p8/1947-12-11-08_ad7.png
+    category: ad
+    name: "PJ Rooney and Son Tobacco"
+    reject_members:
+      - 1947-05-01-04_ad2.png
+      - 1948-01-08-08_ad4.png
+  - exemplar: columns/1947-09-11/ads/p2/1947-09-11-02_ad4.png
+    category: ad
+    name: "The Superior weekend special"
+  - exemplar: columns/1947-07-17/ads/p8/1947-07-17-08_ad4.png
+    category: ad
+    name: "Almonte Garage Tires"
+    reject_members:
+      - 1948-03-25-08_ad3.png
+  - exemplar: columns/1947-09-18/ads/p5/1947-09-18-05_ad3.png
+    category: ad
+    name: "Canadian National Institute for the Blind"
+    reject_members:
+      - 1947-08-07-01_ad1.png
+  - exemplar: columns/1948-06-03/ads/p8/1948-06-03-08_ad5.png
+    category: ad
+    name: "Carlsbad Springs health spa"
+    reject_members:
+      - 1947-11-06-03_ad3.png
+      - 1947-11-13-03_ad3.png
+  - exemplar: columns/1948-02-12/ads/p2/1948-02-12-02_ad3.png
+    category: ad
+    name: "Almonte Beauty Shoppe"
+  - exemplar: columns/1948-02-12/ads/p6/1948-02-12-06_sc_ad5.png
+    category: ad
+    name: "Ken Beaton Watchmaker"
+  - exemplar: columns/1948-06-10/ads/p8/1948-06-10-08_ad2.png
+    category: ad
+    name: "OBrien Cinema"
+  - exemplar: columns/1948-05-13/ads/p3/1948-05-13-03_ad4.png
+    category: ad
+    name: "North Lanark Coop Wool"
+  - exemplar: columns/1948-07-01/ads/p8/1948-07-01-08_ad3.png
+    category: ad
+    name: "OBrien Cinema"
+  - exemplar: columns/1948-07-08/ads/p3/1948-07-08-03_ad3.png
+    category: ad
+    name: "North Lanark Coop Wagons"
+  - exemplar: columns/1948-09-16/ads/p8/1948-09-16-08_ad9.png
+    category: ad
+    name: "Almonte Building Supply"
+  - exemplar: columns/1948-09-16/ads/p4/1948-09-16-04_sc_ad3.png
+    category: ad
+    name: "Kenny Electric Essotane"
+  - exemplar: columns/1946-03-14/ads/p8/1946-03-14-08_ad3.png
+    category: ad
+    name: "Almonte Garage Bardol"
+  - exemplar: columns/1946-04-11/ads/p4/1946-04-11-04_ad7.png
+    category: ad
+    name: "John Lindsay Fencing"
+  - exemplar: columns/1946-06-06/ads/p5/1946-06-06-05_sc_ad2.png
+    category: ad
+    name: "AF Campbell and Son Builders Supplies"
+  - exemplar: columns/1946-08-22/ads/p3/1946-08-22-03_ad4.png
+    category: ad
+    name: "Labatts Beer"
+  - exemplar: columns/1946-06-13/ads/p5/1946-06-13-05_ad1.png
+    category: ad
+    name: "Almonte Food Market"
+  - exemplar: columns/1948-09-09/ads/p3/1948-09-09-03_ad2.png
+    category: ad
+    name: "North Lanark Coop Poultry"
+    reject_members:
+      - 1946-06-06-08_ad2.png
+  - exemplar: columns/1946-06-20/ads/p10/1946-06-20-10_ad3.png
+    category: ad
+    name: "The Superior Sundaes"
+  - exemplar: columns/1946-06-27/ads/p4/1946-06-27-04_ad3.png
+    category: ad
+    name: "John Lindsay Haying"
+  - exemplar: columns/1947-08-14/ads/p5/1947-08-14-05_sc_ad2.png
+    category: body_text_fp
+    name: "body text"
+  - exemplar: columns/1946-11-07/ads/p5/1946-11-07-05_sc_ad1.png
+    category: ad
+    name: "WE Scott Furnishings and Funerals"
+  - exemplar: columns/1947-03-19/ads/p10/1947-03-19-10_sc_ad1.png
+    category: ad
+    name: "WC Smithson Repair"
+    reject_members:
+      - 1946-07-11-01_sc_ad1.png
+  - exemplar: columns/1946-08-22/ads/p5/1946-08-22-05_ad7.png
+    category: ad
+    name: "R Eldon Brown Accountant"
+  - exemplar: columns/1946-08-01/ads/p4/1946-08-01-04_ad2.png
+    category: ad
+    name: "Millers Grocery"
+  - exemplar: columns/1946-08-08/ads/p5/1946-08-08-05_ad3.png
+    category: ad
+    name: "North Lanark Coop Now in Operation"
+  - exemplar: columns/1946-08-15/ads/p5/1946-08-15-05_ad4.png
+    category: ad
+    name: "Almonte Coop Cold Storage Salmon"
+  - exemplar: columns/1946-09-12/ads/p5/1946-09-12-05_sc_ad1.png
+    category: ad
+    name: "WE Scott Furnishings and Funerals"
+  - exemplar: columns/1946-08-29/ads/p3/1946-08-29-03_ad4.png
+    category: ad
+    name: "Almonte High School"
+  - exemplar: columns/1948-09-02/ads/p2/1948-09-02-02_ad10.png
+    category: body_text_fp
+    name: "body text"
+  - exemplar: columns/1947-04-24/ads/p2/1947-04-24-02_ad5.png
+    category: body_text_fp
+    name: "body text"
+  - exemplar: columns/1946-10-17/ads/p1/1946-10-17-01_sc_ad1.png
+    category: ad
+    name: "Notice Almonte Gazette"
+  - exemplar: columns/1946-11-14/ads/p5/1946-11-14-05_ad6.png
+    category: ad
+    name: "Almonte and Ramsay Board of Trade"
+  - exemplar: columns/1947-03-27/ads/p3/1947-03-27-03_ad4.png
+    category: ad
+    name: "Ottawa Valley Grain Products"
+  - exemplar: columns/1947-04-03/ads/p3/1947-04-03-03_ad3.png
+    category: ad
+    name: "Ottawa Valley Grain Products"
+  - exemplar: columns/1947-02-06/ads/p4/1947-02-06-04_sc_ad3.png
+    category: ad
+    name: "W Smithson Repair"
+  - exemplar: columns/1947-01-30/ads/p5/1947-01-30-05_ad3.png
+    category: ad
+    name: "Star Theatre"
+  - exemplar: columns/1947-02-13/ads/p4/1947-02-13-04_ad3.png
+    category: ad
+    name: "Raymond Nut Shop"
+  - exemplar: columns/1947-03-06/ads/p8/1947-03-06-08_ad2.png
+    category: ad
+    name: "JH Martin Aluminum"
+  - exemplar: columns/1947-04-03/ads/p4/1947-04-03-04_ad4.png
+    category: ad
+    name: "Geo Comme Planing Mill"
+  - exemplar: columns/1947-04-17/ads/p8/1947-04-17-08_ad5.png
+    category: ad
+    name: "Almonte Garage Goodyear"
+  - exemplar: columns/1947-05-22/ads/p8/1947-05-22-08_ad1.png
+    category: unclassified
+    reject_members:
+      - 1947-05-22-08_ad1.png
+      - 1947-08-07-05_ad4.png
+      - 1947-12-18-04_ad9.png
+  - exemplar: columns/1947-07-17/ads/p3/1947-07-17-03_ad4.png
+    category: ad
+    name: "Combas Furniture Paints"
+  - exemplar: columns/1947-08-21/ads/p3/1947-08-21-03_ad4.png
+    category: ad
+    name: "Perth Fair"
+    reject_members:
+      - 1947-07-10-08_ad7.png
+  - exemplar: columns/1947-08-07/ads/p3/1947-08-07-03_ad3.png
+    category: ad
+    name: "Ottawa Valley Grain Products"
+  - exemplar: columns/1947-08-07/ads/p4/1947-08-07-04_ad3.png
+    category: ad
+    name: "North Lanark Coop weed killer"
+  - exemplar: columns/1947-08-14/ads/p4/1947-08-14-04_sc_ad2.png
+    category: ad
+    name: "Grahams Drug Store tall ad"
+  - exemplar: columns/1947-08-07/ads/p5/1947-08-07-05_sc_ad1.png
+    category: ad
+    name: "WE Scott compact ad"
+  - exemplar: columns/1947-09-18/ads/p5/1947-09-18-05_ad1.png
+    category: ad
+    name: "North Lanark Coop harness parts"
+  - exemplar: columns/1948-05-20/ads/p8/1948-05-20-08_ad3.png
+    category: ad
+    name: "Notice re dogs"
+    reject_members:
+      - 1947-10-02-03_ad2.png
+  - exemplar: columns/1947-10-02/ads/p4/1947-10-02-04_ad4.png
+    category: ad
+    name: "Harrys Grill"
+  - exemplar: columns/1947-10-16/ads/p2/1947-10-16-02_ad7.png
+    category: ad
+    name: "Caretake tenders"
+  - exemplar: columns/1947-12-18/ads/p5/1947-12-18-05_ad6.png
+    category: ad
+    name: "Tenders for wood"
+  - exemplar: columns/1948-01-22/ads/p5/1948-01-22-05_ad4.png
+    category: ad
+    name: "Star Theatre"
+  - exemplar: columns/1948-01-08/ads/p8/1948-01-08-08_ad2.png
+    category: ad
+    name: "OBrien Cinema"
+  - exemplar: columns/1948-02-12/ads/p2/1948-02-12-02_ad5.png
+    category: ad
+    name: "JH Martin Old Price"
+  - exemplar: columns/1948-02-19/ads/p8/1948-02-19-08_ad2.png
+    category: ad
+    name: "Almonte Lions Club"
+  - exemplar: columns/1948-03-04/ads/p3/1948-03-04-03_ad2.png
+    category: ad
+    name: "North Lanark Coop radios"
+  - exemplar: columns/1948-04-22/ads/p3/1948-04-22-03_sc_ad3.png
+    category: ad
+    name: "JA Ryde Optometrist"
+  - exemplar: columns/1948-04-15/ads/p8/1948-04-15-08_ad6.png
+    category: ad
+    name: "JH Martin Garden"
+  - exemplar: columns/1948-07-08/ads/p4/1948-07-08-04_sc_ad5.png
+    category: ad
+    name: "Kenny Electric notice"
+  - exemplar: columns/1948-10-07/ads/p8/1948-10-07-08_ad2.png
+    category: ad
+    name: "OBrien Cinema"
+  - exemplar: columns/1948-10-28/ads/p8/1948-10-28-08_ad7.png
+    category: ad
+    name: "Combas Furniture square format"
+  - exemplar: columns/1948-11-18/ads/p5/1948-11-18-05_ad3.png
+    category: ad
+    name: "George D Smith Auctioneer"
+  - exemplar: columns/1948-12-02/ads/p5/1948-12-02-05_sc_ad1.png
+    category: ad
+    name: "AF Campbell and Sons small ad"
+  - exemplar: columns/1946-01-03/ads/p2/1946-01-03-02_ad1.png
+    category: unclassified
+    name: "Almonte Gazette printing"
+  - exemplar: columns/1946-01-10/ads/p4/1946-01-10-04_ad2.png
+    category: ad
+    name: "Wood Tenders"
+  - exemplar: columns/1946-01-24/ads/p3/1946-01-24-03_ad5.png
+    category: unclassified
+    reject_members:
+      - 1946-01-03-06_ad2.png
+      - 1946-01-24-03_ad5.png
+  - exemplar: columns/1946-06-13/ads/p6/1946-06-13-06_sc_ad1.png
+    category: ad
+    name: "WE Scott Furnishings and Funerals"
+  - exemplar: columns/1947-03-06/ads/p2/1947-03-06-02_ad2.png
+    category: body_text_fp
+    name: "body text"
+  - exemplar: columns/1946-01-17/ads/p8/1946-01-17-08_ad3.png
+    category: ad
+    name: "JH Martin Wood Working"
+  - exemplar: columns/1946-01-10/ads/p8/1946-01-10-08_sc_ad1.png
+    category: ad
+    name: "WE Scott Furnishings and Funerals"
+  - exemplar: columns/1946-01-17/ads/p2/1946-01-17-02_ad5.png
+    category: body_text_fp
+    name: "body text"
+  - exemplar: columns/1946-01-24/ads/p2/1946-01-24-02_ad1.png
+    category: body_text_fp
+    name: "body text"
+  - exemplar: columns/1946-01-24/ads/p4/1946-01-24-04_ad6.png
+    category: ad
+    name: "Graham's Drug Store"
+  - exemplar: columns/1946-01-31/ads/p5/1946-01-31-05_sc_ad1.png
+    category: ad
+    name: "AF Campbell and Son Builders Supplies"
+  - exemplar: columns/1946-01-31/ads/p8/1946-01-31-08_ad4.png
+    category: ad
+    name: "Almonte Garage Goodrich"
+  - exemplar: columns/1946-02-14/ads/p4/1946-02-14-04_ad1.png
+    category: ad
+    name: "Karls Grocery"
+  - exemplar: columns/1946-03-14/ads/p5/1946-03-14-05_sc_ad1.png
+    category: ad
+    name: "AF Campbell and Son Builders Supplies"
+  - exemplar: columns/1946-09-03/ads/p7/1946-09-03-07_ad4.png
+    category: ad
+    name: "Davis Boyce and Co Accountants"
+  - exemplar: columns/1946-02-21/ads/p8/1946-02-21-08_ad4.png
+    category: ad
+    name: "North Lanark Coop Spring"
+  - exemplar: columns/1946-02-28/ads/p4/1946-02-28-04_ad1.png
+    category: ad
+    name: "Karls Grocery"
+  - exemplar: columns/1946-12-05/ads/p3/1946-12-05-03_ad8.png
+    category: ad
+    name: "R Eldon Brown Accountant"
+  - exemplar: columns/1946-03-14/ads/p4/1946-03-14-04_ad5.png
+    category: ad
+    name: "Grahams Drug Store Photography"
+  - exemplar: columns/1946-11-07/ads/p11/1946-11-07-11_sc_ad1.png
+    category: body_text_fp
+    name: "body text"
+  - exemplar: columns/1946-03-14/ads/p4/1946-03-14-04_sc_ad4.png
+    category: ad
+    name: "Combas Furniture"
+  - exemplar: columns/1946-03-14/ads/p4/1946-03-14-04_ad7.png
+    category: ad
+    name: "John Lindsay Fencing"
+  - exemplar: columns/1946-08-29/ads/p2/1946-08-29-02_ad4.png
+    category: ad
+    name: "Davis Boyce and Co Accountants"
+  - exemplar: columns/1947-08-21/ads/p6/1947-08-21-06_sc_ad2.png
+    category: ad
+    name: "Dodds Pills Backache "
+  - exemplar: columns/1946-03-21/ads/p4/1946-03-21-04_ad7.png
+    category: ad
+    name: "Davis Boyce and Co Accountants"
+  - exemplar: columns/1946-04-08/ads/p5/1946-04-08-05_sc_ad2.png
+    category: ad
+    name: "WE Scott Furnishings and Funerals"
+  - exemplar: columns/1946-04-11/ads/p4/1946-04-11-04_sc_ad2.png
+    category: ad
+    name: "Lorne Miller CCM"
+  - exemplar: columns/1946-04-11/ads/p5/1946-04-11-05_sc_ad2.png
+    category: ad
+    name: "Combas Furniture"
+  - exemplar: columns/1946-04-04/ads/p8/1946-04-04-08_sc_ad2.png
+    category: ad
+    name: "Railway ticket text"
+  - exemplar: columns/1946-04-08/ads/p4/1946-04-08-04_ad2.png
+    category: ad
+    name: "AG Naismith Machinery"
+  - exemplar: columns/1946-04-08/ads/p4/1946-04-08-04_ad7.png
+    category: ad
+    name: "Howard Davey Notice"
+  - exemplar: columns/1946-04-25/ads/p8/1946-04-25-08_ad2.png
+    category: ad
+    name: "OBrien Cinema"
+  - exemplar: columns/1946-04-25/ads/p4/1946-04-25-04_sc_ad3.png
+    category: ad
+    name: "Lorne Miller CCM Bicycle"
+  - exemplar: columns/1946-04-25/ads/p8/1946-04-25-08_ad5.png
+    category: ad
+    name: "The Superior Chicken"
+  - exemplar: columns/1947-07-17/ads/p6/1947-07-17-06_ad4.png
+    category: body_text_fp
+    name: "body text"
+  - exemplar: columns/1946-09-26/ads/p7/1946-09-26-07_ad3.png
+    category: furniture
+    name: "The Mixing Bowl"
+  - exemplar: columns/1946-05-30/ads/p4/1946-05-30-04_ad6.png
+    category: ad
+    name: "John Lindsay Harvester"
+  - exemplar: columns/1946-05-16/ads/p4/1946-05-16-04_sc_ad3.png
+    category: ad
+    name: "Combas Furniture"
+  - exemplar: columns/1947-03-19/ads/p5/1947-03-19-05_sc_ad5.png
+    category: body_text_fp
+    name: "body text"
+  - exemplar: columns/1946-05-23/ads/p8/1946-05-23-08_ad4.png
+    category: ad
+    name: "The Superior XRay"
+  - exemplar: columns/1946-05-30/ads/p5/1946-05-30-05_sc_ad1.png
+    category: ad
+    name: "Misses Hogan Hats"
+  - exemplar: columns/1946-05-30/ads/p5/1946-05-30-05_sc_ad2.png
+    category: ad
+    name: "Combas Furniture"
+  - exemplar: columns/1946-06-06/ads/p4/1946-06-06-04_ad3.png
+    category: ad
+    name: "Colonial Coach Service"
+  - exemplar: columns/1946-07-11/ads/p1/1946-07-11-01_sc_ad2.png
+    category: body_text_fp
+    name: "body text"
+  - exemplar: columns/1946-07-18/ads/p4/1946-07-18-04_ad4.png
+    category: ad
+    name: "John Lindsay Haying"
+  - exemplar: columns/1946-06-13/ads/p5/1946-06-13-05_ad2.png
+    category: ad
+    name: "Combas Music Lovers"
+  - exemplar: columns/1946-06-27/ads/p1/1946-06-27-01_ad2.png
+    category: ad
+    name: "Waterworks Notice"
+  - exemplar: columns/1946-07-14/ads/p6/1946-07-14-06_ad2.png
+    category: ad
+    name: "Almonte Coop Cold Storage Strawberries"
+  - exemplar: columns/1946-07-11/ads/p4/1946-07-11-04_ad1.png
+    category: ad
+    name: "Karls Grocery"
+  - exemplar: columns/1946-07-11/ads/p4/1946-07-11-04_ad4.png
+    category: ad
+    name: "North Lanark Coop Seasonal Supplies"
+  - exemplar: columns/1946-07-11/ads/p8/1946-07-11-08_ad4.png
+    category: ad
+    name: "Almonte Garage rejuvenation"
+  - exemplar: columns/1946-07-14/ads/p7/1946-07-14-07_ad1.png
+    category: body_text_fp
+    name: "body text"
+  - exemplar: columns/1946-07-18/ads/p3/1946-07-18-03_sc_ad2.png
+    category: ad
+    name: "AF Campbell and Son Builders Supplies"
+  - exemplar: columns/1946-08-01/ads/p7/1946-08-01-07_ad5.png
+    category: ad
+    name: "Almonte Garage misery"
+  - exemplar: columns/1946-08-08/ads/p8/1946-08-08-08_ad7.png
+    category: ad
+    name: "Caretakers Tenders"
+  - exemplar: columns/1946-08-08/ads/p2/1946-08-08-02_ad2.png
+    category: body_text_fp
+    name: "body text"
+  - exemplar: columns/1946-08-15/ads/p5/1946-08-15-05_sc_ad4.png
+    category: body_text_fp
+    name: "body text"
+  - exemplar: columns/1946-08-15/ads/p8/1946-08-15-08_ad2.png
+    category: ad
+    name: "JH Martin Shot Gun"
+  - exemplar: columns/1946-09-19/ads/p5/1946-09-19-05_sc_ad1.png
+    category: ad
+    name: "WE Scott Furnishings and Funerals"
+  - exemplar: columns/1947-01-16/ads/p6/1947-01-16-06_ad2.png
+    category: body_text_fp
+    name: "body text"
+  - exemplar: columns/1946-08-29/ads/p5/1946-08-29-05_ad2.png
+    category: ad
+    name: "Millers Grocery"
+  - exemplar: columns/1946-09-12/ads/p2/1946-09-12-02_ad2.png
+    category: ad
+    name: "Forestry Public Hearing"
+  - exemplar: columns/1946-09-26/ads/p4/1946-09-26-04_sc_ad1.png
+    category: ad
+    name: "DW Snedden School Supplies"
+  - exemplar: columns/1946-09-03/ads/p8/1946-09-03-08_ad6.png
+    category: ad
+    name: "R Eldon Brown Accountant"
+  - exemplar: columns/1946-10-24/ads/p6/1946-10-24-06_ad3.png
+    category: ad
+    name: "Town Clerk Notice"
+  - exemplar: columns/1947-08-07/ads/p2/1947-08-07-02_ad2.png
+    category: body_text_fp
+    name: "body text"
+  - exemplar: columns/1946-10-03/ads/p6/1946-10-03-06_ad1.png
+    category: ad
+    name: "Canadian National Institute for the Blind"
+  - exemplar: columns/1946-10-17/ads/p8/1946-10-17-08_ad7.png
+    category: ad
+    name: "George Dunfield Savings Bonds"
+  - exemplar: columns/1946-10-17/ads/p4/1946-10-17-04_sc_ad2.png
+    category: ad
+    name: "DW Snedden Cod Liver Oil"
+  - exemplar: columns/1946-10-10/ads/p8/1946-10-10-08_ad5.png
+    category: ad
+    name: "Huskey Grill"
+  - exemplar: columns/1946-11-07/ads/p6/1946-11-07-06_sc_ad3.png
+    category: ad
+    name: "Carleton Place Studio"
+  - exemplar: columns/1946-10-31/ads/p3/1946-10-31-03_sc_ad2.png
+    category: ad
+    name: "Combas Furniture"
+  - exemplar: columns/1946-10-31/ads/p7/1946-10-31-07_ad1.png
+    category: ad
+    name: "Tramp"
+  - exemplar: columns/1946-11-07/ads/p9/1946-11-07-09_ad2.png
+    category: ad
+    name: "Rexall drug store"
+  - exemplar: columns/1946-11-07/ads/p11/1946-11-07-11_sc_ad3.png
+    category: ad
+    name: "Railway ad"
+  - exemplar: columns/1946-11-07/ads/p14/1946-11-07-14_ad4.png
+    category: ad
+    name: "Edwin Thake Headstones"
+  - exemplar: columns/1946-11-07/ads/p7/1946-11-07-07_ad7.png
+    category: ad
+    name: "Harvey Shaw"
+  - exemplar: columns/1946-11-07/ads/p8/1946-11-07-08_ad3.png
+    category: ad
+    name: "Royal Winter Fair"
+  - exemplar: columns/1946-12-19/ads/p3/1946-12-19-03_sc_ad1.png
+    category: ad
+    name: "Carleton Place Studio"
+  - exemplar: columns/1946-11-14/ads/p7/1946-11-14-07_ad1.png
+    category: ad
+    name: "Consumers Ration Calendar"

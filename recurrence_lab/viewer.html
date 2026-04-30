@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recurrence Lab — clusters &amp; triage</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, system-ui, sans-serif; background: #f5f5f0; color: #222; padding: 0 1rem 4rem; }
+header {
+    position: sticky; top: 0; background: #fafaf5; border-bottom: 1px solid #ddd;
+    padding: 14px 1rem; margin: 0 -1rem 16px; z-index: 5;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px;
+}
+header h1 { font-size: 1.3em; font-weight: 500; }
+.controls { display: flex; gap: 16px; align-items: center; font-size: 0.9em; color: #555; flex-wrap: wrap; }
+.controls label { display: flex; gap: 6px; align-items: center; }
+.controls input[type=number] { width: 70px; padding: 3px 6px; }
+.controls select { padding: 3px 6px; }
+#summary { color: #777; font-size: 0.9em; }
+#dirty-badge {
+    color: #b35900; font-weight: 600; font-size: 0.9em;
+    display: none;
+}
+#dirty-badge.on { display: inline; }
+button {
+    font: inherit; padding: 5px 12px; border-radius: 4px;
+    border: 1px solid #2266dd; background: #2266dd; color: white;
+    cursor: pointer;
+}
+button:disabled { background: #aaa; border-color: #aaa; cursor: not-allowed; }
+button.ghost { background: white; color: #2266dd; }
+button.danger { background: white; color: #b35900; border-color: #b35900; }
+
+.cluster {
+    background: white; border: 1px solid #ddd; border-radius: 8px;
+    padding: 10px 14px; margin-bottom: 12px;
+}
+.cluster.cat-ad           { border-left: 4px solid #2266dd; }
+.cluster.cat-body_text_fp { border-left: 4px solid #b35900; }
+.cluster.cat-furniture    { border-left: 4px solid #444; }
+.cluster.cat-unclassified { border-left: 4px solid #ddd; }
+.cluster.dirty            { box-shadow: 0 0 0 2px #b3590033; }
+
+.cluster-head {
+    display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+    font-size: 0.95em; margin-bottom: 8px;
+}
+.cluster-id   { color: #aaa; font-family: ui-monospace, monospace; font-size: 0.85em; }
+.cluster-size { font-weight: 600; color: #2266dd; }
+.cluster-range { color: #555; }
+.cluster-issues { color: #888; font-size: 0.9em; }
+
+.triage {
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+    padding: 8px 0 10px; font-size: 0.9em;
+}
+.triage label { display: flex; gap: 6px; align-items: center; color: #555; }
+.triage select { padding: 3px 6px; }
+.triage input[type=text] { padding: 3px 6px; min-width: 240px; }
+.triage .applied { color: #888; font-size: 0.85em; }
+
+.thumbs { display: flex; gap: 6px; flex-wrap: wrap; }
+.thumb-wrap { position: relative; }
+.thumb-wrap a { display: block; }
+.thumb-wrap img {
+    height: 80px; width: auto; max-width: 200px;
+    border: 1px solid #ddd; border-radius: 3px; background: #fafafa;
+}
+.thumb-wrap img.exemplar { border-color: #2266dd; box-shadow: 0 0 0 2px #2266dd33; }
+.thumb-wrap a:hover img { border-color: #444; }
+.thumb-wrap.rejected img { opacity: 0.35; filter: grayscale(0.6); }
+.thumb-wrap.rejected::after {
+    content: ""; position: absolute; left: 4px; right: 4px;
+    top: 50%; height: 2px; background: #b35900; transform: rotate(-8deg);
+    pointer-events: none;
+}
+.thumb-reject {
+    position: absolute; top: 2px; right: 2px;
+    width: 18px; height: 18px; line-height: 14px; text-align: center;
+    border: 1px solid #b35900; background: rgba(255,255,255,0.85);
+    color: #b35900; font-size: 13px; font-weight: 700;
+    border-radius: 50%; cursor: pointer; user-select: none;
+    opacity: 0; transition: opacity 0.1s;
+}
+.thumb-wrap:hover .thumb-reject { opacity: 1; }
+.thumb-wrap.rejected .thumb-reject { opacity: 1; background: #b35900; color: white; }
+
+.merge-badge {
+    display: inline-block; background: #fff3e0; color: #b35900;
+    border: 1px solid #b35900; padding: 1px 8px; border-radius: 10px;
+    font-size: 0.85em; margin-left: 6px;
+}
+.merge-warn {
+    display: inline-block; background: #fff; color: #b35900;
+    border: 1px dashed #b35900; padding: 1px 8px; border-radius: 4px;
+    font-size: 0.85em; margin-left: 6px;
+}
+.empty { color: #999; padding: 30px; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+    <h1>Recurrence Lab — clusters &amp; triage</h1>
+    <div class="controls">
+        <label>min size <input type="number" id="min-size" min="1" value="2"></label>
+        <label>limit <input type="number" id="limit" min="1" max="2000" value="200"></label>
+        <label>category
+            <select id="filter-category">
+                <option value="all">all</option>
+                <option value="unclassified">unclassified</option>
+                <option value="ad">ad</option>
+                <option value="body_text_fp">body_text_fp</option>
+                <option value="furniture">furniture</option>
+            </select>
+        </label>
+        <span id="summary"></span>
+        <span id="dirty-badge">● unsaved local edits</span>
+        <button id="export-yaml" class="ghost">Export labels.yaml</button>
+        <button id="discard-local" class="danger" title="Drop in-browser edits and revert to applied state">Discard local edits</button>
+    </div>
+</header>
+<main id="main">
+    <div class="empty">Loading snapshots/clusters_table.json…</div>
+</main>
+<script>
+const SNAPSHOT_URL = 'snapshots/clusters_table.json';
+const COLUMNS_BASE = '..';   // viewer.html sits in recurrence_lab/, ../columns/...
+const LS_KEY = 'recurrence_lab_triage_v1';
+
+// applied[exemplar_path] = { category, name, notes, labelled_at, rejected: Set<image_filename> }
+let applied = {};
+// localEdits[exemplar_path] = { category?, name?, rejected?: array }
+//   only present once edited in this browser; takes precedence over applied
+let localEdits = {};
+let snapshot = null;
+
+function loadLocal() {
+    try { localEdits = JSON.parse(localStorage.getItem(LS_KEY)) || {}; }
+    catch (e) { localEdits = {}; }
+}
+
+function saveLocal() {
+    localStorage.setItem(LS_KEY, JSON.stringify(localEdits));
+    updateDirtyBadge();
+}
+
+function updateDirtyBadge() {
+    const n = Object.keys(localEdits).length;
+    const badge = document.getElementById('dirty-badge');
+    badge.classList.toggle('on', n > 0);
+    badge.textContent = n > 0 ? `● ${n} unsaved local edit${n === 1 ? '' : 's'}` : '';
+}
+
+// Effective view = applied state with localEdits overlaid.
+function effectiveLabel(exemplarPath) {
+    const a = applied[exemplarPath] || { category: 'unclassified', name: null, rejected: new Set() };
+    const e = localEdits[exemplarPath];
+    const rejectedSet = e && e.rejected
+        ? new Set(e.rejected)
+        : (a.rejected || new Set());
+    return {
+        category: (e && 'category' in e) ? e.category : a.category,
+        name:     (e && 'name'     in e) ? e.name     : a.name,
+        notes:     a.notes,
+        labelled_at: a.labelled_at,
+        rejected:  rejectedSet,
+        dirty: !!e,
+    };
+}
+
+function arraysEqualAsSets(a, b) {
+    if (a.size !== b.size) return false;
+    for (const x of a) if (!b.has(x)) return false;
+    return true;
+}
+
+function setLocal(exemplarPath, patch) {
+    const a = applied[exemplarPath] || { category: 'unclassified', name: null, rejected: new Set() };
+    const merged = { ...localEdits[exemplarPath], ...patch };
+
+    // Drop the local entry entirely if merged state matches applied —
+    // keeps localStorage clean and the dirty badge honest.
+    const catSame  = !('category' in merged) || merged.category === a.category;
+    const nameSame = !('name'     in merged) || (merged.name ?? null) === (a.name ?? null);
+    const rjSame   = !('rejected' in merged) ||
+        arraysEqualAsSets(new Set(merged.rejected), a.rejected || new Set());
+    if (catSame && nameSame && rjSame) {
+        delete localEdits[exemplarPath];
+    } else {
+        localEdits[exemplarPath] = merged;
+    }
+    saveLocal();
+}
+
+function toggleRejected(exemplarPath, imageFilename) {
+    const eff = effectiveLabel(exemplarPath);
+    const next = new Set(eff.rejected);
+    if (next.has(imageFilename)) next.delete(imageFilename);
+    else next.add(imageFilename);
+    setLocal(exemplarPath, { rejected: Array.from(next) });
+}
+
+async function load() {
+    const r = await fetch(SNAPSHOT_URL, { cache: 'no-store' });
+    if (!r.ok) {
+        document.getElementById('main').innerHTML =
+            `<div class="empty">Failed to load ${SNAPSHOT_URL}: ${r.status}.<br>
+             Run <code>python cluster_membership.py &amp;&amp; python export_viewer_json.py</code> first.</div>`;
+        return;
+    }
+    snapshot = await r.json();
+    applied = {};
+    for (const c of snapshot.clusters) {
+        const rejected = new Set();
+        for (const m of (c.members || [])) {
+            if (m.rejected) rejected.add(m.image_filename);
+        }
+        applied[c.exemplar_path] = {
+            category: c.category,
+            name: c.name,
+            notes: c.notes,
+            labelled_at: c.labelled_at,
+            rejected,
+        };
+    }
+    loadLocal();
+    updateDirtyBadge();
+    document.getElementById('summary').textContent =
+        `${snapshot.n_ads_total} ads, ${snapshot.n_clusters_total} clusters, ` +
+        `${snapshot.n_recurring} recurring (size ≥ ${snapshot.min_size}); ` +
+        `snapshot ${snapshot.generated_at}`;
+    render();
+}
+
+function thumbUrl(member) {
+    return `${COLUMNS_BASE}/${member.path}`;
+}
+
+// Build name → {category → [{exemplar, effectiveSize}]} map across the
+// full cluster set so merge badges show even when one of the merge
+// partners is filtered out of view. Cross-category collisions warn.
+function buildNameIndex() {
+    const idx = new Map();   // name -> Map(category -> [{exemplar, effSize}])
+    for (const c of snapshot.clusters) {
+        const eff = effectiveLabel(c.exemplar_path);
+        const nm = (eff.name || '').trim();
+        if (!nm) continue;
+        const effSize = c.size - eff.rejected.size;
+        if (!idx.has(nm)) idx.set(nm, new Map());
+        const byCat = idx.get(nm);
+        if (!byCat.has(eff.category)) byCat.set(eff.category, []);
+        byCat.get(eff.category).push({ exemplar: c.exemplar_path, effSize });
+    }
+    return idx;
+}
+
+function escapeAttr(s) { return String(s ?? '').replace(/"/g, '&quot;'); }
+function escapeHtml(s) {
+    return String(s ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function render() {
+    const main = document.getElementById('main');
+    const minSize = parseInt(document.getElementById('min-size').value, 10) || 1;
+    const limit = parseInt(document.getElementById('limit').value, 10) || 100;
+    const catFilter = document.getElementById('filter-category').value;
+
+    let filtered = snapshot.clusters.filter(c => c.size >= minSize);
+    if (catFilter !== 'all') {
+        filtered = filtered.filter(c => effectiveLabel(c.exemplar_path).category === catFilter);
+    }
+    filtered = filtered.slice(0, limit);
+    if (filtered.length === 0) {
+        main.innerHTML = `<div class="empty">No clusters at min size ${minSize} / category ${catFilter}.</div>`;
+        return;
+    }
+
+    const nameIdx = buildNameIndex();
+
+    main.innerHTML = filtered.map(c => {
+        const eff = effectiveLabel(c.exemplar_path);
+        const exemplarPath = c.exemplar_path;
+        const effSize = c.size - eff.rejected.size;
+
+        // Merge badge: shared name+category across multiple clusters.
+        // Cross-category warning: same name appears under another category.
+        let mergeHtml = '';
+        const nm = (eff.name || '').trim();
+        if (nm) {
+            const byCat = nameIdx.get(nm);
+            if (byCat) {
+                const sameCat = byCat.get(eff.category) || [];
+                if (sameCat.length > 1) {
+                    const others = sameCat.filter(x => x.exemplar !== exemplarPath);
+                    const total = sameCat.reduce((s, x) => s + x.effSize, 0);
+                    mergeHtml += `<span class="merge-badge" title="${escapeAttr(
+                        'merged via shared name+category with: ' +
+                        others.map(o => o.exemplar).join(', ')
+                    )}">merged ×${sameCat.length} → total ×${total}</span>`;
+                }
+                const otherCats = [...byCat.keys()].filter(k => k !== eff.category);
+                if (otherCats.length > 0) {
+                    mergeHtml += `<span class="merge-warn" title="apply_labels will reject this until categories agree">name collision: also under ${otherCats.join(', ')}</span>`;
+                }
+            }
+        }
+
+        const thumbs = c.members.map(m => {
+            const isEx = m.path === exemplarPath;
+            const isRej = eff.rejected.has(m.image_filename);
+            const date = m.issue_dir;
+            const title = `${date} p${m.page} sim=${m.similarity}${isRej ? ' (rejected)' : ''}`;
+            const fn = escapeAttr(m.image_filename);
+            return `<div class="thumb-wrap ${isRej ? 'rejected' : ''}" data-filename="${fn}">
+                <a href="${thumbUrl(m)}" target="_blank" title="${escapeAttr(title)}">
+                    <img src="${thumbUrl(m)}" loading="lazy" class="${isEx ? 'exemplar' : ''}">
+                </a>
+                <span class="thumb-reject" title="${isRej ? 'un-reject' : 'reject from cluster'}">✕</span>
+            </div>`;
+        }).join('');
+        const appliedHint = eff.labelled_at
+            ? `applied ${eff.labelled_at}`
+            : 'never applied';
+        const sizeLabel = eff.rejected.size > 0
+            ? `×${effSize} <span class="cluster-issues">(${eff.rejected.size} rejected of ×${c.size})</span>`
+            : `×${c.size}`;
+        return `<div class="cluster cat-${eff.category} ${eff.dirty ? 'dirty' : ''}" data-exemplar="${escapeAttr(exemplarPath)}">
+            <div class="cluster-head">
+                <span class="cluster-size">${sizeLabel}</span>
+                <span class="cluster-range">${c.first_date} → ${c.last_date}</span>
+                <span class="cluster-issues">${c.n_issues} issue${c.n_issues === 1 ? '' : 's'}</span>
+                <span class="cluster-id">id=${c.cluster_id}</span>
+                ${mergeHtml}
+            </div>
+            <div class="triage">
+                <label>category
+                    <select class="cat-select">
+                        <option value="unclassified" ${eff.category === 'unclassified' ? 'selected' : ''}>unclassified</option>
+                        <option value="ad" ${eff.category === 'ad' ? 'selected' : ''}>ad</option>
+                        <option value="body_text_fp" ${eff.category === 'body_text_fp' ? 'selected' : ''}>body_text_fp</option>
+                        <option value="furniture" ${eff.category === 'furniture' ? 'selected' : ''}>furniture</option>
+                    </select>
+                </label>
+                <label>name
+                    <input type="text" class="name-input" value="${escapeAttr(eff.name ?? '')}" placeholder="e.g. Almonte Pharmacy weekly">
+                </label>
+                <span class="applied">${appliedHint}${eff.dirty ? ' · <em>local edits</em>' : ''}</span>
+            </div>
+            <div class="thumbs">${thumbs}</div>
+        </div>`;
+    }).join('');
+
+    // Wire up the controls now that the DOM exists.
+    main.querySelectorAll('.cluster').forEach(div => {
+        const exemplar = div.dataset.exemplar;
+        const sel = div.querySelector('.cat-select');
+        const inp = div.querySelector('.name-input');
+        sel.addEventListener('change', () => {
+            setLocal(exemplar, { category: sel.value });
+            // Re-render so merge badges and cross-category warnings refresh.
+            render();
+        });
+        inp.addEventListener('input', () => {
+            setLocal(exemplar, { name: inp.value || null });
+            div.classList.add('dirty');
+        });
+        // Defer the merge-badge refresh on name edits until blur, so
+        // every keystroke doesn't re-render the whole table.
+        inp.addEventListener('blur', () => render());
+        div.querySelectorAll('.thumb-wrap').forEach(wrap => {
+            const fn = wrap.dataset.filename;
+            const btn = wrap.querySelector('.thumb-reject');
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                toggleRejected(exemplar, fn);
+                render();
+            });
+        });
+    });
+}
+
+// Build YAML by hand — lightweight, no library, deterministic.
+function buildYAML() {
+    const out = [];
+    out.push('# Generated by viewer.html on ' + new Date().toISOString());
+    out.push('# Save as cluster_labels.yaml and run: python apply_labels.py');
+    out.push('labels:');
+    // Walk applied + localEdits union, prefer effective (= local over applied).
+    const seen = new Set();
+    const allPaths = new Set([...Object.keys(applied), ...Object.keys(localEdits)]);
+    for (const path of allPaths) {
+        const eff = effectiveLabel(path);
+        const hasRejects = eff.rejected && eff.rejected.size > 0;
+        // Skip rows that contribute nothing — pure-default state.
+        if (eff.category === 'unclassified' && !eff.name && !eff.notes && !hasRejects) continue;
+        if (seen.has(path)) continue;
+        seen.add(path);
+        out.push(`  - exemplar: ${path}`);
+        out.push(`    category: ${eff.category}`);
+        if (eff.name) out.push(`    name: ${JSON.stringify(eff.name)}`);
+        if (eff.notes) out.push(`    notes: ${JSON.stringify(eff.notes)}`);
+        if (hasRejects) {
+            out.push(`    reject_members:`);
+            // Sort for stable diffs in the git-tracked YAML.
+            for (const fn of Array.from(eff.rejected).sort()) {
+                out.push(`      - ${fn}`);
+            }
+        }
+    }
+    if (out.length === 3) {
+        // No real labels: emit explicit empty list so apply_labels.py is happy.
+        out.push('  []');
+    }
+    return out.join('\n') + '\n';
+}
+
+document.getElementById('export-yaml').addEventListener('click', () => {
+    const yaml = buildYAML();
+    const blob = new Blob([yaml], { type: 'application/x-yaml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'cluster_labels.yaml';
+    a.click();
+    URL.revokeObjectURL(url);
+});
+
+document.getElementById('discard-local').addEventListener('click', () => {
+    if (!Object.keys(localEdits).length) return;
+    if (!confirm('Discard ' + Object.keys(localEdits).length + ' local edit(s) and revert to applied state?')) return;
+    localEdits = {};
+    saveLocal();
+    render();
+});
+
+document.getElementById('min-size').addEventListener('input', render);
+document.getElementById('limit').addEventListener('input', render);
+document.getElementById('filter-category').addEventListener('change', render);
+load();
+</script>
+</body>
+</html>
