@@ -319,6 +319,27 @@ other.
 This file evolves issue-by-issue. When a new pattern, era boundary, or
 scan condition is observed, append it here.
 
+- **2026-04-30 — Ingested 1946 (51 issues) and 1948 (52 issues).**
+  Driven by the recurrence_lab spike (cross-year archetype testing
+  needs adjacent years). All 103 issues processed cleanly via
+  `archive.py --workers 4` with 0 failures. Distributions match the
+  established 1940s pattern from 1947 — P1 always 7c, P2 mostly 6c
+  with the 1937–1974 editorial template firing on the expected
+  minority (~10% of P2s land at 5c via that template), interior pages
+  predominantly 7c with the usual ad-heavy outliers dropping to 5–6c
+  or losing a phantom edge column under v2c. No new failure modes
+  surfaced.
+
+  Era-prior aggregate impact: the 1940–1949 decade in
+  `LayoutDB.era_patterns` jumps from ~370 samples (1947 only) to
+  **1,246 samples** (1945-12-27 + 1946 + 1947 + 1948), making it the
+  best-supported era after the 1980s in the corpus.
+
+  Known liabilities from `project_ad_heavy_detection_pending.md`
+  (1946-12-24 P8 dropped left phantom → 4c; a few 5c outliers on
+  ad-heavy interior pages) recur as expected; not a regression. Not
+  added to the canonical regression set — these were production runs,
+  not refactor targets.
 - **2026-04-27 — Added 1947-01-09 issue-wide notes on out-of-volume
   page edges.** P3/P5/P7 right and P8 left edges are partial strips
   of underlying pages, visible because the volume's pages slipped
