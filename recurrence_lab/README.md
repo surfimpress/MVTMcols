@@ -85,7 +85,15 @@ because they're keyed on `exemplar_path` (UNIQUE) and `image_filename`
 
 ## Status
 
-Spike. Phase 1 (Track A retroactive triage) lands clusters +
-membership + applied labels. Phases 2–4 are in
-`/Users/peter/.claude/plans/stateless-frolicking-moth.md` and remain
-lab-only. No commitment to productionise yet.
+Spike. Phase 1 (cropped-ad clustering + triage round-trip) is what's
+live: clusters, membership, applied labels, viewer. No commitment to
+productionise yet.
+
+Page-level matching (proposed Phases 2–4 of the original plan — running
+DINOv2 over full pages to find missed ads / FP-flag known clusters /
+discover novel recurrences) was explored on 2026-04-30 and **dropped**.
+Per-window DINOv2 features couldn't separate similar-shape ads cleanly
+enough (Star Theatre 0.978 vs Almonte Garage 0.953 on the same column-
+aligned candidate). See `archive/README.md` for the full empirical
+record and what might be worth trying next (likely a retrieval-trained
+model, e.g. CLIP/SigLIP) if the question is ever revisited.
