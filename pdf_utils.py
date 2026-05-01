@@ -67,11 +67,75 @@ def _cache_key(pdf_path, page_number, dpi):
     return (os.path.abspath(pdf_path), mtime, page_number, dpi)
 
 
+def _try_embedded_bitmap_render(doc, page, dpi):
+    """If the page contains a single bilevel (1-bit) embedded image — the
+    typical case for the corpus's JBIG2-encoded scans — decode that
+    bitmap directly and resample to the requested DPI, bypassing
+    `page.get_pixmap`. Returns a cache-entry dict on success, or None
+    if the page doesn't fit the fast path.
+
+    Gated by env var `MVTM_USE_EMBEDDED_BITMAP=1` for the duration of
+    the 2026-05 experiment. When the flag is unset, this returns None
+    and the caller falls back to the historical fitz render path.
+    """
+    if os.environ.get("MVTM_USE_EMBEDDED_BITMAP") != "1":
+        return None
+    try:
+        imgs = page.get_images(full=True)
+        if len(imgs) != 1:
+            return None
+        xref = imgs[0][0]
+        info = doc.extract_image(xref)
+        if info.get("bpc") != 1:
+            return None
+        # Decode to numpy. PyMuPDF transcodes JBIG2 to PNG-of-mode-L
+        # but only emits 0/255 values (verified on 1922-06-30 — zero
+        # intermediate pixels), so the data is bilevel even though the
+        # container is 8-bit greyscale.
+        import io
+        from PIL import Image
+        im = Image.open(io.BytesIO(info["image"]))
+        native = np.asarray(im.convert("L"))  # (H, W) uint8
+
+        # Resample to the DPI the cache contract expects. Page rect is
+        # in PDF points; (page_pts * dpi / 72) gives the pixel count
+        # MuPDF would produce at this DPI for a full-page render.
+        target_w = int(round(page.rect.width * dpi / 72.0))
+        target_h = int(round(page.rect.height * dpi / 72.0))
+        if (native.shape[1], native.shape[0]) == (target_w, target_h):
+            grey_u8 = native
+        else:
+            grey_u8 = cv2.resize(
+                native, (target_w, target_h),
+                interpolation=cv2.INTER_AREA)
+
+        rgb = np.stack([grey_u8, grey_u8, grey_u8], axis=-1)
+        pix = fitz.Pixmap(
+            fitz.csRGB, target_w, target_h,
+            np.ascontiguousarray(rgb).tobytes(), 0)
+        return {
+            "pix": pix,
+            "doc": doc,
+            "page_w_pts": page.rect.width,
+            "page_h_pts": page.rect.height,
+            "rgb": rgb,
+            "grey_f64": None,
+            "grey_u8": grey_u8,
+        }
+    except Exception:
+        # Any decode failure → fall back to the fitz path. We don't
+        # want a malformed embedded image to brick the pipeline.
+        return None
+
+
 def _native_render(pdf_path, page_number, dpi):
     """Open the PDF clean and render the full page at `dpi`. Returns a
     new cache entry — caller is responsible for storing it."""
     doc = open_clean_pdf(pdf_path)
     page = doc[page_number]
+    fast = _try_embedded_bitmap_render(doc, page, dpi)
+    if fast is not None:
+        return fast
     pix = page.get_pixmap(dpi=dpi)
     return {
         "pix": pix,
