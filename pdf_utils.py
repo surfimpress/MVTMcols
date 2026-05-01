@@ -109,16 +109,18 @@ def _try_embedded_bitmap_render(doc, page, dpi):
                 native, (target_w, target_h),
                 interpolation=cv2.INTER_AREA)
 
-        rgb = np.stack([grey_u8, grey_u8, grey_u8], axis=-1)
-        pix = fitz.Pixmap(
-            fitz.csRGB, target_w, target_h,
-            np.ascontiguousarray(rgb).tobytes(), 0)
+        # Slim path: cache only `grey_u8`. RGB triple-stack and the
+        # fitz.Pixmap are built lazily in `_entry_rgb` / `_entry_pix` if
+        # a consumer actually needs them. For detector reads (which go
+        # via `render_grey` / `render_grey_uint8` → `_entry_grey_f64` /
+        # `_entry_grey_u8`) the bilevel uint8 array is the destination
+        # format, so most pages never trigger RGB allocation at all.
         return {
-            "pix": pix,
+            "pix": None,
             "doc": doc,
             "page_w_pts": page.rect.width,
             "page_h_pts": page.rect.height,
-            "rgb": rgb,
+            "rgb": None,
             "grey_f64": None,
             "grey_u8": grey_u8,
         }
@@ -150,32 +152,47 @@ def _native_render(pdf_path, page_number, dpi):
 
 def _derive_entry(canon, target_dpi):
     """Build a lower-DPI cache entry by downsampling the canonical
-    entry's RGB array. The derived `pix` is a fitz.Pixmap built from
-    the downsampled samples — usable by `pix.save(...)` and any
-    consumer that reads `pix.samples` / `pix.w` / `pix.h`.
+    entry. Slim path: when canonical was rendered via the bitmap fast
+    path (no RGB / no fitz.Pixmap), downsample the bilevel `grey_u8`
+    array directly and leave RGB / Pixmap lazy in the derived entry.
+    Legacy path: canonical has RGB → downsample RGB and pre-build the
+    derived fitz.Pixmap (preserves byte-identical Pixmap behaviour for
+    the existing `pix.save` consumers).
     """
-    canon_h = canon["pix"].h
-    canon_w = canon["pix"].w
-    canon_dpi_x = canon_w * 72.0 / canon["page_w_pts"]
-    canon_dpi_y = canon_h * 72.0 / canon["page_h_pts"]
     # Target pixel dims at requested DPI, mirroring MuPDF's full-page
     # rounding (which is `round(page_pts * dpi / 72)` for full pages).
     target_w = int(round(canon["page_w_pts"] * target_dpi / 72.0))
     target_h = int(round(canon["page_h_pts"] * target_dpi / 72.0))
 
+    if canon.get("rgb") is None and canon.get("grey_u8") is not None:
+        # Slim path: no RGB triple-stack, no derived fitz.Pixmap until
+        # something demands one.
+        canon_grey = canon["grey_u8"]
+        derived_grey = cv2.resize(
+            canon_grey, (target_w, target_h),
+            interpolation=cv2.INTER_AREA)
+        return {
+            "pix": None,
+            "doc": None,
+            "page_w_pts": canon["page_w_pts"],
+            "page_h_pts": canon["page_h_pts"],
+            "rgb": None,
+            "grey_f64": None,
+            "grey_u8": derived_grey,
+        }
+
+    # Legacy path: canonical was rendered via fitz get_pixmap → has
+    # RGB samples. Downsample RGB and pre-build the derived Pixmap so
+    # `pix.save` consumers see byte-identical behaviour.
     canon_rgb = _entry_rgb(canon)
     derived_rgb = cv2.resize(
         canon_rgb, (target_w, target_h), interpolation=cv2.INTER_AREA)
-
-    # Build a fitz.Pixmap from the derived samples so consumers like
-    # `get_clip_pixmap` / `pix.save` keep working at this DPI.
     derived_pix = fitz.Pixmap(
         fitz.csRGB, target_w, target_h,
         np.ascontiguousarray(derived_rgb).tobytes(), 0)
-
     return {
         "pix": derived_pix,
-        "doc": None,  # derived entries have no source doc
+        "doc": None,
         "page_w_pts": canon["page_w_pts"],
         "page_h_pts": canon["page_h_pts"],
         "rgb": derived_rgb,
@@ -216,21 +233,62 @@ def _ensure_full_render(pdf_path, page_number, dpi):
     return entry
 
 
+def _entry_dims(entry):
+    """Return (h, w) of the cached page in pixels without forcing RGB
+    or Pixmap materialisation. Slim-path entries (bitmap source) have
+    only `grey_u8`; legacy entries have a fitz.Pixmap from MuPDF."""
+    if entry.get("pix") is not None:
+        return entry["pix"].h, entry["pix"].w
+    if entry.get("grey_u8") is not None:
+        return entry["grey_u8"].shape
+    if entry.get("rgb") is not None:
+        return entry["rgb"].shape[0], entry["rgb"].shape[1]
+    raise RuntimeError("cache entry has no pixel source")
+
+
+def _entry_pix(entry):
+    """Lazy: return a fitz.Pixmap for the cached entry. Slim-path
+    entries build the Pixmap from the RGB triple-stack on first call;
+    that triple-stack is itself lazy via `_entry_rgb`. The Pixmap is
+    cached on the entry so subsequent calls reuse it."""
+    if entry.get("pix") is None:
+        rgb = _entry_rgb(entry)
+        h, w, _ = rgb.shape
+        entry["pix"] = fitz.Pixmap(
+            fitz.csRGB, w, h,
+            np.ascontiguousarray(rgb).tobytes(), 0)
+    return entry["pix"]
+
+
 def _entry_rgb(entry):
     if entry["rgb"] is None:
-        pix = entry["pix"]
-        arr = np.frombuffer(pix.samples, dtype=np.uint8)
-        if pix.n >= 3:
-            entry["rgb"] = arr.reshape(pix.h, pix.w, pix.n)[:, :, :3].copy()
-        else:
-            grey = arr.reshape(pix.h, pix.w)
+        if entry.get("grey_u8") is not None:
+            # Slim-path: triple-stack the bilevel uint8 only when a
+            # consumer actually demands RGB.
+            grey = entry["grey_u8"]
             entry["rgb"] = np.stack([grey, grey, grey], axis=-1)
+        elif entry.get("pix") is not None:
+            pix = entry["pix"]
+            arr = np.frombuffer(pix.samples, dtype=np.uint8)
+            if pix.n >= 3:
+                entry["rgb"] = arr.reshape(pix.h, pix.w, pix.n)[:, :, :3].copy()
+            else:
+                grey = arr.reshape(pix.h, pix.w)
+                entry["rgb"] = np.stack([grey, grey, grey], axis=-1)
+        else:
+            raise RuntimeError("cache entry has no pixel source")
     return entry["rgb"]
 
 
 def _entry_grey_f64(entry):
     if entry["grey_f64"] is None:
-        entry["grey_f64"] = np.mean(_entry_rgb(entry), axis=2)
+        if entry.get("grey_u8") is not None:
+            # Slim-path: cast the bilevel uint8 directly to float64.
+            # Equivalent to np.mean(triple_stack(grey_u8), axis=2)
+            # because all three channels are identical.
+            entry["grey_f64"] = entry["grey_u8"].astype(np.float64)
+        else:
+            entry["grey_f64"] = np.mean(_entry_rgb(entry), axis=2)
     return entry["grey_f64"]
 
 
@@ -290,9 +348,12 @@ def get_full_pixmap(pdf_path, page_number, dpi):
     `get_clip_pixmap` or to inspect width/height) should use this
     instead of opening the PDF and rendering themselves. The pixmap is
     shared with the grey-array path — one render serves all consumers.
+
+    For slim-path entries (1-bit bitmap source) the Pixmap is built
+    lazily on first call from the cached `grey_u8` array.
     """
     entry = _ensure_full_render(pdf_path, page_number, dpi)
-    return entry["pix"]
+    return _entry_pix(entry)
 
 
 def get_clip_pixmap(pdf_path, page_number, dpi, clip):
@@ -322,8 +383,7 @@ def get_clip_pixmap(pdf_path, page_number, dpi, clip):
         `fitz.Pixmap`. Caller owns it; safe to `.save(...)` directly.
     """
     entry = _ensure_full_render(pdf_path, page_number, dpi)
-    full_pix = entry["pix"]
-    full_h, full_w = full_pix.h, full_pix.w
+    full_h, full_w = _entry_dims(entry)
     x0, y0, x1, y1 = _slice_indices(
         clip, entry["page_w_pts"], entry["page_h_pts"], full_w, full_h)
     rgb = _entry_rgb(entry)
