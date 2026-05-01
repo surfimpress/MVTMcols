@@ -31,6 +31,7 @@ from page_context import build_context
 from column_pipeline import detect_strips, cluster_boundaries, place_columns
 from db_writer import DBWriter, DirectDBWriter
 import page_cv
+from pdf_utils import try_embedded_bitmap_pil
 
 
 def is_body_text_fp(confidence, x_pct, y_pct, w_pct, h_pct, body_text_regions):
@@ -928,18 +929,27 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
             continue
 
         page_out = os.path.join(output_dir, f"p{page_num}")
-        doc = _fitz.open(pdf_path)
-        pg = doc[0]
-        pix = pg.get_pixmap(dpi=150)
-        img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
-            pix.h, pix.w, pix.n)
-        doc.close()
-
-        pil = Image.fromarray(img[:, :, :3]).convert("RGBA")
-
-        # Save raw page image (no overlay lines) for the SVG viewer
         raw_path = os.path.join(page_out, "page_raw.png")
-        pil.convert("RGB").save(raw_path)
+
+        # Fast path: when MVTM_USE_EMBEDDED_BITMAP=1 and the page's
+        # source is a single 1-bit (JBIG2) embedded image, decode that
+        # bitmap directly and write it at native resolution as mode='1'.
+        # No re-render, no RGB stack, no resample — preserves the
+        # source's bilevel nature and produces a denser/smaller PNG
+        # than the 150-DPI RGB equivalent.
+        bitmap_pil = try_embedded_bitmap_pil(pdf_path, 0)
+        if bitmap_pil is not None:
+            bitmap_pil.save(raw_path, optimize=True)
+        else:
+            doc = _fitz.open(pdf_path)
+            pg = doc[0]
+            pix = pg.get_pixmap(dpi=150)
+            img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+                pix.h, pix.w, pix.n)
+            doc.close()
+
+            pil = Image.fromarray(img[:, :, :3]).convert("RGBA")
+            pil.convert("RGB").save(raw_path)
 
         # ── overlay.png generation (disabled) ──────────────────────
         # Pre-SVG-viewer dev-validation artifact: a baked-in raster of

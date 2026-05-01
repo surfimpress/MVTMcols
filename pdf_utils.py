@@ -396,6 +396,48 @@ def get_clip_pixmap(pdf_path, page_number, dpi, clip):
     return pix
 
 
+def try_embedded_bitmap_pil(pdf_path, page_number):
+    """If the page's source is a single bilevel (1-bit) embedded image
+    — the typical case for the corpus's JBIG2-encoded scans — decode
+    that bitmap and return it as a PIL Image at native resolution,
+    in mode='1' (PIL bilevel). Otherwise return None.
+
+    Gated by `MVTM_USE_EMBEDDED_BITMAP=1` so writers can opt into
+    the same fast path the render cache uses, without needing to
+    re-derive the format check or invoke a fitz render. Caller writes
+    the returned image to disk; mode='1' PNGs preserve the source
+    bilevel encoding and are smaller than the equivalent RGB / mode=L
+    re-rendered raster.
+    """
+    if os.environ.get("MVTM_USE_EMBEDDED_BITMAP") != "1":
+        return None
+    try:
+        doc = open_clean_pdf(pdf_path)
+        try:
+            page = doc[page_number]
+            imgs = page.get_images(full=True)
+            if len(imgs) != 1:
+                return None
+            xref = imgs[0][0]
+            info = doc.extract_image(xref)
+            if info.get("bpc") != 1:
+                return None
+            import io
+            from PIL import Image
+            # PyMuPDF transcodes JBIG2 to a mode=L PNG with only
+            # {0, 255} values — verified empirically. Threshold at 128
+            # to recover the strict bilevel image (mode='1') without
+            # introducing intermediate greys.
+            im = Image.open(io.BytesIO(info["image"]))
+            if im.mode != "1":
+                im = im.convert("L").point(lambda v: 255 if v >= 128 else 0, mode="1")
+            return im
+        finally:
+            doc.close()
+    except Exception:
+        return None
+
+
 def clear_render_cache():
     """Drop every cached page render. Call between issues if memory matters."""
     for entry in _RENDER_CACHE.values():
