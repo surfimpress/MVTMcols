@@ -2,7 +2,7 @@
 
 ## `instructions/` is the durable knowledge base — keep it current
 
-Two files in `instructions/` document things that don't live in the code,
+Three files in `instructions/` document things that don't live in the code,
 and that future agents (including future-me) will rely on as context:
 
 - **`detection_methods_review.md`** — the catalogue of detection
@@ -34,6 +34,22 @@ and that future agents (including future-me) will rely on as context:
     page-N convention)
   - a recurring layout pattern lands in code — note the implementation
     location alongside the pattern description so the two stay linked
+  - **append a dated entry** to the "Update history" at the bottom
+
+- **`rasterisation_pipeline.md`** — the map of who renders what, at
+  which DPI, in which mode, and which on-disk artefacts feed which
+  consumers. Read this before touching `pdf_utils.py`, the embedded-
+  bitmap fast path, or any writer that produces `page_raw.png` /
+  `*_col*.png` / `ads/p<N>/*.png`. Cross-links `dpi_constants.py` for
+  per-stage DPI rationale. **Update when:**
+  - a new on-disk artefact is added or removed
+  - a writer changes mode/DPI (e.g. RGB → mode='1', or 150 → 300)
+  - the embedded-bitmap gate criteria change, or a new fast-path is
+    added
+  - the cache contract in `pdf_utils` changes (new fields, new
+    derivation paths, new eviction policy)
+  - a detector starts re-reading from disk — that's a contract
+    change worth surfacing immediately
   - **append a dated entry** to the "Update history" at the bottom
 
 `instructions/archive/` holds historical docs (the original
