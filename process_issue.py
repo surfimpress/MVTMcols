@@ -21,6 +21,13 @@ import subprocess
 import time
 from contextlib import closing
 
+# Stable per-process timestamp used as the suffix when this run moves
+# stale per-page artefacts aside (see L640-ish below). Generated once
+# so all per-page renames in a single invocation share a stamp, which
+# is enough to keep this run's .bak files distinguishable from any
+# concurrent or prior run's .bak files.
+_run_stamp = time.strftime("%Y%m%d_%H%M%S") + f"_{os.getpid()}"
+
 import numpy as np
 
 from split_page import PageResult, extract_columns, _save_metadata
@@ -638,9 +645,24 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         # so detectors can run beforehand.
         page_out = os.path.join(output_dir, f"p{page_num}")
         if os.path.exists(page_out):
+            # Move-aside, never delete: stale `*_col*.png` and
+            # page_meta.json from a prior run get renamed to a
+            # `.bak-<run_stamp>` sibling rather than unlinked. If this
+            # invocation crashes mid-write, the prior content is still
+            # recoverable by hand from the .bak file. Cleanup of the
+            # .bak files is an explicit user-authorised step, never
+            # automatic.
             for f in os.listdir(page_out):
                 if ("_col" in f and f.endswith(".png")) or f == "page_meta.json":
-                    os.remove(os.path.join(page_out, f))
+                    src = os.path.join(page_out, f)
+                    bak = f"{src}.bak-{_run_stamp}"
+                    # If a .bak with this stamp already exists (same
+                    # process re-touching the file), leave it alone —
+                    # the prior content is what we want preserved.
+                    if not os.path.exists(bak):
+                        os.rename(src, bak)
+                    else:
+                        os.remove(src)
         os.makedirs(page_out, exist_ok=True)
 
         ads_with_uuids = [
