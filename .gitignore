@@ -6,7 +6,26 @@ __pycache__/
 *.archive
 columns/
 screenshots/
+.claude/
+
+# Database backups created by db_writer's snapshot-then-delete pattern
+# These accumulate during batch runs; they're a runtime safety net,
+# not source. Keep on disk, don't commit.
+data/db_backups/
+data/*.bak
+data/*.bak-*
+
+# Local trial/experiment dirs (one-off material; do not commit)
+display_trial/
 
 # SQLite WAL sidecar files (created when journal_mode=WAL is enabled)
 *.db-wal
 *.db-shm
+
+# transcribe pipeline runtime data (DB + work tickets)
+transcribe/data/transcribe.db
+transcribe/data/db_backups/
+transcribe/work/columns/*.json
+transcribe/work/ads/*.json
+transcribe/work/items/*.json
+transcribe/work/results/
