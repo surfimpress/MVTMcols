@@ -20,9 +20,51 @@ no JSON construction lives here. The point is the seam, not the work.
 
 from __future__ import annotations
 
+import json
+import os
 import sqlite3
+import time
 from abc import ABC, abstractmethod
 from contextlib import closing
+
+
+# Where DELETE-snapshots get parked. One JSON per (table, issue, run-stamp);
+# never auto-cleaned. Cleanup is an explicit user-authorised step.
+_DB_BACKUP_DIR = "data/db_backups"
+
+
+def _snapshot_rows_to_json(conn, table, year, month, day, stamp):
+    """Dump every row matching (year, month, day) AND hand_edited=0 in
+    `table` to `data/db_backups/<table>_<YYYY-MM-DD>_<stamp>.json`
+    BEFORE the caller deletes them. If the snapshot can't be written
+    the caller should not proceed with the delete — losing the rows
+    without a backup is exactly what this helper exists to prevent.
+
+    Returns the snapshot path. Raises on IO / DB error.
+    """
+    cur = conn.execute(
+        f"SELECT * FROM {table} "
+        f"WHERE year=? AND month=? AND day=? AND hand_edited=0",
+        (year, month, day),
+    )
+    cols = [d[0] for d in cur.description]
+    rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+    os.makedirs(_DB_BACKUP_DIR, exist_ok=True)
+    date_str = f"{year:04d}-{month:02d}-{day:02d}"
+    path = os.path.join(_DB_BACKUP_DIR, f"{table}_{date_str}_{stamp}.json")
+    # Write to .tmp + rename so a crash mid-write doesn't leave a
+    # truncated snapshot the user might mistake for the real thing.
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({
+            "table": table,
+            "year": year, "month": month, "day": day,
+            "stamp": stamp,
+            "row_count": len(rows),
+            "rows": rows,
+        }, f, indent=2, default=str)
+    os.replace(tmp, path)
+    return path
 
 
 class DBWriter(ABC):
@@ -93,6 +135,10 @@ class DirectDBWriter(DBWriter):
 
         self.db_path = db_path
         self._layout_db = LayoutDB(db_path)
+        # Stable per-writer run stamp. All DELETE-snapshots from this
+        # writer share the stamp, so an entire issue's snapshots stay
+        # grouped on disk and traceable to the same process.
+        self._run_stamp = time.strftime("%Y%m%d_%H%M%S") + f"_{os.getpid()}"
 
     # Hand-edit respect (introduced 2026-04-27, migration 002).
     #
@@ -126,8 +172,15 @@ class DirectDBWriter(DBWriter):
         return {r[0] for r in rows}
 
     def delete_issue_ads(self, year, month, day):
+        # Snapshot-then-delete: dump every row about to be removed to
+        # JSON in data/db_backups/ first. If the snapshot fails for
+        # any reason we abort before touching the table — losing the
+        # rows without a recoverable copy is the exact failure this
+        # guards against.
         skipped = self._hand_edited_pages("detected_ads", year, month, day)
         with closing(sqlite3.connect(self.db_path)) as conn, conn:
+            _snapshot_rows_to_json(
+                conn, "detected_ads", year, month, day, self._run_stamp)
             conn.execute(
                 "DELETE FROM detected_ads "
                 "WHERE year=? AND month=? AND day=? AND hand_edited=0",
@@ -137,9 +190,19 @@ class DirectDBWriter(DBWriter):
             print(f"  [skip P{page} ads delete: hand-edited rows preserved]")
 
     def delete_issue_layouts(self, year, month, day):
+        # Snapshot-then-delete for both tables; same rationale as
+        # delete_issue_ads. The two snapshots happen inside the same
+        # transaction as the deletes, so if the txn rolls back the
+        # snapshots are still on disk (file IO is outside SQLite's
+        # transaction) — we accept a leaked snapshot file in that
+        # rollback case rather than risk a delete with no backup.
         layout_skip = self._hand_edited_pages("page_layouts", year, month, day)
         geom_skip = self._hand_edited_pages("page_geometry", year, month, day)
         with closing(sqlite3.connect(self.db_path)) as conn, conn:
+            _snapshot_rows_to_json(
+                conn, "page_layouts", year, month, day, self._run_stamp)
+            _snapshot_rows_to_json(
+                conn, "page_geometry", year, month, day, self._run_stamp)
             conn.execute(
                 "DELETE FROM page_layouts "
                 "WHERE year=? AND month=? AND day=? AND hand_edited=0",
