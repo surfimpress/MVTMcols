@@ -35,6 +35,7 @@ from pdf_utils import (
     render_grey_uint8,
     get_clip_pixmap,
     get_page_size_pts,
+    try_embedded_bitmap_pil,
 )
 
 
@@ -1227,6 +1228,12 @@ def extract_ad_images(pdf_path, ads, output_dir, page_number=0, dpi=450,
     # PDF and re-rasterising once per ad.
     pw, ph = get_page_size_pts(pdf_path, page_number, dpi)
 
+    # Fast path: when the source page is a single 1-bit (JBIG2) image
+    # and the bitmap gate is set, fetch it once at native resolution
+    # and crop each ad from it as PIL mode='1'. Falls through to the
+    # legacy fitz-clip path when bitmap_pil is None.
+    bitmap_pil = try_embedded_bitmap_pil(pdf_path, page_number)
+
     os.makedirs(output_dir, exist_ok=True)
     stem = pdf_path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
 
@@ -1242,19 +1249,28 @@ def extract_ad_images(pdf_path, ads, output_dir, page_number=0, dpi=450,
         x1_pct = min(100, ad["x_end_pct"] + margin_x)
         y1_pct = min(100, ad["y_end_pct"] + margin_y)
 
-        # Convert percentages to PDF points (pct_to_px_float is
-        # dimension-agnostic — works for points just as for pixels).
-        x0 = pct_to_px_float(x0_pct, pw)
-        y0 = pct_to_px_float(y0_pct, ph)
-        x1 = pct_to_px_float(x1_pct, pw)
-        y1 = pct_to_px_float(y1_pct, ph)
-
-        clip = fitz.Rect(x0, y0, x1, y1)
-        pix = get_clip_pixmap(pdf_path, page_number, dpi, clip)
-
         filename = f"{stem}_{name_prefix}{i + 1}.png"
         filepath = os.path.join(output_dir, filename)
-        pix.save(filepath)
+
+        if bitmap_pil is not None:
+            bw, bh = bitmap_pil.size
+            cx1 = pct_to_px(x0_pct, bw)
+            cx2 = pct_to_px(x1_pct, bw)
+            cy1 = pct_to_px(y0_pct, bh)
+            cy2 = pct_to_px(y1_pct, bh)
+            ad_pil = bitmap_pil.crop((cx1, cy1, cx2, cy2))
+            ad_pil.save(filepath, optimize=True)
+        else:
+            # Convert percentages to PDF points (pct_to_px_float is
+            # dimension-agnostic — works for points just as for pixels).
+            x0 = pct_to_px_float(x0_pct, pw)
+            y0 = pct_to_px_float(y0_pct, ph)
+            x1 = pct_to_px_float(x1_pct, pw)
+            y1 = pct_to_px_float(y1_pct, ph)
+
+            clip = fitz.Rect(x0, y0, x1, y1)
+            pix = get_clip_pixmap(pdf_path, page_number, dpi, clip)
+            pix.save(filepath)
 
         results.append({
             **ad,
