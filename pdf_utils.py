@@ -67,35 +67,86 @@ def _cache_key(pdf_path, page_number, dpi):
     return (os.path.abspath(pdf_path), mtime, page_number, dpi)
 
 
+def _build_page_shaped_bitmap(doc, page):
+    """If the page is a single 1-bit embedded image (the JBIG2 scan
+    case), decode that bitmap and paste it into a page-shaped white
+    PIL canvas at the bitmap's native PPI, positioned by the image
+    placement bbox. Returns a PIL `Image` in mode='1' or None if the
+    page doesn't fit the fast path.
+
+    Why page-shaped: the rest of the pipeline assumes pixel
+    coordinates map linearly to PDF-page-rect coordinates (via
+    `pct_to_px(pct, w)` etc.). The embedded bitmap on its own only
+    covers the placement bbox, which for issues with page margins
+    (e.g. 1902-01-17 has ~16% bottom white) does NOT span the page
+    rect. Pasting the bitmap into a page-shaped canvas at its bbox
+    offset reconstructs the page-rect coordinate system at the
+    bitmap's native resolution, with white margins where the bitmap
+    doesn't reach. Within the bbox the bitmap is byte-identical to
+    the source — no resize, no resample.
+
+    Image content extending past the page rect (a rare case — e.g.
+    1946 image x1 ≈ 105% of page width) is clipped by PIL's paste,
+    matching the legacy fitz render's clipping behaviour.
+    """
+    imgs = page.get_images(full=True)
+    if len(imgs) != 1:
+        return None
+    xref = imgs[0][0]
+    info = doc.extract_image(xref)
+    if info.get("bpc") != 1:
+        return None
+    try:
+        bbox = page.get_image_bbox(imgs[0])
+    except Exception:
+        return None
+    if bbox.width <= 0 or bbox.height <= 0:
+        return None
+
+    import io
+    from PIL import Image
+    # PyMuPDF transcodes JBIG2 to a mode=L PNG with only {0, 255}
+    # values. Threshold at 128 to recover strict bilevel mode='1'.
+    im = Image.open(io.BytesIO(info["image"]))
+    if im.mode != "1":
+        im = im.convert("L").point(lambda v: 255 if v >= 128 else 0, mode="1")
+
+    native_w, native_h = im.size
+    # Native PPI from the bitmap's actual extent in points. Use width
+    # for the PPI; height should agree to within rounding for proper
+    # scans (don't enforce — defer to the bitmap's true dims).
+    ppi = native_w / bbox.width
+
+    page_w_px = int(round(page.rect.width * ppi))
+    page_h_px = int(round(page.rect.height * ppi))
+    ox = int(round(bbox.x0 * ppi))
+    oy = int(round(bbox.y0 * ppi))
+
+    # mode='1' background: 1 = white, 0 = ink.
+    canvas = Image.new("1", (page_w_px, page_h_px), 1)
+    canvas.paste(im, (ox, oy))
+    return canvas
+
+
 def _try_embedded_bitmap_render(doc, page, dpi):
     """If the page contains a single bilevel (1-bit) embedded image — the
     typical case for the corpus's JBIG2-encoded scans — decode that
-    bitmap directly and resample to the requested DPI, bypassing
-    `page.get_pixmap`. Returns a cache-entry dict on success, or None
-    if the page doesn't fit the fast path.
+    bitmap into a page-shaped canvas (see `_build_page_shaped_bitmap`)
+    and resample to the requested DPI, bypassing `page.get_pixmap`.
+    Returns a cache-entry dict on success, or None if the page doesn't
+    fit the fast path.
 
-    Gated by env var `MVTM_USE_EMBEDDED_BITMAP=1` for the duration of
-    the 2026-05 experiment. When the flag is unset, this returns None
-    and the caller falls back to the historical fitz render path.
+    Auto-enabled per page; opt-out via env var
+    `MVTM_USE_EMBEDDED_BITMAP=0`.
     """
-    if os.environ.get("MVTM_USE_EMBEDDED_BITMAP") != "1":
+    if os.environ.get("MVTM_USE_EMBEDDED_BITMAP") == "0":
         return None
     try:
-        imgs = page.get_images(full=True)
-        if len(imgs) != 1:
+        page_im = _build_page_shaped_bitmap(doc, page)
+        if page_im is None:
             return None
-        xref = imgs[0][0]
-        info = doc.extract_image(xref)
-        if info.get("bpc") != 1:
-            return None
-        # Decode to numpy. PyMuPDF transcodes JBIG2 to PNG-of-mode-L
-        # but only emits 0/255 values (verified on 1922-06-30 — zero
-        # intermediate pixels), so the data is bilevel even though the
-        # container is 8-bit greyscale.
-        import io
-        from PIL import Image
-        im = Image.open(io.BytesIO(info["image"]))
-        native = np.asarray(im.convert("L"))  # (H, W) uint8
+        # mode='1' → uint8 0/255 numpy array via mode='L' conversion.
+        native = np.asarray(page_im.convert("L"))  # (H, W) uint8
 
         # Resample to the DPI the cache contract expects. Page rect is
         # in PDF points; (page_pts * dpi / 72) gives the pixel count
@@ -399,44 +450,31 @@ def get_clip_pixmap(pdf_path, page_number, dpi, clip):
 def try_embedded_bitmap_pil(pdf_path, page_number):
     """If the page's source is a single bilevel (1-bit) embedded image
     — the typical case for the corpus's JBIG2-encoded scans — decode
-    that bitmap and return it as a PIL Image at native resolution,
-    in mode='1' (PIL bilevel). Otherwise return None.
+    that bitmap into a page-shaped canvas (see
+    `_build_page_shaped_bitmap`) and return it as a PIL `Image` in
+    mode='1'. Otherwise return None.
 
-    Auto-enabled per page: callers always invoke this helper, and it
-    short-circuits to None for pages whose source isn't a single 1-bit
-    embedded image (so legacy paths run unchanged for those). For
-    pages that pass the format guard, callers can write the returned
-    image to disk; mode='1' PNGs preserve the source bilevel encoding
-    and are smaller than the equivalent RGB / mode=L re-rendered
-    raster.
+    Page-shaped, not bbox-shaped: writers consuming this function save
+    artefacts that are then overlaid with column / ad / headline
+    detections expressed as page-rect percentages. Returning a
+    page-shaped canvas keeps writer output coordinate-consistent with
+    the detector input. Within the bitmap's bbox the data is
+    byte-identical to the embedded JBIG2 stream (no resize); outside
+    the bbox the canvas is white at the bitmap's native PPI.
 
-    Validated on 1923-06-22 and 1946-01-03. The off switch
-    `MVTM_USE_EMBEDDED_BITMAP=0` forces the legacy path even for
-    eligible pages, kept available as an escape hatch.
+    Validated on 1923-06-22, 1946-01-03 (bbox extends slightly past
+    page → overflow clipped to match legacy), and 1902-01-17 (bbox
+    sits inside page with ~16% bottom white margin → margin
+    reconstructed in canvas).
+
+    Auto-enabled per page; opt-out via `MVTM_USE_EMBEDDED_BITMAP=0`.
     """
     if os.environ.get("MVTM_USE_EMBEDDED_BITMAP") == "0":
         return None
     try:
         doc = open_clean_pdf(pdf_path)
         try:
-            page = doc[page_number]
-            imgs = page.get_images(full=True)
-            if len(imgs) != 1:
-                return None
-            xref = imgs[0][0]
-            info = doc.extract_image(xref)
-            if info.get("bpc") != 1:
-                return None
-            import io
-            from PIL import Image
-            # PyMuPDF transcodes JBIG2 to a mode=L PNG with only
-            # {0, 255} values — verified empirically. Threshold at 128
-            # to recover the strict bilevel image (mode='1') without
-            # introducing intermediate greys.
-            im = Image.open(io.BytesIO(info["image"]))
-            if im.mode != "1":
-                im = im.convert("L").point(lambda v: 255 if v >= 128 else 0, mode="1")
-            return im
+            return _build_page_shaped_bitmap(doc, doc[page_number])
         finally:
             doc.close()
     except Exception:
