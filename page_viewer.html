@@ -395,8 +395,15 @@ async function init() {
         }).join('');
 
         const imgEl = document.getElementById('page-img');
-        imgEl.src = `${BASE}/${issueDir}/p${pageNum}/page_raw.png`;
-        imgEl.onerror = () => { imgEl.src = `${BASE}/${issueDir}/p${pageNum}/overlay.png`; };
+        // Display variant: ~470 KB AVIF at 150 DPI greyscale. The native
+        // page_raw.png is preferred-as-fallback only for pre-un-gate
+        // issues (RGB at ~150 DPI, browser-safe ~24 MB RAM). For
+        // un-gate-era issues page_raw.png is mode='1' at ~510 PPI which
+        // is ~220 MB RGBA in the browser and crashes the renderer; those
+        // issues MUST have a page_display.avif on disk (backfilled), so
+        // the AVIF fetch will succeed and the fallback never fires.
+        imgEl.src = `${BASE}/${issueDir}/p${pageNum}/page_display.avif`;
+        imgEl.onerror = () => { imgEl.src = `${BASE}/${issueDir}/p${pageNum}/page_raw.png`; };
 
         imgEl.onload = () => {
             document.getElementById('overlay-svg').setAttribute('viewBox', `0 0 ${imgEl.naturalWidth} ${imgEl.naturalHeight}`);

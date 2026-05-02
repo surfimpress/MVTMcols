@@ -188,7 +188,7 @@ function renderOneIssueDetail(issue) {
             .filter(f => f.includes('anchor') || f.includes('prior') || f.includes('sliver'))
             .map(f => `<span class="flag">${f}</span>`).join('');
 
-        const url = `${BASE}/${issue.dir}/p${pg.page}/page_raw.png`;
+        const url = `${BASE}/${issue.dir}/p${pg.page}/page_display.avif`;
         const viewerUrl = `page_viewer.html?issue=${issue.dir}&page=${pg.page}`;
         const overlayHtml = `<a href="${viewerUrl}" target="_blank"><img class="thumb thumb-wide" src="${url}" loading="lazy" onerror="retryImg(this)"></a>
             <a href="${viewerUrl}" target="_blank" style="display:inline-block;margin-left:8px;font-size:0.8em;color:#4488ff;text-decoration:none">Open inspector \u2192</a>`;
@@ -354,6 +354,15 @@ function setAllDetails(name, open) {
 // Retry images that fail to load (mobile browsers don't auto-retry transient failures).
 // Up to 3 attempts with exponential backoff and a cache-buster so any cached 4xx is bypassed.
 function retryImg(img) {
+    // First failure on a page_display.avif: assume the issue is
+    // pre-un-gate (no AVIF on disk) and fall back to page_raw.png. For
+    // pre-un-gate issues page_raw.png is RGB at ~150 DPI and browser-safe.
+    // Un-gate-era issues are expected to have page_display.avif backfilled.
+    if (img.src.endsWith('page_display.avif') && !img.dataset.fellBack) {
+        img.dataset.fellBack = '1';
+        img.src = img.src.replace('page_display.avif', 'page_raw.png');
+        return;
+    }
     const tries = parseInt(img.dataset.retryTries || '0', 10);
     if (tries >= 3) return;
     img.dataset.retryTries = tries + 1;

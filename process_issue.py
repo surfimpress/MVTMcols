@@ -952,6 +952,7 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
 
         page_out = os.path.join(output_dir, f"p{page_num}")
         raw_path = os.path.join(page_out, "page_raw.png")
+        display_path = os.path.join(page_out, "page_display.avif")
 
         # Fast path: when MVTM_USE_EMBEDDED_BITMAP=1 and the page's
         # source is a single 1-bit (JBIG2) embedded image, decode that
@@ -962,6 +963,23 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
         bitmap_pil = try_embedded_bitmap_pil(pdf_path, 0)
         if bitmap_pil is not None:
             bitmap_pil.save(raw_path, optimize=True)
+            # Browser-display variant. The native page_raw.png is at
+            # ~510 PPI mode='1' — small on disk (~1 MB) but ~220 MB RGBA
+            # in a browser, which trips Safari/Chromium's "A problem
+            # repeatedly occurred" memory guard. The display variant is
+            # a 150-DPI LANCZOS-greyscale AVIF: ~9 MB browser RAM,
+            # ~470 KB on disk, visually preferred (compared variants
+            # 2026-05-02). page_raw.png stays as the high-fidelity
+            # archival/processing artefact; viewer HTML reads
+            # page_display.avif.
+            doc = _fitz.open(pdf_path)
+            pg_rect = doc[0].rect
+            doc.close()
+            disp_w = int(round(pg_rect.width * 150 / 72.0))
+            disp_h = int(round(pg_rect.height * 150 / 72.0))
+            display_pil = bitmap_pil.convert("L").resize(
+                (disp_w, disp_h), Image.LANCZOS)
+            display_pil.save(display_path, quality=70)
         else:
             doc = _fitz.open(pdf_path)
             pg = doc[0]
@@ -972,6 +990,10 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
 
             pil = Image.fromarray(img[:, :, :3]).convert("RGBA")
             pil.convert("RGB").save(raw_path)
+            # Display variant: same fitz 150-DPI render, csGRAY → AVIF.
+            # Cheaper than a separate render — reuse the RGB samples we
+            # already have.
+            pil.convert("L").save(display_path, quality=70)
 
         # ── overlay.png generation (disabled) ──────────────────────
         # Pre-SVG-viewer dev-validation artifact: a baked-in raster of

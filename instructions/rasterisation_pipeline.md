@@ -33,13 +33,35 @@ plus `columns/<YYYY-MM-DD>/ads/p<N>/` (per-ad crops).
 
 | Artefact | Producer | Library | DPI | Mode (legacy) | Mode (bitmap path) |
 |---|---|---|---|---|---|
-| `page_raw.png` | `process_issue.py:954–974` | PyMuPDF + PIL | 150 (legacy) / native ~510 (bitmap) | RGB | mode='1' at native PPI |
+| `page_raw.png` | `process_issue.py:954–998` | PyMuPDF + PIL | 150 (legacy) / native ~510 (bitmap) | RGB | mode='1' at native PPI |
+| `page_display.avif` | `process_issue.py:954–998` (alongside `page_raw.png`) | PIL (LANCZOS + AVIF q=70) | 150 | mode='L' from RGB render | mode='L' from native bitmap |
 | `*_col<N>.png` (no ads) | `split_page.py:181–186` | PIL | 450 (legacy) / native (bitmap) | RGB | mode='1' at native PPI |
 | `*_col<N>.png` (ads-present) | `split_page.py:187+` | PIL | 450 | RGBA (alpha holes for ad rectangles) | unchanged — bitmap path declines this case (see below) |
 | `ads/p<N>/*.png` | `detect_ads.py:1255–1273` | PIL | 450 (legacy) / native (bitmap) | RGB | mode='1' at native PPI |
 | `body_blur.png` | `process_issue.py:792` | derived from in-memory blur output | 150 | mode='L' (8-bit grey) | unchanged — see below |
 | `page_meta.json` | `process_issue.py` (per-page metadata) | json | n/a | n/a | n/a |
 | `page_analysis.json`, `page_cv.{json,npz}` | `process_issue.py` | json / npz | n/a | n/a | n/a |
+
+### Why a separate display artefact
+
+`page_raw.png` is the archival/processing output — kept high-fidelity
+(mode='1' at native ~510 PPI for the bitmap path) so downstream tools
+can re-derive cuts, do further analysis, etc. It is **not** safe to
+load in a browser: a 6388×9034 mode='1' PNG decodes to ~220 MB RGBA
+in the renderer, which trips Safari/Chromium's "A problem repeatedly
+occurred" guard.
+
+`page_display.avif` is the browser-display variant: 150-DPI mode='L'
+LANCZOS-downsampled greyscale, AVIF quality=70, ~470 KB on disk and
+~9 MB RGBA in the browser. Visually preferred (compared mode='1' /
+mode='L', PNG / AVIF, native-downsampled / fitz-rerender,
+2026-05-02 — `display_trial/`).
+
+`viewer.html` and `page_viewer.html` reference `page_display.avif`.
+On 404 they fall back to `page_raw.png` — safe for pre-un-gate issues
+(RGB at ~150 DPI, ~24 MB browser RAM) but unsafe for un-gate-era
+issues, which therefore require `page_display.avif` on disk
+(backfilled by `scripts/backfill_page_display.py`).
 
 ### The bitmap fast path
 
@@ -85,11 +107,11 @@ The path is auto-enabled per page; opt-out via env var
   possible on non-canonical DPIs; verified against MuPDF's output at
   the canonical DPIs in actual use.
 - **Browser memory on `page_raw.png`.** The native-PPI mode='1'
-  artefact is ~6388×9034 pixels for an 1902 issue — small on disk
-  (~1 MB compressed) but ~230 MB RAM in a browser when decoded to
-  RGBA for display. Currently causes "A problem repeatedly occurred"
-  reload errors in `page_viewer.html` for issues processed since the
-  un-gate (`a04d07a`). Open question; resolution pending.
+  artefact is ~6388×9034 pixels — ~220 MB RGBA in a browser, which
+  used to trip the renderer for un-gate-era issues. Resolved by
+  introducing the separate `page_display.avif` artefact (see "Why a
+  separate display artefact" above). `page_raw.png` is no longer
+  consumed by the viewer.
 
 ## Consumers — who reads what
 
@@ -118,10 +140,12 @@ files".
 
 ### Display-only consumers
 
-- `viewer.html:191` — `${BASE}/${issue.dir}/p${pg.page}/page_raw.png`
-  thumbnail in the issue list.
-- `page_viewer.html:398` — `page_raw.png` as the `<img>` source for
-  the page view; `:608` — `body_blur.png` for the body-text overlay.
+- `viewer.html:191` — `page_display.avif` thumbnail in the issue list
+  (with `retryImg`-driven fallback to `page_raw.png` for pre-un-gate
+  issues that don't have an AVIF on disk).
+- `page_viewer.html:398–404` — `page_display.avif` as the `<img>`
+  source for the page view; `onerror` falls back to `page_raw.png`.
+  `:608` — `body_blur.png` for the body-text overlay.
 - `ads.html` — references to `ads/p<N>/*.png` thumbnails.
 
 The only on-disk re-read by Python is `explore_pipeline.py:308`
@@ -166,6 +190,14 @@ batch processing.
 
 ## Update history
 
+- **2026-05-02 — `page_display.avif` artefact added.** Resolves the
+  open browser-memory issue. Writer in `process_issue.py` produces a
+  150-DPI mode='L' AVIF q=70 alongside `page_raw.png`. Viewers
+  (`viewer.html`, `page_viewer.html`) point at the AVIF with
+  fallback to `page_raw.png`. Backfill script
+  `scripts/backfill_page_display.py` filled in the 437 un-gate-era
+  pages (mode='1' page_raw.png) across the corpus; pre-un-gate
+  RGB pages are skipped — they're already browser-safe at ~150 DPI.
 - **2026-05-02 — Initial draft.** Steps 0–6 of the "cautious removal
   of pointless rendering" plan landed: slim cache, mode='1' writers
   for `page_raw.png` / `*_col*.png` (no-ads) / ad crops, page-shaped
