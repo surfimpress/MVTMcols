@@ -28,9 +28,11 @@ import sqlite3
 import sys
 
 from . import db as _db
+from . import slice as _slice
 
 
 WORK_DIR = os.path.join(_db.REPO_ROOT, "transcribe", "work", "columns")
+SLICES_DIR = os.path.join(_db.REPO_ROOT, "transcribe", "work", "slices")
 
 # The column-transcriber agent definition is the source of truth for
 # the durable instructions a transcriber follows. The agent file's
@@ -196,6 +198,21 @@ def build_ticket(*,
         "ads_in_column": ads_in_col,
     }
 
+    # Slice the column PNG at h-rules. The slicer writes slice PNGs
+    # under transcribe/work/slices/<row-id>/ and returns a manifest;
+    # we put the manifest on the ticket so the orchestrator dispatches
+    # one agent call per slice. Phase A confirmed slicing eliminates
+    # the downsampling-driven fabrication failure mode (see
+    # transcribe/work/experiments.jsonl).
+    image_path_abs = os.path.join(_db.REPO_ROOT, image_path_rel)
+    slice_out_dir = os.path.join(SLICES_DIR, row_id)
+    slices = _slice.slice_column(
+        image_path=image_path_abs,
+        column_position=context["column_position"],
+        h_rules=h_in_col,
+        out_dir=slice_out_dir,
+        repo_root=_db.REPO_ROOT)
+
     ticket = dict(context)
     ticket.update({
         "row_id": row_id,
@@ -203,6 +220,7 @@ def build_ticket(*,
         "image_sha256": image_sha256,
         "agent_file_path": AGENT_FILE_REL,
         "prompt_hash": _db.prompt_hash(prompt_template_text, context),
+        "slices": slices,
     })
     return ticket
 

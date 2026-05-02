@@ -35,6 +35,59 @@ def _good_envelope(*, repair=False) -> dict:
     }
 
 
+def _good_sliced_envelope(*, repair=False) -> dict:
+    """Three-slice envelope: column-edge / full / full / column-edge.
+    Joiner inserts '---' between slices."""
+    return {
+        "slices": [
+            {"idx": 0,
+             "transcript_text": "FIRST",
+             "transcriber_notes": ""},
+            {"idx": 1,
+             "transcript_text": "MIDDLE BODY",
+             "transcriber_notes": "saw a manicule"},
+            {"idx": 2,
+             "transcript_text": "LAST",
+             "transcriber_notes": ""},
+        ],
+        "quality_flags": {
+            "damage": False,
+            "faded": False,
+            "smudged": False,
+            "low_legibility": False,
+            "partial_cut": False,
+            "adjacent_text_visible": False,
+        },
+        "repair_needed": repair,
+        "repair_reason": "ad mask not applied" if repair else "",
+    }
+
+
+def _three_slice_manifest() -> list[dict]:
+    """Manifest matching the shape produced by transcribe.slice for a
+    column with 2 full-width h-rules (3 slices)."""
+    return [
+        {"idx": 0, "y_top_pct": 0.0, "y_bottom_pct": 33.0,
+         "y_top_px": 0, "y_bottom_px": 264, "height_px": 264,
+         "image_path": "transcribe/work/slices/x/slice00.png",
+         "top_rule_class": "column_edge", "bottom_rule_class": "full",
+         "top_rule_y_pct": None, "bottom_rule_y_pct": 33.0,
+         "subdivided": False, "sub_idx": 0},
+        {"idx": 1, "y_top_pct": 33.0, "y_bottom_pct": 67.0,
+         "y_top_px": 264, "y_bottom_px": 536, "height_px": 272,
+         "image_path": "transcribe/work/slices/x/slice01.png",
+         "top_rule_class": "full", "bottom_rule_class": "full",
+         "top_rule_y_pct": 33.0, "bottom_rule_y_pct": 67.0,
+         "subdivided": False, "sub_idx": 0},
+        {"idx": 2, "y_top_pct": 67.0, "y_bottom_pct": 100.0,
+         "y_top_px": 536, "y_bottom_px": 800, "height_px": 264,
+         "image_path": "transcribe/work/slices/x/slice02.png",
+         "top_rule_class": "full", "bottom_rule_class": "column_edge",
+         "top_rule_y_pct": 67.0, "bottom_rule_y_pct": None,
+         "subdivided": False, "sub_idx": 0},
+    ]
+
+
 class ParseEnvelopeTest(unittest.TestCase):
 
     def test_strips_json_fence(self):
@@ -74,6 +127,30 @@ class ParseEnvelopeTest(unittest.TestCase):
     def test_rejects_invalid_json(self):
         with self.assertRaises(ValueError):
             ing.parse_envelope("not json at all")
+
+    def test_accepts_sliced_envelope(self):
+        out = ing.parse_envelope(json.dumps(_good_sliced_envelope()))
+        self.assertEqual(len(out["slices"]), 3)
+        self.assertEqual(out["slices"][0]["transcript_text"], "FIRST")
+
+    def test_rejects_sliced_envelope_missing_idx(self):
+        env = _good_sliced_envelope()
+        del env["slices"][1]["idx"]
+        with self.assertRaises(ValueError) as ctx:
+            ing.parse_envelope(json.dumps(env))
+        self.assertIn("idx", str(ctx.exception))
+
+    def test_rejects_sliced_envelope_missing_transcript(self):
+        env = _good_sliced_envelope()
+        del env["slices"][1]["transcript_text"]
+        with self.assertRaises(ValueError):
+            ing.parse_envelope(json.dumps(env))
+
+    def test_rejects_empty_slices_list(self):
+        env = _good_sliced_envelope()
+        env["slices"] = []
+        with self.assertRaises(ValueError):
+            ing.parse_envelope(json.dumps(env))
 
 
 class IngestRoundtripTest(unittest.TestCase):
@@ -123,7 +200,7 @@ class IngestRoundtripTest(unittest.TestCase):
             except OSError:
                 pass
 
-    def _claim_and_ticket(self):
+    def _claim_and_ticket(self, *, slices: list | None = None):
         conn = tdb.open_connection(self.tmp_db.name, attach_mvtm=False)
         try:
             row_id = tdb.claim_column(
@@ -144,6 +221,8 @@ class IngestRoundtripTest(unittest.TestCase):
             "prompt_hash": "test-prompt-hash",
             "agent_file_path": ".claude/agents/column-transcriber.md",
         }
+        if slices is not None:
+            ticket["slices"] = slices
         with open(os.path.join(
                 self.tickets_dir, f"{row_id}.json"), "w") as f:
             json.dump(ticket, f)
@@ -213,6 +292,61 @@ class IngestRoundtripTest(unittest.TestCase):
             self.assertIn("next column", r["description"])
         finally:
             conn.close()
+
+    def test_sliced_ingest_joins_and_persists_boundaries(self):
+        manifest = _three_slice_manifest()
+        row_id = self._claim_and_ticket(slices=manifest)
+        self._write_result(row_id, _good_sliced_envelope())
+
+        report = ing.ingest(row_id, model="claude-sonnet-4-6")
+        self.assertTrue(report["sliced"])
+        self.assertEqual(report["num_slices"], 3)
+
+        conn = sqlite3.connect(self.tmp_db.name)
+        conn.row_factory = sqlite3.Row
+        try:
+            row = conn.execute(
+                "SELECT status, transcript_text, transcriber_notes, "
+                "slice_boundaries "
+                "FROM column_transcripts WHERE id=?",
+                (row_id,)).fetchone()
+            self.assertEqual(row["status"], "done")
+            # Joined: 'FIRST\n\n---\n\nMIDDLE BODY\n\n---\n\nLAST'
+            self.assertEqual(
+                row["transcript_text"],
+                "FIRST\n\n---\n\nMIDDLE BODY\n\n---\n\nLAST")
+            # Notes from slice 1 only (others are empty).
+            self.assertIn("[slice 01]", row["transcriber_notes"])
+            self.assertIn("manicule", row["transcriber_notes"])
+            # Boundaries persisted as JSON with char offsets.
+            bnd = json.loads(row["slice_boundaries"])
+            self.assertEqual(len(bnd), 3)
+            self.assertEqual(bnd[0]["char_offset_start"], 0)
+            self.assertEqual(bnd[0]["char_offset_end"], 5)  # 'FIRST'
+            # Second slice starts after 'FIRST\n\n---\n\n' (12 chars).
+            self.assertEqual(bnd[1]["char_offset_start"], 12)
+        finally:
+            conn.close()
+
+    def test_sliced_envelope_without_manifest_raises(self):
+        # Ticket lacks 'slices' but envelope is sliced — error.
+        row_id = self._claim_and_ticket()  # no slices=
+        self._write_result(row_id, _good_sliced_envelope())
+
+        with self.assertRaises(ValueError) as ctx:
+            ing.ingest(row_id, model="claude-sonnet-4-6")
+        self.assertIn("slice", str(ctx.exception).lower())
+
+    def test_sliced_idx_mismatch_raises(self):
+        manifest = _three_slice_manifest()
+        row_id = self._claim_and_ticket(slices=manifest)
+        env = _good_sliced_envelope()
+        # Drop one slice.
+        env["slices"].pop()
+        self._write_result(row_id, env)
+        with self.assertRaises(ValueError) as ctx:
+            ing.ingest(row_id, model="claude-sonnet-4-6")
+        self.assertIn("idx mismatch", str(ctx.exception))
 
     def test_missing_result_file_is_clean_failure(self):
         row_id = self._claim_and_ticket()

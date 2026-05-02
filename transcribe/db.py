@@ -153,10 +153,16 @@ def mark_column_done(conn: sqlite3.Connection,
                      model: str,
                      prompt_hash_value: str,
                      raw_response_json: str,
+                     slice_boundaries: list | None = None,
                      tokens_in: int | None = None,
                      tokens_out: int | None = None,
                      cost_usd: float | None = None) -> None:
-    """Update a claimed column row with the LLM result."""
+    """Update a claimed column row with the LLM result.
+
+    ``slice_boundaries`` is the manifest-with-char-offsets returned by
+    ``transcribe.slice.join_slice_transcripts``. Stored as JSON; null
+    on legacy full-image transcripts.
+    """
     conn.execute(
         """UPDATE column_transcripts SET
               status='done',
@@ -168,6 +174,7 @@ def mark_column_done(conn: sqlite3.Connection,
               model=?,
               prompt_hash=?,
               raw_response_json=?,
+              slice_boundaries=?,
               tokens_in=?,
               tokens_out=?,
               cost_usd=?,
@@ -177,6 +184,8 @@ def mark_column_done(conn: sqlite3.Connection,
          json.dumps(quality_flags) if quality_flags is not None else None,
          1 if repair_needed else 0, repair_reason,
          model, prompt_hash_value, raw_response_json,
+         json.dumps(slice_boundaries)
+             if slice_boundaries is not None else None,
          tokens_in, tokens_out, cost_usd, now_iso(), row_id))
     conn.commit()
 

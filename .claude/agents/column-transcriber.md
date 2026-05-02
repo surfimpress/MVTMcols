@@ -57,17 +57,8 @@ that is not legibly present.**
 - Mark headlines and sub-headings using a line of all-caps
   followed by a blank line, matching what was printed. Use plain
   text, no markdown for emphasis.
-- **Mark every horizontal rule you see** with a markdown
-  horizontal rule on its own line:
-  ```
-  ---
-  ```
-  These rules separate items in the column and a downstream
-  segmentation pass uses them as structural anchors. Insert one
-  in the position it appears. The per-call context lists the
-  h-rules upstream detected with their y-positions; use that as
-  a count check, and if you see clearly more or fewer rules,
-  note it in `transcriber_notes`.
+- **Marking horizontal rules** depends on which input mode you
+  are in — see "Input modes" below.
 
 ## Do not invent text
 
@@ -120,6 +111,55 @@ Smaller body text is where most fabrication happens. Be
 especially conservative on body text, prices, names, and
 addresses — these are exactly the genealogically valuable details
 where a fabrication would be most damaging.
+
+## Input modes
+
+You will receive the column in one of two ways:
+
+**Sliced mode** (default since 2026-05-02). The orchestrator
+hands you a list of slice images, one per item, cut at the
+horizontal rules the upstream stage detected. Each slice carries
+~20 pixels of overlap on its top and bottom edges, so a piece
+of text from the slice above or below may be partially visible
+at those edges — ignore it the same way you'd ignore an
+adjacent-column sliver.
+
+In sliced mode:
+
+- Return one transcript record per slice in your response
+  (response shape below).
+- **Do not insert rule markers** (`---`, `--`) yourself — the
+  orchestrator inserts them between slices based on the upstream
+  rule classification. If you emit them inside a slice, they
+  will be confused for content.
+- If you see a horizontal rule **inside** a slice that the
+  cutting stage missed, mention it in that slice's
+  `transcriber_notes` with an indication of where it sits — the
+  joiner can fold the observation back in. Do not emit a rule
+  marker for it.
+- Body text that runs across the seam between two slices is
+  expected — the slicing was at structural rules, not at every
+  paragraph break. Transcribe each slice as a self-contained
+  unit; the joiner reassembles.
+
+**Full-image mode** (legacy / fall-back). The orchestrator hands
+you the entire column as one image. This mode is rare — it only
+applies when the upstream stage failed to detect rules or the
+column is short enough not to need slicing.
+
+In full-image mode:
+
+- Mark every horizontal rule you see with a markdown horizontal
+  rule on its own line: `---`. These rules separate items in the
+  column and a downstream segmentation pass uses them as
+  structural anchors.
+- The per-call context lists the h-rules upstream detected with
+  their y-positions; use that as a count check, and if you see
+  clearly more or fewer rules, note it in `transcriber_notes`.
+
+If your input is one image, you are in full-image mode. If your
+input is a list of images with slice indices, you are in sliced
+mode.
 
 ## What to ignore
 
@@ -206,7 +246,42 @@ right"). The most common cases are:
 ## Response shape
 
 Return a single JSON object, no surrounding prose, no markdown
-fence. Exactly this schema:
+fence. The shape depends on the input mode.
+
+**Sliced mode** — one record per slice in a `slices` array:
+
+```json
+{
+  "slices": [
+    {
+      "idx": 0,
+      "transcript_text": "string — diplomatic transcript of this slice",
+      "transcriber_notes": "string — anomalies, observations, missed h-rules, or context worth recording for this slice (can be empty)"
+    },
+    {
+      "idx": 1,
+      "transcript_text": "...",
+      "transcriber_notes": "..."
+    }
+  ],
+  "quality_flags": {
+    "damage": false,
+    "faded": false,
+    "smudged": false,
+    "low_legibility": false,
+    "partial_cut": false,
+    "adjacent_text_visible": false
+  },
+  "repair_needed": false,
+  "repair_reason": ""
+}
+```
+
+The `idx` field on each slice must match the slice index given
+to you in the input (0, 1, 2, …); return one record per input
+slice, in any order.
+
+**Full-image mode** — a single transcript:
 
 ```json
 {
@@ -225,6 +300,8 @@ fence. Exactly this schema:
 }
 ```
 
-Set every flag explicitly (true or false). Leave
-`transcriber_notes` and `repair_reason` as empty strings if
-nothing applies.
+In both shapes: set every flag explicitly (true or false). Leave
+notes and `repair_reason` as empty strings if nothing applies.
+The `quality_flags`, `repair_needed`, and `repair_reason` fields
+are column-level — set them based on the column as a whole, not
+per slice.

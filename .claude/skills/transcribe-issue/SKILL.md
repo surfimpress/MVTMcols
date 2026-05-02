@@ -26,32 +26,54 @@ The orchestrator's job is to glue them together.
    ticket file under `transcribe/work/columns/<row-id>.json`.
 
 2. **Read the new tickets.** Each ticket is a small JSON file
-   carrying the row id, the image path (relative to the repo
-   root), the column's position, neighbour boundaries, registered
-   ads, h-rules in the column, and a prompt-hash over the agent
-   instructions and per-call context. Read every ticket file
-   that doesn't yet have a result.
+   carrying the row id, the column's position, neighbour
+   boundaries, registered ads, h-rules in the column, a
+   prompt-hash, and — since 2026-05-02 — a `slices` list. The
+   slices list is the manifest produced by `transcribe.slice`;
+   each entry has a slice index, the slice PNG path
+   (repo-relative under `transcribe/work/slices/<row-id>/`),
+   the y-extent in page-percent, and rule-class metadata for
+   the joiner. Read every ticket file that doesn't yet have a
+   result.
 
 3. **Send each ticket to a `column-transcriber` agent in
    parallel.** Default model is `sonnet` (the agent's frontmatter
    default). For each ticket, call the Agent tool with:
    - `subagent_type="column-transcriber"`
    - `prompt`: a brief user message that hands the agent the
-     image path and the per-call context JSON, e.g.:
+     **slice list** (not the full column PNG) and the per-call
+     context, e.g.:
      ```
-     Transcribe the column at <image_path>.
+     Transcribe the following slices of column <col_idx> on
+     page <page>, issue <YYYY-MM-DD>. Each slice is a PNG cut
+     at a horizontal rule with ~20px overlap on top and bottom.
+
+     Slices (read in order, return one record per slice with
+     the matching idx):
+       idx 0:  <slice00.png>
+       idx 1:  <slice01.png>
+       ...
 
      Per-call context:
      <ticket JSON, pretty-printed>
 
-     Return the JSON envelope described in your instructions —
-     no surrounding prose, no markdown fence.
+     Return the JSON envelope described in your instructions
+     under "Sliced mode" — no surrounding prose, no markdown
+     fence. Do not insert rule markers (`---`, `--`) inside
+     slice transcripts; the orchestrator inserts them.
      ```
    - `model`: pass `model="haiku"` or `model="sonnet"` if the
      user has asked for a specific one or for a comparison.
-   - Send batches of around 4–6 in parallel; wait for each batch
-     to return before queuing the next, so a transient failure
-     doesn't lose a whole issue's work.
+   - Send batches of around 4–6 columns in parallel; wait for
+     each batch to return before queuing the next, so a
+     transient failure doesn't lose a whole issue's work.
+
+   **Sub-slice tip.** Some tall column pieces are sub-divided
+   in the manifest (`subdivided: true`, with consecutive
+   `sub_idx` values). Treat them as separate input slices to the
+   agent — return one record per slice — but the joiner won't
+   insert a rule marker between them, because they belong to the
+   same h-rule-bounded item.
 
 4. **Save each result and ingest.** When an agent returns its
    JSON envelope, **the first thing you do is save it to disk** —

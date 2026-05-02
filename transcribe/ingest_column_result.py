@@ -32,6 +32,7 @@ import os
 import sys
 
 from . import db as _db
+from . import slice as _slice
 
 
 RESULTS_DIR = os.path.join(_db.REPO_ROOT, "transcribe", "work", "results")
@@ -61,7 +62,27 @@ def strip_fence(s: str) -> str:
 
 
 def parse_envelope(raw: str) -> dict:
-    """Parse an agent's JSON envelope.
+    """Parse an agent's JSON envelope. Supports two shapes:
+
+    **Sliced** (the post-2026-05-02 default), keyed by ``slices``::
+
+        {
+          "slices": [
+            {"idx": 0, "transcript_text": "...",
+             "transcriber_notes": "..."},
+            ...
+          ],
+          "quality_flags": {...}, "repair_needed": false,
+          "repair_reason": ""
+        }
+
+    **Full-image** (legacy / fall-back), keyed by ``transcript_text``::
+
+        {
+          "transcript_text": "...", "transcriber_notes": "...",
+          "quality_flags": {...}, "repair_needed": false,
+          "repair_reason": ""
+        }
 
     Returns the parsed dict on success. Raises ValueError with a
     helpful message on bad shape — caller decides whether to
@@ -76,9 +97,24 @@ def parse_envelope(raw: str) -> dict:
         raise ValueError(
             f"result must be a JSON object, got {type(data).__name__}")
 
-    required = ("transcript_text", "transcriber_notes",
-                "quality_flags", "repair_needed", "repair_reason")
-    missing = [k for k in required if k not in data]
+    sliced = "slices" in data
+    if sliced:
+        if not isinstance(data["slices"], list) or not data["slices"]:
+            raise ValueError("'slices' must be a non-empty list")
+        for i, s in enumerate(data["slices"]):
+            if not isinstance(s, dict):
+                raise ValueError(
+                    f"slices[{i}] must be a JSON object")
+            for k in ("idx", "transcript_text"):
+                if k not in s:
+                    raise ValueError(
+                        f"slices[{i}] missing required field {k!r}")
+        common_required = ("quality_flags", "repair_needed", "repair_reason")
+    else:
+        common_required = ("transcript_text", "transcriber_notes",
+                           "quality_flags", "repair_needed", "repair_reason")
+
+    missing = [k for k in common_required if k not in data]
     if missing:
         raise ValueError(f"missing required fields: {missing}")
 
@@ -121,6 +157,58 @@ def load_result(row_id: str, result_path: str | None = None) -> str:
         return f.read()
 
 
+def _assemble_transcript(envelope: dict,
+                         ticket: dict) -> tuple[str, str, list[dict] | None]:
+    """Return ``(transcript_text, transcriber_notes, slice_boundaries)``
+    from an envelope, joining per-slice transcripts when sliced.
+
+    For the sliced shape, the manifest from the ticket supplies the
+    rule-class metadata the joiner needs; per-slice transcriber notes
+    are concatenated into a single notes block prefixed by the slice
+    index. ``slice_boundaries`` is the manifest enriched with char
+    offsets — written to the schema column of the same name.
+
+    For the legacy full-image shape, the joiner is a no-op:
+    ``slice_boundaries`` returns None.
+    """
+    if "slices" not in envelope:
+        return (envelope["transcript_text"],
+                envelope.get("transcriber_notes") or "",
+                None)
+
+    manifest = ticket.get("slices")
+    if not manifest:
+        raise ValueError(
+            "envelope is sliced but ticket has no slice manifest; "
+            "this means the column was claimed before slicing was "
+            "wired in — re-run claim_columns to refresh the ticket")
+
+    # Sort agent's per-slice records by idx, then verify the indices
+    # cover the manifest 1:1. The agent is told to return one record
+    # per slice; missing or duplicated indices are an error.
+    slice_records = sorted(envelope["slices"], key=lambda s: s["idx"])
+    expected = list(range(len(manifest)))
+    actual = [s["idx"] for s in slice_records]
+    if actual != expected:
+        raise ValueError(
+            f"sliced envelope idx mismatch: expected {expected}, "
+            f"got {actual}")
+
+    per_slice_text = [s["transcript_text"] for s in slice_records]
+    joined, boundaries = _slice.join_slice_transcripts(
+        manifest, per_slice_text)
+
+    # Per-slice notes → one combined block. Empty notes are dropped.
+    notes_parts = []
+    for s in slice_records:
+        n = (s.get("transcriber_notes") or "").strip()
+        if n:
+            notes_parts.append(f"[slice {s['idx']:02d}] {n}")
+    transcriber_notes = "\n".join(notes_parts)
+
+    return joined, transcriber_notes, boundaries
+
+
 def ingest(row_id: str,
            *,
            result_path: str | None = None,
@@ -133,6 +221,9 @@ def ingest(row_id: str,
     if model is None:
         agent_path = os.path.join(_db.REPO_ROOT, AGENT_FILE_REL)
         model = _db.read_agent_default_model(agent_path) or "unknown"
+
+    transcript_text, transcriber_notes, slice_boundaries = \
+        _assemble_transcript(envelope, ticket)
 
     conn = _db.open_connection()
     try:
@@ -149,11 +240,12 @@ def ingest(row_id: str,
 
         _db.mark_column_done(
             conn, row_id,
-            transcript_text=envelope["transcript_text"],
-            transcriber_notes=envelope.get("transcriber_notes") or None,
+            transcript_text=transcript_text,
+            transcriber_notes=transcriber_notes or None,
             quality_flags=envelope["quality_flags"],
             repair_needed=envelope["repair_needed"],
             repair_reason=envelope.get("repair_reason") or None,
+            slice_boundaries=slice_boundaries,
             model=model,
             prompt_hash_value=ticket.get("prompt_hash", ""),
             raw_response_json=raw)
@@ -188,7 +280,9 @@ def ingest(row_id: str,
         "prior_status": prior_status,
         "model": model,
         "repair_id": repair_id,
-        "transcript_chars": len(envelope["transcript_text"]),
+        "transcript_chars": len(transcript_text),
+        "sliced": slice_boundaries is not None,
+        "num_slices": len(slice_boundaries) if slice_boundaries else 0,
         "any_quality_flag":
             any(envelope["quality_flags"].values()),
     }
@@ -217,7 +311,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"ingested {report['row_id']}")
     print(f"  prior status:    {report['prior_status']}")
     print(f"  model:           {report['model']}")
-    print(f"  transcript:      {report['transcript_chars']} chars")
+    print(f"  transcript:      {report['transcript_chars']} chars" +
+          (f" (joined from {report['num_slices']} slices)"
+           if report["sliced"] else " (full image)"))
     print(f"  quality flag(s): "
           f"{'yes' if report['any_quality_flag'] else 'none'}")
     if report["repair_id"]:
