@@ -39,6 +39,15 @@ CREATE TABLE IF NOT EXISTS column_transcripts (
     tokens_out        INTEGER,
     cost_usd          REAL,
     raw_response_json TEXT,
+    -- JSON list of slice records produced by transcribe/slice.py:
+    -- [{idx, y_top_pct, y_bottom_pct, image_path, char_offset_start,
+    --   char_offset_end, top_rule_class, bottom_rule_class,
+    --   subdivided, ...}, ...]
+    -- Provenance for the joined transcript_text and the input to
+    -- pass-2 item segmentation. Null for legacy rows transcribed
+    -- without slicing (the full-PNG mode that pre-dates the
+    -- 2026-05-02 refinement).
+    slice_boundaries  TEXT,
     created_at        TEXT NOT NULL,
     updated_at        TEXT,
     notes             TEXT,
