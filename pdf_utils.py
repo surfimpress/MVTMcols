@@ -402,14 +402,19 @@ def try_embedded_bitmap_pil(pdf_path, page_number):
     that bitmap and return it as a PIL Image at native resolution,
     in mode='1' (PIL bilevel). Otherwise return None.
 
-    Gated by `MVTM_USE_EMBEDDED_BITMAP=1` so writers can opt into
-    the same fast path the render cache uses, without needing to
-    re-derive the format check or invoke a fitz render. Caller writes
-    the returned image to disk; mode='1' PNGs preserve the source
-    bilevel encoding and are smaller than the equivalent RGB / mode=L
-    re-rendered raster.
+    Auto-enabled per page: callers always invoke this helper, and it
+    short-circuits to None for pages whose source isn't a single 1-bit
+    embedded image (so legacy paths run unchanged for those). For
+    pages that pass the format guard, callers can write the returned
+    image to disk; mode='1' PNGs preserve the source bilevel encoding
+    and are smaller than the equivalent RGB / mode=L re-rendered
+    raster.
+
+    Validated on 1923-06-22 and 1946-01-03. The off switch
+    `MVTM_USE_EMBEDDED_BITMAP=0` forces the legacy path even for
+    eligible pages, kept available as an escape hatch.
     """
-    if os.environ.get("MVTM_USE_EMBEDDED_BITMAP") != "1":
+    if os.environ.get("MVTM_USE_EMBEDDED_BITMAP") == "0":
         return None
     try:
         doc = open_clean_pdf(pdf_path)
