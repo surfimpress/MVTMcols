@@ -38,7 +38,9 @@ from pdf_utils import (
     # open_clean_pdf as _open_clean,  # unused — kept commented for revival convenience
     get_clip_pixmap,
     get_page_size_pts,
+    try_embedded_bitmap_pil,
 )
+from coordinates import pct_to_px
 
 
 # ── Configuration ────────────────────────────────────────────────────────────
@@ -112,6 +114,13 @@ def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
     # each column slice reuses it instead of re-rasterising the page.
     pw, ph = get_page_size_pts(pdf_path, page_number, dpi)
 
+    # Fast path: when the source page is a single 1-bit (JBIG2) image
+    # and the bitmap gate is set, fetch it once at native resolution
+    # and crop each column from it. mode='1' for no-ads columns, 'LA'
+    # for columns with ads (alpha needed for hole-punching). Falls
+    # through to the legacy fitz-clip path when bitmap_pil is None.
+    bitmap_pil = try_embedded_bitmap_pil(pdf_path, page_number)
+
     columns = []
     col_num = 0
 
@@ -156,19 +165,30 @@ def extract_columns(pdf_path, boundaries, page_number, dpi, output_dir,
         y1 = ph
 
         clip = fitz.Rect(x0, y0, x1, y1)
-        pix = get_clip_pixmap(pdf_path, page_number, dpi, clip)
 
         stem = Path(pdf_path).stem
         col_filename = f"{stem}_col{col_num}.png"
         col_path = os.path.join(output_dir, col_filename)
 
-        if not ads_with_uuids:
-            # No ads: keep original opaque-PNG fast path.
+        if bitmap_pil is not None:
+            # Bitmap path: native-resolution mode='1' crop, no alpha
+            # holes for ads. The viewer's overlay layers carry the
+            # ad rectangles, so punching them into the column raster
+            # is redundant and would force us off the bilevel path.
+            bw, bh = bitmap_pil.size
+            cx1 = pct_to_px(crop_left, bw)
+            cx2 = pct_to_px(crop_right, bw)
+            column_pil = bitmap_pil.crop((cx1, 0, cx2, bh))
+            column_pil.save(col_path, optimize=True)
+        elif not ads_with_uuids:
+            # Legacy path, no ads: keep original opaque-PNG fast path.
+            pix = get_clip_pixmap(pdf_path, page_number, dpi, clip)
             pix.save(col_path)
         else:
-            # Round-trip pixmap through PIL to get RGBA. PyMuPDF's
-            # get_pixmap doesn't expose alpha=True in this version,
-            # so build the alpha plane ourselves.
+            # Legacy path with ads: round-trip pixmap through PIL to
+            # get RGBA. PyMuPDF's get_pixmap doesn't expose alpha=True
+            # in this version, so build the alpha plane ourselves.
+            pix = get_clip_pixmap(pdf_path, page_number, dpi, clip)
             img = Image.frombytes("RGB", (pix.width, pix.height),
                                   pix.samples).convert("RGBA")
             arr = np.array(img)
