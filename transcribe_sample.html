@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Transcribe sample — 1892-01-01 p1 col0</title>
+<style>
+  :root {
+    --bg: #fafaf7;
+    --fg: #1a1a1a;
+    --muted: #555;
+    --rule: #d9d6cf;
+    --accent: #1f5fa8;
+    --warn: #b15a00;
+    --good: #2a6f3f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI",
+          Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+  }
+  header {
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--rule);
+    background: #fff;
+  }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  header .sub { color: var(--muted); margin-top: 2px; font-size: 12px; }
+  main {
+    padding: 16px 20px;
+  }
+  .top-grid {
+    display: grid;
+    grid-template-columns: minmax(220px, 22%) repeat(3, 1fr);
+    gap: 16px;
+  }
+  .panel {
+    background: #fff;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .panel h2 {
+    margin: 0;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    border-bottom: 1px solid var(--rule);
+    background: #f4f2ec;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+  }
+  .panel h2 .model { color: var(--accent); }
+  .panel h2 .model.benchmark { color: var(--good); }
+  .panel h2 .badge {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--rule);
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .panel h2 .badge.repair { background: #f5dcc0; color: var(--warn); }
+  .panel h2 .badge.benchmark { background: #d8ead8; color: var(--good); }
+  .body {
+    padding: 12px;
+    overflow: auto;
+    flex: 1;
+    min-height: 0;
+    max-height: 70vh;
+  }
+  .body pre {
+    white-space: pre-wrap;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.45;
+    margin: 0;
+  }
+  .img-panel .body {
+    padding: 0;
+    background: #2a2a28;
+    text-align: center;
+    max-height: 70vh;
+  }
+  .img-panel img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+  .meta {
+    border-top: 1px solid var(--rule);
+    padding: 8px 12px;
+    background: #f9f8f4;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .meta dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; }
+  .meta dt { font-weight: 600; color: var(--fg); }
+  .meta dd { margin: 0; word-break: break-word; }
+  .flags { display: flex; flex-wrap: wrap; gap: 4px; }
+  .flag {
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--rule);
+    color: var(--muted);
+  }
+  .flag.on { background: #f5dcc0; color: var(--warn); }
+  .repair-reason {
+    margin-top: 6px;
+    padding: 6px 8px;
+    background: #fff5e8;
+    border-left: 3px solid var(--warn);
+    font-size: 12px;
+    color: var(--fg);
+  }
+  .notes {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--muted);
+    font-style: italic;
+  }
+  .sources {
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 2px solid var(--rule);
+  }
+  .sources h2.section {
+    font-size: 14px;
+    margin: 0 0 12px 0;
+    color: var(--muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  details.source {
+    background: #fff;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    margin-bottom: 8px;
+    overflow: hidden;
+  }
+  details.source > summary {
+    padding: 10px 14px;
+    cursor: pointer;
+    background: #f4f2ec;
+    font-weight: 600;
+    font-size: 13px;
+    list-style: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  details.source > summary::-webkit-details-marker { display: none; }
+  details.source > summary::before {
+    content: "▶";
+    margin-right: 8px;
+    font-size: 10px;
+    transition: transform 0.15s;
+  }
+  details.source[open] > summary::before { transform: rotate(90deg); }
+  details.source > summary .filepath {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--accent);
+  }
+  details.source > summary .blurb {
+    flex: 1;
+    margin: 0 12px;
+    color: var(--muted);
+    font-weight: 400;
+    font-size: 12px;
+  }
+  details.source .src-body {
+    padding: 12px 16px;
+    max-height: 50vh;
+    overflow: auto;
+  }
+  details.source .src-body pre {
+    margin: 0;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+  }
+  details.source .src-body .err {
+    color: var(--warn);
+    font-style: italic;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Transcribe sample — 1892-01-01 page 1, column 0</h1>
+  <div class="sub">
+    Comparison of three transcribers on the same column image:
+    Opus 4 (direct, by the orchestrator) as a benchmark, plus
+    Sonnet 4.6 and Haiku 4.5 dispatched as <code>column-transcriber</code> subagents.
+    row_id <code>5c2109a2-403f-4f16-87bd-b1f624d3d856</code>.
+    Source materials below the previews show what guidance the agents received.
+  </div>
+</header>
+<main>
+  <section class="top-grid">
+    <div class="panel img-panel">
+      <h2>Column image <span class="badge">col0 of 6</span></h2>
+      <div class="body">
+        <img src="columns/1892-01-01/p1/1892-01-01-01_col1.png"
+             alt="1892-01-01 page 1 column 0">
+      </div>
+      <div class="meta">
+        <dl>
+          <dt>Column x</dt><dd>13.05% – 26.54% (width 13.49%)</dd>
+          <dt>Right neighbour</dt><dd>col1 starts at 26.54%</dd>
+          <dt>H-rules in column</dt><dd>11</dd>
+          <dt>Registered ad</dt>
+          <dd>4f49bbf5… spanning y 28.56–91.56 (full column coverage)</dd>
+          <dt>SHA-256</dt><dd><code>382f53ed…</code></dd>
+        </dl>
+      </div>
+    </div>
+
+    <section class="panel" id="opus"></section>
+    <section class="panel" id="sonnet"></section>
+    <section class="panel" id="haiku"></section>
+  </section>
+
+  <section class="sources">
+    <h2 class="section">Source materials — what the agents were given</h2>
+
+    <details class="source" id="src-agent">
+      <summary>
+        <span class="filepath">.claude/agents/column-transcriber.md</span>
+        <span class="blurb">Agent definition (frontmatter) + durable transcription instructions — the source of truth for what a column transcriber does.</span>
+      </summary>
+      <div class="src-body"><pre data-fetch=".claude/agents/column-transcriber.md">loading…</pre></div>
+    </details>
+
+    <details class="source" id="src-skill">
+      <summary>
+        <span class="filepath">.claude/skills/transcribe-issue/SKILL.md</span>
+        <span class="blurb">User-invocable workflow — the orchestrator's procedure for claim → dispatch → ingest, including the actual prompt template the agents see.</span>
+      </summary>
+      <div class="src-body"><pre data-fetch=".claude/skills/transcribe-issue/SKILL.md">loading…</pre></div>
+    </details>
+
+    <details class="source" id="src-ticket">
+      <summary>
+        <span class="filepath">transcribe/work/columns/5c2109a2-403f-4f16-87bd-b1f624d3d856.json</span>
+        <span class="blurb">Per-call ticket — the variable bits handed to the agent: image path, column position, neighbours, registered ads, h-rules, prompt-hash.</span>
+      </summary>
+      <div class="src-body"><pre data-fetch="transcribe/work/columns/5c2109a2-403f-4f16-87bd-b1f624d3d856.json">loading…</pre></div>
+    </details>
+  </section>
+</main>
+
+<script>
+const RESULTS = {
+  opus: {
+    label: "Opus 4 (direct)",
+    benchmark: true,
+    iteration: 3,
+    note: "Iteration 3 — read at native resolution by slicing the 911×8313 PNG into six 1700px-tall chunks (PIL, 100px overlap) at /tmp/col0_chunk{0..5}.png. v1 fabricated body text from siblings; v2 honestly marked it illegible — but both were reading a downsampled view. v3 is the actual content. Implication: dispatched Sonnet/Haiku agents likely face the same downsampling. v1/v2 preserved at transcribe/work/results/<row-id>.opus-direct.v{1,2}.json.",
+    data: {
+      "transcript_text": "Th[...continues in next column...]\n\nVOL. XXV., No. 1[?b].\n\n---\n\nMONEY TO LOAN.\n\nTHE UNDERSIGNED ARE PREPARED to loan private funds on real estate security at lowest rate of interest.\nMACDONELL & STAFFORD,\nAlmonte.\n\n---\n\n$5 REWARD.\n\nWILL BE PAID FOR SUCH INFORMATION as will lead t[o] the conviction of any person or person[s] [t]respassing on East Half of Lot No. 1, 11th concession, Pakenham.\nJAS. L. C. MORE,\nAlmonte. P.O.\nt.f.\n\n---\n\nMARRIAGE LICENSES FOR SALE.\n\nTHE UNDERSIGNED HAVING REMOVED to Mr. Baird's block on Farm Street, parties requiring Marriage Licenses can be supplied with them at all reasonable times.\nJOHN SCOTT,\nIssuer of Marriage Licenses.\n\n---\n\nNEW STORE AND DWELLING for Sale or to Rent.\n\nTHIS STORE IS SITUATED AT PANMURE, nine miles from Almonte and seven from Pakenham. Convenient to store is a piece of land (4½ acres). All to be sold on reasonable terms. Immediate possession can be given. Apply at store, or to\nR. F. NAGLE,\nAlmonte.\n\n---\n\nJOHN CROSSLEY,\nWEAVER,\n\nIS BACK FROM THE OLD COUNTRY, and ready to attend to the wants of customers. Carpet weaving a specialty.\n\n---\n\n☞ I have some first-rate Black Cloths and [P]attern Cloths which I will exchange for good [cl]ean Wool—suitable for making Blankets. [F]armers will do well to see these goods.\nJOHN CROSSLEY.\n\n---\n\nW. J. SCOTT,\nCarriage-Maker,\nWHITE LAKE,\n\nDOES ALL KINDS OF WORK IN HIS line on short notice, in first-class style, and at reasonable rates. Try him.\n\n---\n\nFOR SALE.\nPhæton, with small seat, lamps and fenders all complete.\nPhæton Road Cart.\n\n---\n\nTHE APPLETON\nBlacksmith and Carriage Shop\n\n---\n\nTHE UNDERSIGNED TAKES THIS means of thanking the public for the liberal patronage bestowed upon him since commencing business in Appleton, and would at the same time say that he will, as heretofore, always be found at his post, ready to do all kinds of work in his line in a manner that will not fail to give satisfaction and at prices as low as anyone else. As a sample of prices will put on New Horse Shoes for\n\n20 CENTS EACH,\n\nand will remove shoes for 8 Cents Each.\nA new Top Buggy for sale at $85.00.\n☞ Give me a call.\nWm. W. Greer.\n\n---\n\nScenes from Almonte\n—IN—\nLarge Variety and at Low Prices\nCan be had at\nTownend's Studio,\nNear the Town Hall.\n\n---\n\n☞ Your friends at a distance will appreciate these views, and they will at the same time prove a fine advertisement of the beauty of our town.\n\n---\n\nFACTS FOR ALL\n\nA. H. TAIT\n\nHas the Largest Assortment, the Choicest Stock and the most Modern Style of Goods in his line in this section of country, consisting of\n\nStoves of All Kinds,\nTinware in Endless Variety,\nStamped and Japanned Ware,\n\nCutlery, Glassware, Lamps and Lamp Trimmings, Shelf Hardware, in fact, everything commonly found in a first-class Tin and Hardware Store. Call and inspect for yourself.\n\nA. H. TAIT,\nPAKENHAM.",
+      "transcriber_notes": "Iteration 3 — produced after the user prompted me to verify whether I was working from a downsampled image. I was. The Read tool was rendering the 911×8313 column PNG at ~250px wide; small body text was unreadable at that scale and earlier iterations (v1 fabricated, v2 marked illegible) both reflected that. For v3 I sliced the column with PIL into six 1700px-tall chunks with 100px overlap and read each at native resolution. Falsifications uncovered: 'MONEY TO LOAN' is signed MACDONELL & STAFFORD, not Strawbridge/Moore. '$5 REWARD' is signed JAS. L. C. MORE of Almonte P.O. about trespass on East Half of Lot No. 1, 11th concession, Pakenham — not Baskerville. Marriage Licenses are issued by JOHN SCOTT (removed to Baird's block on Farm Street), not W. F. Roche. The store for sale is at PANMURE (R. F. Nagle, Almonte), not Pakenham/Haggart. W. J. Scott is at WHITE LAKE, not Mitchell Lane, and sells Phæton + Phæton Road Cart. Appleton blacksmith new horse shoes are 20 CENTS EACH (not 90 cents/$3 dozen — that price line wasn't there); top buggy $85; signed Wm. W. Greer. Townend's Studio is Near the Town Hall, sells 'Scenes from Almonte' views. A. H. Tait of Pakenham — Tinware (not Flowers) in Endless Variety; full hardware list. Key finding for the agent setup: dispatched Sonnet/Haiku agents very likely face the same downsampling. The agent prompt or skill should slice tall columns into chunks before passing them, OR the agent should be instructed/equipped to do so. Without that, the 'no fabrication' clause is necessary but not sufficient.",
+      "quality_flags": {
+        "damage": false, "faded": false, "smudged": false,
+        "low_legibility": false, "partial_cut": false,
+        "adjacent_text_visible": true
+      },
+      "repair_needed": false,
+      "repair_reason": ""
+    }
+  },
+  sonnet: {
+    label: "Sonnet 4.6",
+    benchmark: false,
+    note: "Dispatched via Agent tool, model=sonnet",
+    data: {
+      "transcript_text": "MONEY TO LOAN.\nON IMPROVED AND INSURED\nFarm and Town Property.\nApply to\nT. STRAWBRIDGE AND J.H. MOORE.\n\n$5 REWARD.\nWILL BE PAID FOR SUCH INFORMATION\nas will lead to the conviction of any person or persons found cutting or otherwise injuring trees on my premises.\nA. BASKERVILLE.\n\nMARRIAGE LICENSES FOR SALE.\nBy the Clerk of the Division Court for South Lanark, or at the Office of\nW. F. ROCHE.\n\nNEW STORE AND DWELL-ING FOR SALE.\nTHIS STORE IS SITUATED AT AN excellent stand in the Village of Pakenham, and would be sold on easy terms.\nApply to\nH. HAGGART, JR.\n\nJOHN CROSSLEY,\nWEAVER,\nDOES PLAIN AND FANCY COUNTRY\nWeaving. Satisfaction guaranteed or no charge. Those wishing to have their weaving done in the best possible manner will do well to try John Crossley.\n\nW. J. SCOTT,\nCarriage-Maker,\nMITCHELL LANE.\nDOES ALL KINDS OF WORK IN HIS\nline in the best workmanlike manner.\nFOR SALE.\nSleighs, Wagons and Harness of all kinds.\n\nTHE APPLETON\nBlacksmith and Carriage Shop\n90 CENTS EACH.\nOR THREE DOLLARS PER DOZEN.\nWm. W. Greer.\n\n[AD MASKED]\n\nFACTS FOR ALL\nA. H. TAIT\n1. Flowers in Endless Variety, Stamped and Japanese Ware.\n\nA. H. TAIT,\nPAKENHAM.",
+      "transcriber_notes": "The top of the column shows a partial masthead ('Th' visible) and volume/issue line 'VOL. XXV., No. 1p.' — these are masthead elements, not editorial column content, and have been transcribed only partially as they appear cut. The large ad block (uuid 4f49bbf5) masked from approximately y=28.56% to y=91.56% corresponds to what appears to be the 'Scenes from Almonte / Large Variety and Low Prices / Can be had at / Townend's Studio' advertisement visible in the image — however, the masking appears incomplete as this content is still visible in the image rather than appearing as a flat white rectangle. The bottom portion shows A. H. Tait advertisement content. Several h-rules are visible between articles, consistent with the 11 h-rules noted in context.",
+      "quality_flags": {
+        "damage": false, "faded": false, "smudged": false,
+        "low_legibility": true, "partial_cut": false,
+        "adjacent_text_visible": true
+      },
+      "repair_needed": true,
+      "repair_reason": "The ad registered at y=28.56%-91.56% does not appear as a masked white rectangle — the content (Townend's Studio advertisement and surrounding items) is still visible as live text/display type in the image, suggesting the ad mask was not applied to this column image."
+    }
+  },
+  haiku: {
+    label: "Haiku 4.5",
+    benchmark: false,
+    note: "Dispatched via Agent tool, model=haiku",
+    data: {
+      "transcript_text": "Oh\n\nVOL. XXV., NO. 1.\n\n$2 REWARD.\n\nWANTED—GENERAL INFORMATION RE-GARDING THE WHEREABOUTS OF ALL RECORDS AND CORRESPONDENCE TO BE HELD AT MY OFFICE.\n\nJOHN CROSSLEY,\nALMONTE.\n\nW. J. SCOTT,\nCARRIAGE-MAKER,\nALMONTE.\n\n[Advertisement area]\n\nTHE CORNER DRUGGIST.\n\nSeona from Almonte\nLarge Organ \"and Two Tons\nof\nTownsend's\nStudio.\n\nRAGS FOR ALL.\n\nA. W. TAIT,\n\n[Advertisement area]\n\nTownsend is Selling Today,\nBargains and Discounts\nVERY LARGELY ADVERTISED\n\nA. W. TAIT,\nPARSON'S.",
+      "transcriber_notes": "Column 1 of 6. Multiple advertisements are registered as masked in the context (y=28.56-91.56 spanning the majority of the column height). The visible text shows fragmented content typical of a column containing multiple small ads and notices. Horizontal rules are visible separating various sections. The overall legibility is adequate.",
+      "quality_flags": {
+        "damage": false, "faded": false, "smudged": false,
+        "low_legibility": false, "partial_cut": false,
+        "adjacent_text_visible": false
+      },
+      "repair_needed": false,
+      "repair_reason": ""
+    }
+  }
+};
+
+function renderPanel(elId, key) {
+  const { label, benchmark, note, iteration, data } = RESULTS[key];
+  const el = document.getElementById(elId);
+  const flagKeys = ["damage", "faded", "smudged",
+                    "low_legibility", "partial_cut",
+                    "adjacent_text_visible"];
+  const flagsHtml = flagKeys.map(k =>
+    `<span class="flag${data.quality_flags[k] ? ' on' : ''}">` +
+    `${k}${data.quality_flags[k] ? ': true' : ''}</span>`
+  ).join("");
+  let badge;
+  if (benchmark) {
+    const iterText = iteration ? `benchmark · iter ${iteration}` : 'benchmark';
+    badge = `<span class="badge benchmark">${iterText}</span>`;
+  } else if (data.repair_needed) {
+    badge = '<span class="badge repair">repair_needed</span>';
+  } else {
+    badge = '<span class="badge">clean</span>';
+  }
+  const repairBlock = data.repair_needed
+    ? `<div class="repair-reason"><strong>repair_reason:</strong> ${escapeHtml(data.repair_reason)}</div>`
+    : '';
+  const notes = data.transcriber_notes
+    ? `<div class="notes">${escapeHtml(data.transcriber_notes)}</div>`
+    : '';
+  const dispatchNote = note
+    ? `<div class="notes" style="font-style:normal; color:var(--muted); margin-top:4px; font-size:11px;">${escapeHtml(note)}</div>`
+    : '';
+  const charCount = data.transcript_text.length;
+  const modelClass = benchmark ? "model benchmark" : "model";
+
+  el.innerHTML = `
+    <h2>
+      <span><span class="${modelClass}">${label}</span> <span class="badge">${charCount} chars</span></span>
+      ${badge}
+    </h2>
+    <div class="body">
+      <pre>${escapeHtml(data.transcript_text)}</pre>
+      ${repairBlock}
+      ${notes}
+      ${dispatchNote}
+    </div>
+    <div class="meta">
+      <div class="flags">${flagsHtml}</div>
+    </div>
+  `;
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"
+  }[c]));
+}
+
+// Fetch source materials live so edits to agent/skill/ticket files
+// show up on refresh. Same-origin fetches.
+async function loadSource(pre) {
+  const path = pre.dataset.fetch;
+  try {
+    const r = await fetch(path, { cache: "no-store" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    pre.textContent = await r.text();
+  } catch (e) {
+    pre.innerHTML = `<span class="err">failed to load ${escapeHtml(path)}: ${escapeHtml(String(e))}</span>`;
+  }
+}
+
+renderPanel("opus", "opus");
+renderPanel("sonnet", "sonnet");
+renderPanel("haiku", "haiku");
+document.querySelectorAll("pre[data-fetch]").forEach(loadSource);
+</script>
+</body>
+</html>

@@ -116,24 +116,24 @@ Cross-database joins use the `mvtm.` schema prefix in plain SQL.
 # One-time setup: create the DB.
 python3 -m transcribe.bootstrap_db
 
-# (Future) claim work for one issue:
-python3 -m transcribe.cli claim columns 1892-01-01
-python3 -m transcribe.cli claim ads     1892-01-01
+# Claim columns for one issue (writes pending tickets):
+python3 -m transcribe.claim_columns 1892-01-01
 
-# (Claude Code session does the agent dispatch here.)
-
-# Ingest results:
-python3 -m transcribe.cli ingest column <ticket-id>
-
-# Pass-2:
-python3 -m transcribe.cli claim items 1892-01-01
-# (agents run; ingest results)
-
-# Inspect:
-python3 -m transcribe.cli status --issue 1892-01-01
-python3 -m transcribe.cli show item <id>
-python3 -m transcribe.cli export 1892-01-01 --format md
+# Claude Code dispatches column-transcriber agents in this session,
+# saves each agent's JSON envelope to transcribe/work/results/<row-id>.json,
+# then runs:
+python3 -m transcribe.ingest_column_result <row-id>
 ```
+
+The interactive workflow is captured in
+`.claude/skills/transcribe-issue/SKILL.md` and surfaced as the
+slash command `/transcribe-issue YYYY-MM-DD`.
+
+(Pass-1B for ads and pass-2 for items will arrive as
+`transcribe.claim_ads` / `transcribe.ingest_ad_result` and
+`transcribe.claim_items` / `transcribe.ingest_item_result`.
+A unified `transcribe.cli` hub command will land once enough
+subcommands exist to justify it.)
 
 ## Repairs
 
@@ -154,10 +154,12 @@ fix, re-running the relevant pass picks up the new image content
 stays for history.
 
 ```bash
-python3 -m transcribe.cli repairs list --status open
-python3 -m transcribe.cli repairs show <id>
-python3 -m transcribe.cli repairs act  <id>   # prints the suggested CLI
-python3 -m transcribe.cli repairs resolve <id> --note "fixed via cut adjust"
+# (Coming with the CLI hub.) For now, repairs can be inspected
+# directly:
+sqlite3 transcribe/data/transcribe.db \
+  "SELECT id, target_kind, repair_kind, status, raised_by,
+          substr(description, 1, 80)
+     FROM repairs WHERE status='open'"
 ```
 
 ## Schema

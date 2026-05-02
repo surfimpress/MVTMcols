@@ -54,14 +54,27 @@ The orchestrator's job is to glue them together.
      doesn't lose a whole issue's work.
 
 4. **Save each result and ingest.** When an agent returns its
-   JSON envelope, save it to
-   `transcribe/work/results/<row-id>.json` and run:
+   JSON envelope, **the first thing you do is save it to disk** —
+   `transcribe/work/results/<row-id>.json` (or `.sonnet.json` /
+   `.haiku.json` for comparison runs). Do this before any
+   summarisation, analysis, or display in chat. Compaction can
+   drop the chat-only copy at any time; the file on disk is the
+   only durable record. Then run:
    ```
    python3 -m transcribe.ingest_column_result <row-id>
    ```
    The Python ingester validates the envelope, calls
    `mark_column_done`, and writes a row in `repairs` if the
    agent flagged one.
+
+   **Also append a line to `transcribe/work/experiments.jsonl`**
+   for every dispatch (success or failure). One JSON object per
+   line, with at minimum:
+   `{ts, row_id, model, subagent_type, prompt_hash, result_path,
+   transcript_chars, repair_needed, status, notes}`. This is the
+   experiments log; it's the only place that records *which model
+   ran on which row when* across exploratory and production runs.
+   It survives compaction; chat doesn't.
 
 5. **At the end of the issue**, summarise: how many columns
    succeeded, how many failed, how many repairs were raised, and

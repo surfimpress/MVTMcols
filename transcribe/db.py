@@ -44,17 +44,27 @@ def new_uuid() -> str:
     return str(uuid.uuid4())
 
 
-def open_connection(db_path: str = TRANSCRIBE_DB_PATH,
+def open_connection(db_path: str | None = None,
                     *,
                     attach_mvtm: bool = False,
-                    mvtm_path: str = MVTM_DB_PATH) -> sqlite3.Connection:
+                    mvtm_path: str | None = None) -> sqlite3.Connection:
     """Open a connection to ``transcribe.db`` with sane pragmas.
 
     If ``attach_mvtm`` is true, also ATTACH the parent project's
     ``mvtm.db`` as schema name ``mvtm`` for read-only joining. The
     attached connection is opened with ``mode=ro`` to make the
     "this layer never writes mvtm.db" rule structural.
+
+    Path defaults are read from the module attributes at call time
+    (not as Python default-argument values), so tests can rebind
+    ``TRANSCRIBE_DB_PATH`` to a temporary file and have the change
+    take effect on subsequent calls.
     """
+    if db_path is None:
+        db_path = TRANSCRIBE_DB_PATH
+    if mvtm_path is None:
+        mvtm_path = MVTM_DB_PATH
+
     if not os.path.isfile(db_path):
         raise FileNotFoundError(
             f"transcribe.db not found at {db_path}. "
@@ -182,3 +192,77 @@ def mark_column_failed(conn: sqlite3.Connection,
             WHERE id=?""",
         (error_message, now_iso(), row_id))
     conn.commit()
+
+
+# -------- repairs --------------------------------------------------
+
+def raise_repair(conn: sqlite3.Connection,
+                 *,
+                 target_kind: str,
+                 target_ref: dict,
+                 repair_kind: str,
+                 description: str,
+                 raised_by: str,
+                 related_column_id: str | None = None,
+                 related_ad_uuid: str | None = None,
+                 related_item_id: str | None = None,
+                 proposed_fix: dict | None = None,
+                 suggested_cli: str | None = None,
+                 notes: str | None = None) -> str:
+    """Insert a row in ``repairs`` and return the new id.
+
+    ``target_ref`` is the structured pointer to what the repair is
+    about — e.g. ``{"year": 1892, "month": 1, "day": 1, "page": 1,
+    "col_idx": 0}`` for a column repair, or ``{"ad_uuid": "..."}``
+    for an ad repair. Stored as JSON because the shape varies by
+    target_kind.
+
+    No state is mutated in mvtm.db. The repair is surfaced to the
+    user via ``transcribe repairs list``; if it carries a
+    ``suggested_cli`` field, the user runs that ``mvtm_cli.py``
+    invocation themselves.
+    """
+    new_id = new_uuid()
+    conn.execute(
+        """INSERT INTO repairs
+           (id, target_kind, target_ref_json, repair_kind,
+            description, proposed_fix_json, suggested_cli,
+            status, raised_by, raised_at,
+            related_column_id, related_ad_uuid, related_item_id,
+            notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)""",
+        (new_id, target_kind,
+         json.dumps(target_ref, sort_keys=True),
+         repair_kind, description,
+         json.dumps(proposed_fix, sort_keys=True)
+             if proposed_fix is not None else None,
+         suggested_cli, raised_by, now_iso(),
+         related_column_id, related_ad_uuid, related_item_id,
+         notes))
+    conn.commit()
+    return new_id
+
+
+# -------- agent file helpers ---------------------------------------
+
+def read_agent_default_model(agent_file_path: str) -> str | None:
+    """Return the default model from an agent file's YAML
+    frontmatter, or None if not set.
+
+    Minimal parser — we only need ``model:`` from the frontmatter,
+    and the file format is fixed (``---`` fences, simple key:
+    value lines). Pulling in PyYAML for one line would be overkill.
+    """
+    with open(agent_file_path) as f:
+        text = f.read()
+    if not text.startswith("---"):
+        return None
+    end = text.find("\n---", 3)
+    if end == -1:
+        return None
+    frontmatter = text[3:end]
+    for line in frontmatter.splitlines():
+        line = line.strip()
+        if line.startswith("model:"):
+            return line.split(":", 1)[1].strip()
+    return None

@@ -33,3 +33,5 @@ transcribe/work/columns/*.json
 transcribe/work/ads/*.json
 transcribe/work/items/*.json
 transcribe/work/results/
+transcribe/work/slices/
+transcribe/work/.DS_Store

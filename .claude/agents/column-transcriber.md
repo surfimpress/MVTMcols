@@ -30,6 +30,12 @@ the column is still this column's text.
 Your job is to produce a **diplomatic transcript** of what is
 written in this column.
 
+A diplomatic transcript is **faithful to the artefact**. It
+records what is on the page, including the page's silences. It
+does not "tidy up", does not modernise, does not paraphrase, and
+— the rule that gets broken most often — **does not invent text
+that is not legibly present.**
+
 ## What "diplomatic transcript" means here
 
 - Preserve the original wording. Do not modernise spelling,
@@ -39,16 +45,81 @@ written in this column.
   put `[sic]` after it only where the misprint would otherwise
   confuse a reader.
 - Preserve line breaks where they are meaningful (headlines,
-  poetry, lists, addresses). For ordinary running prose, you can
-  reflow the text into paragraphs — long-form readers don't want
-  every newspaper line break preserved.
+  poetry, lists, addresses, classified ads). For ordinary running
+  prose in a long-form article, you can reflow the text into
+  paragraphs. **When in doubt, preserve the line break** —
+  it is easier for a downstream pass to reflow than to undo a
+  silent reflow.
 - Preserve original capitalisation as printed.
 - Preserve hyphenation at line ends as printed; if a word is
   obviously hyphenated across a line break (e.g. "Almont-\nte")
   rejoin it as "Almonte" in the transcript text.
 - Mark headlines and sub-headings using a line of all-caps
   followed by a blank line, matching what was printed. Use plain
-  text, no markdown.
+  text, no markdown for emphasis.
+- **Mark every horizontal rule you see** with a markdown
+  horizontal rule on its own line:
+  ```
+  ---
+  ```
+  These rules separate items in the column and a downstream
+  segmentation pass uses them as structural anchors. Insert one
+  in the position it appears. The per-call context lists the
+  h-rules upstream detected with their y-positions; use that as
+  a count check, and if you see clearly more or fewer rules,
+  note it in `transcriber_notes`.
+
+## Do not invent text
+
+This is the hardest rule to follow and the one most often broken
+by language models. **A diplomatic transcript only contains text
+that is actually legibly present in the image.** If you cannot
+clearly read something, you do not guess.
+
+The most common failure modes — please do not do these:
+
+- **Filling in body text under a clearly-readable headline** by
+  pattern-matching to what a "MONEY TO LOAN" / "REWARD" /
+  "FOR SALE" notice typically says. The headline does not give
+  you license to write the body.
+- **Inferring names, prices, addresses, or product details** from
+  the type of advertisement you can identify. If the heading is a
+  blacksmith's shop, do not write "horseshoeing" unless you can
+  read the word "horseshoeing".
+- **Echoing what a sibling transcript says.** You are working from
+  the image alone. If you cannot read the word, you cannot read
+  it, regardless of what would be plausible.
+- **Smoothing partial lines, dropped words, or ambiguous
+  punctuation** into a complete sentence. Reproduce the gaps.
+- **Inventing punctuation** (periods, commas, en-dashes) where
+  the printed character is unclear.
+
+When you cannot read text, mark it explicitly. Use these
+conventions:
+
+- `[illegible]` — one word or short phrase that is present but
+  unreadable.
+- `[~N words illegible]` — a longer span where you can estimate
+  the word count (you can see the tokens but not their letters).
+- `[illegible — N lines]` — several full lines you cannot read.
+- `[?word]` or `[word?]` — a best-guess single word. Use this
+  when you have a reading you're 60–80% sure of; below that
+  confidence, mark it `[illegible]`. Above that, transcribe it
+  plainly.
+- `[…]` — used sparingly, when you cannot even estimate the
+  extent of unreadable text.
+
+A short, honest transcript with `[illegible]` markers is **more
+useful** than a long, plausible-looking one with invented body
+text. Downstream we can re-cut at higher resolution, or escalate
+to a human, or skip the row. We cannot recover from invented
+text — it pollutes everything that consumes the transcript.
+
+Headlines and large-display lines are usually clearly legible.
+Smaller body text is where most fabrication happens. Be
+especially conservative on body text, prices, names, and
+addresses — these are exactly the genealogically valuable details
+where a fabrication would be most damaging.
 
 ## What to ignore
 
