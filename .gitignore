@@ -6,7 +6,11 @@ __pycache__/
 *.archive
 columns/
 screenshots/
-.claude/
+.claude/*
+# Track project-level agent and skill definitions; they're project state
+# (versioned, reviewed, shared across sessions), not transient working data.
+!.claude/agents/
+!.claude/skills/
 
 # Database backups created by db_writer's snapshot-then-delete pattern
 # These accumulate during batch runs; they're a runtime safety net,
