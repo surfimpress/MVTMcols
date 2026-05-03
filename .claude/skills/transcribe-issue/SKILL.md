@@ -38,35 +38,52 @@ The orchestrator's job is to glue them together.
 
 3. **Send each ticket to a `column-transcriber` agent in
    parallel.** Default model is `sonnet` (the agent's frontmatter
-   default). For each ticket, call the Agent tool with:
+   default). Each agent is responsible for the full per-column
+   transaction: read slices → write the envelope to disk → run
+   the ingester → report status. This makes every column atomic.
+   If the orchestrator session dies mid-batch, in-flight columns
+   that have already returned are committed to the DB, and any
+   that haven't returned can be re-dispatched cleanly from their
+   ticket file (the row stays in `claimed` status until ingest).
+
+   For each ticket, call the Agent tool with:
    - `subagent_type="column-transcriber"`
-   - `prompt`: a brief user message that hands the agent the
-     **slice list** (not the full column PNG) and the per-call
-     context, e.g.:
-     ```
-     Transcribe the following slices of column <col_idx> on
-     page <page>, issue <YYYY-MM-DD>. Each slice is a PNG cut
-     at a horizontal rule with ~20px overlap on top and bottom.
-
-     Slices (read in order, return one record per slice with
-     the matching idx):
-       idx 0:  <slice00.png>
-       idx 1:  <slice01.png>
-       ...
-
-     Per-call context:
-     <ticket JSON, pretty-printed>
-
-     Return the JSON envelope described in your instructions
-     under "Sliced mode" — no surrounding prose, no markdown
-     fence. Do not insert rule markers (`---`, `--`) inside
-     slice transcripts; the orchestrator inserts them.
-     ```
    - `model`: pass `model="haiku"` or `model="sonnet"` if the
-     user has asked for a specific one or for a comparison.
-   - Send batches of around 4–6 columns in parallel; wait for
-     each batch to return before queuing the next, so a
-     transient failure doesn't lose a whole issue's work.
+     user has asked for a specific one or for a comparison;
+     otherwise the agent's frontmatter default is used.
+   - `prompt`: a brief user message structured as numbered steps:
+     ```
+     You are the column-transcriber. Follow these steps in order.
+
+     1. Read `.claude/agents/column-transcriber.md` for your
+        durable instructions.
+     2. Read the ticket file:
+        `transcribe/work/columns/<row_id>.json`.
+        It contains the per-call context and the slices list.
+     3. Read each slice PNG in `slices` order. Each slice has
+        ~20px overlap on top and bottom — ignore truncated text
+        at those edges.
+     4. Produce the JSON envelope per "Sliced mode" in your
+        instructions. One record per slice with matching idx.
+        Do not insert rule markers (`---` / `--`) inside slice
+        transcripts — the joiner inserts them.
+     5. Write the envelope to
+        `transcribe/work/results/<row_id>.json` using the Write
+        tool. The file must contain ONLY the JSON envelope.
+     6. Run the ingester via Bash:
+          `python3 -m transcribe.ingest_column_result <row_id>`
+        Confirm exit 0. The ingester validates the envelope,
+        marks the row 'done', and raises a repair ticket if you
+        flagged repair_needed.
+     7. Reply with one line:
+          `row_id=<row_id> slices=<N> ingested=<ok|FAILED>`
+        If ingest failed, include the ingester's error message
+        on a second line so the orchestrator can act on it.
+     ```
+   - Send batches of around 4–8 columns in parallel; the slowest
+     column dominates wall-clock, so larger fan-out is mostly
+     free. Wait for each batch to return before queuing the next,
+     so a transient failure doesn't lose a whole issue's work.
 
    **Sub-slice tip.** Some tall column pieces are sub-divided
    in the manifest (`subdivided: true`, with consecutive
@@ -75,28 +92,23 @@ The orchestrator's job is to glue them together.
    insert a rule marker between them, because they belong to the
    same h-rule-bounded item.
 
-4. **Save each result and ingest.** When an agent returns its
-   JSON envelope, **the first thing you do is save it to disk** —
-   `transcribe/work/results/<row-id>.json` (or `.sonnet.json` /
-   `.haiku.json` for comparison runs). Do this before any
-   summarisation, analysis, or display in chat. Compaction can
-   drop the chat-only copy at any time; the file on disk is the
-   only durable record. Then run:
+4. **For each agent that reported `ingested=ok`**, the row is
+   already in the DB and any repair has been raised. The
+   orchestrator's job per column is then just to append a line
+   to `transcribe/work/experiments.jsonl`:
    ```
-   python3 -m transcribe.ingest_column_result <row-id>
+   {ts, row_id, model, subagent_type, prompt_hash, result_path,
+    transcript_chars, repair_needed, status, notes}
    ```
-   The Python ingester validates the envelope, calls
-   `mark_column_done`, and writes a row in `repairs` if the
-   agent flagged one.
+   This is the experiments log; it's the only place that records
+   *which model ran on which row when* across exploratory and
+   production runs. It survives compaction; chat doesn't.
 
-   **Also append a line to `transcribe/work/experiments.jsonl`**
-   for every dispatch (success or failure). One JSON object per
-   line, with at minimum:
-   `{ts, row_id, model, subagent_type, prompt_hash, result_path,
-   transcript_chars, repair_needed, status, notes}`. This is the
-   experiments log; it's the only place that records *which model
-   ran on which row when* across exploratory and production runs.
-   It survives compaction; chat doesn't.
+   **For agents that reported `ingested=FAILED`** (malformed
+   envelope, validation error), the result file is still on
+   disk. Inspect it, decide whether to repair manually or
+   re-dispatch the agent against the same ticket. The DB row
+   stays in `claimed` until a successful ingest lands.
 
 5. **At the end of the issue**, summarise: how many columns
    succeeded, how many failed, how many repairs were raised, and

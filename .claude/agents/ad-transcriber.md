@@ -33,6 +33,15 @@ addresses. Your job is the same in either case: produce a
 - Preserve hyphenation at line ends as printed; if a word is
   obviously hyphenated across a line break (e.g.
   "Almont-\nte") rejoin it as "Almonte" in the transcript.
+- **Quotation marks: always use curly quotes** (`“ ” ‘ ’`) in
+  every transcript, never straight typewriter quotes (`" '`).
+  Two reasons: (1) you return your output as a JSON envelope and
+  a straight `"` inside a string value will close the string
+  prematurely and break the envelope — the orchestrator has
+  seen this fail in production. (2) Period typography in
+  19th-century newsprint used curly forms; this is more
+  diplomatically faithful to the source. Apply to apostrophes
+  in possessives and contractions too (`don’t`, `Smith’s`).
 - Mark headlines and sub-headings using a line of all-caps
   followed by a blank line, matching what was printed. Use
   plain text, no markdown for emphasis.

@@ -54,6 +54,16 @@ that is not legibly present.**
 - Preserve hyphenation at line ends as printed; if a word is
   obviously hyphenated across a line break (e.g. "Almont-\nte")
   rejoin it as "Almonte" in the transcript text.
+- **Quotation marks: always use curly quotes** (`“ ” ‘ ’`) in
+  every transcript, never straight typewriter quotes (`" '`).
+  Two reasons: (1) you return your output as a JSON envelope, and
+  a straight `"` inside a string value will close the string
+  prematurely and break the envelope — the orchestrator has seen
+  this fail in production. (2) Period typography in 19th-century
+  newsprint used curly forms; this is more diplomatically
+  faithful to the source. Apply to both double and single
+  quotation marks. Same rule for apostrophes in possessives and
+  contractions (`don’t`, `Smith’s`) — use the curly `’`.
 - Mark headlines and sub-headings using a line of all-caps
   followed by a blank line, matching what was printed. Use plain
   text, no markdown for emphasis.
