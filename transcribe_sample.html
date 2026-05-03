@@ -118,6 +118,108 @@
     font-size: 12px;
     color: var(--fg);
   }
+  .sep { color: var(--accent); font-weight: 600; }
+  .sep-narrow { color: var(--warn); font-weight: 600; }
+  .slices-section {
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 2px solid var(--rule);
+  }
+  .slices-section h2.section {
+    font-size: 14px;
+    margin: 0 0 4px 0;
+    color: var(--muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .slices-section .blurb {
+    font-size: 12px;
+    color: var(--muted);
+    margin: 0 0 12px 0;
+  }
+  .slice-row {
+    display: grid;
+    grid-template-columns: minmax(180px, 22%) 1fr 1fr;
+    gap: 12px;
+    background: #fff;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 10px;
+    margin-bottom: 10px;
+  }
+  .slice-row.subdivided { border-left: 3px solid var(--accent); }
+  .slice-img {
+    background: #2a2a28;
+    border-radius: 3px;
+    overflow: hidden;
+    text-align: center;
+    max-height: 360px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .slice-img img {
+    max-width: 100%;
+    max-height: 360px;
+    height: auto;
+    display: block;
+  }
+  .slice-meta {
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    align-items: center;
+  }
+  .slice-meta .idx {
+    font-weight: 600;
+    color: var(--fg);
+    font-size: 13px;
+  }
+  .slice-meta .yrange {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+  }
+  .slice-meta .rule-class {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--rule);
+    color: var(--muted);
+  }
+  .slice-meta .rule-class.full { background: #d8e4f4; color: var(--accent); }
+  .slice-meta .rule-class.narrow { background: #f5dcc0; color: var(--warn); }
+  .slice-meta .rule-class.column_edge {
+    background: #ececec;
+    color: var(--muted);
+  }
+  .slice-cell {
+    min-width: 0;
+    overflow: auto;
+    max-height: 360px;
+  }
+  .slice-cell h3 {
+    margin: 0 0 4px 0;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+  }
+  .slice-cell pre {
+    white-space: pre-wrap;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.4;
+    margin: 0;
+  }
+  .slice-cell .slice-notes {
+    margin-top: 4px;
+    font-size: 10px;
+    color: var(--muted);
+    font-style: italic;
+  }
   .notes {
     margin-top: 6px;
     font-size: 12px;
@@ -202,7 +304,10 @@
     Opus 4 (direct, by the orchestrator) as a benchmark, plus
     Sonnet 4.6 and Haiku 4.5 dispatched as <code>column-transcriber</code> subagents.
     row_id <code>5c2109a2-403f-4f16-87bd-b1f624d3d856</code>.
-    Source materials below the previews show what guidance the agents received.
+    Dispatch is the h-rule-bounded sliced flow (production default
+    since 2026-05-02): the orchestrator cuts the column at upstream
+    h-rules and hands the agent a list of small slice PNGs.
+    Source materials are below the previews.
   </div>
 </header>
 <main>
@@ -230,6 +335,20 @@
     <section class="panel" id="haiku"></section>
   </section>
 
+  <section class="slices-section" id="slices-section">
+    <h2 class="section">Per-slice view</h2>
+    <p class="blurb">
+      The 12 slices the orchestrator cut from the column at upstream
+      h-rules. Each row pairs the slice image (what the agent actually
+      saw) with the per-slice transcripts Sonnet and Haiku returned.
+      The joined transcript at the top of the page is built from
+      these by concatenating with <span class="sep">---</span> /
+      <span class="sep-narrow">--</span> separators based on rule
+      class.
+    </p>
+    <div id="slice-rows"></div>
+  </section>
+
   <section class="sources">
     <h2 class="section">Source materials — what the agents were given</h2>
 
@@ -252,23 +371,43 @@
     <details class="source" id="src-ticket">
       <summary>
         <span class="filepath">transcribe/work/columns/5c2109a2-403f-4f16-87bd-b1f624d3d856.json</span>
-        <span class="blurb">Per-call ticket — the variable bits handed to the agent: image path, column position, neighbours, registered ads, h-rules, prompt-hash.</span>
+        <span class="blurb">Per-call ticket — the variable bits handed to the agent: image path, column position, neighbours, registered ads, h-rules, prompt-hash, and (since 2026-05-02) the slice manifest.</span>
       </summary>
       <div class="src-body"><pre data-fetch="transcribe/work/columns/5c2109a2-403f-4f16-87bd-b1f624d3d856.json">loading…</pre></div>
+    </details>
+
+    <details class="source" id="src-slicer">
+      <summary>
+        <span class="filepath">transcribe/slice.py</span>
+        <span class="blurb">Pure helper that cuts a column PNG at h-rules, classifies each rule full/narrow, sub-divides tall slices, and joins per-slice transcripts back together with <code>---</code> / <code>--</code> separators.</span>
+      </summary>
+      <div class="src-body"><pre data-fetch="transcribe/slice.py">loading…</pre></div>
+    </details>
+
+    <details class="source" id="src-manifest">
+      <summary>
+        <span class="filepath">transcribe/work/slices/5c2109a2-403f-4f16-87bd-b1f624d3d856/manifest.json</span>
+        <span class="blurb">The slice manifest produced for this column — 12 slices, all bounded by full-width rules. Carried inside the ticket and consumed by the agent + the joiner on the way back in.</span>
+      </summary>
+      <div class="src-body"><pre data-fetch="transcribe/work/slices/5c2109a2-403f-4f16-87bd-b1f624d3d856/manifest.json">loading…</pre></div>
     </details>
   </section>
 </main>
 
 <script>
+// Opus benchmark stays inline (it was hand-produced by manually
+// slicing in /tmp before the production slicer existed). Sonnet and
+// Haiku panels are fetched from the joined-result files so this
+// HTML stays in sync with the on-disk artefacts.
 const RESULTS = {
   opus: {
     label: "Opus 4 (direct)",
     benchmark: true,
     iteration: 3,
-    note: "Iteration 3 — read at native resolution by slicing the 911×8313 PNG into six 1700px-tall chunks (PIL, 100px overlap) at /tmp/col0_chunk{0..5}.png. v1 fabricated body text from siblings; v2 honestly marked it illegible — but both were reading a downsampled view. v3 is the actual content. Implication: dispatched Sonnet/Haiku agents likely face the same downsampling. v1/v2 preserved at transcribe/work/results/<row-id>.opus-direct.v{1,2}.json.",
+    note: "Iteration 3 — read at native resolution by slicing the 911×8313 PNG into six 1700px-tall chunks (PIL, 100px overlap) at /tmp/col0_chunk{0..5}.png. v1 fabricated body text from siblings; v2 honestly marked it illegible — but both were reading a downsampled view. v3 is the actual content. v1/v2 preserved at transcribe/work/results/<row-id>.opus-direct.v{1,2}.json.",
     data: {
       "transcript_text": "Th[...continues in next column...]\n\nVOL. XXV., No. 1[?b].\n\n---\n\nMONEY TO LOAN.\n\nTHE UNDERSIGNED ARE PREPARED to loan private funds on real estate security at lowest rate of interest.\nMACDONELL & STAFFORD,\nAlmonte.\n\n---\n\n$5 REWARD.\n\nWILL BE PAID FOR SUCH INFORMATION as will lead t[o] the conviction of any person or person[s] [t]respassing on East Half of Lot No. 1, 11th concession, Pakenham.\nJAS. L. C. MORE,\nAlmonte. P.O.\nt.f.\n\n---\n\nMARRIAGE LICENSES FOR SALE.\n\nTHE UNDERSIGNED HAVING REMOVED to Mr. Baird's block on Farm Street, parties requiring Marriage Licenses can be supplied with them at all reasonable times.\nJOHN SCOTT,\nIssuer of Marriage Licenses.\n\n---\n\nNEW STORE AND DWELLING for Sale or to Rent.\n\nTHIS STORE IS SITUATED AT PANMURE, nine miles from Almonte and seven from Pakenham. Convenient to store is a piece of land (4½ acres). All to be sold on reasonable terms. Immediate possession can be given. Apply at store, or to\nR. F. NAGLE,\nAlmonte.\n\n---\n\nJOHN CROSSLEY,\nWEAVER,\n\nIS BACK FROM THE OLD COUNTRY, and ready to attend to the wants of customers. Carpet weaving a specialty.\n\n---\n\n☞ I have some first-rate Black Cloths and [P]attern Cloths which I will exchange for good [cl]ean Wool—suitable for making Blankets. [F]armers will do well to see these goods.\nJOHN CROSSLEY.\n\n---\n\nW. J. SCOTT,\nCarriage-Maker,\nWHITE LAKE,\n\nDOES ALL KINDS OF WORK IN HIS line on short notice, in first-class style, and at reasonable rates. Try him.\n\n---\n\nFOR SALE.\nPhæton, with small seat, lamps and fenders all complete.\nPhæton Road Cart.\n\n---\n\nTHE APPLETON\nBlacksmith and Carriage Shop\n\n---\n\nTHE UNDERSIGNED TAKES THIS means of thanking the public for the liberal patronage bestowed upon him since commencing business in Appleton, and would at the same time say that he will, as heretofore, always be found at his post, ready to do all kinds of work in his line in a manner that will not fail to give satisfaction and at prices as low as anyone else. As a sample of prices will put on New Horse Shoes for\n\n20 CENTS EACH,\n\nand will remove shoes for 8 Cents Each.\nA new Top Buggy for sale at $85.00.\n☞ Give me a call.\nWm. W. Greer.\n\n---\n\nScenes from Almonte\n—IN—\nLarge Variety and at Low Prices\nCan be had at\nTownend's Studio,\nNear the Town Hall.\n\n---\n\n☞ Your friends at a distance will appreciate these views, and they will at the same time prove a fine advertisement of the beauty of our town.\n\n---\n\nFACTS FOR ALL\n\nA. H. TAIT\n\nHas the Largest Assortment, the Choicest Stock and the most Modern Style of Goods in his line in this section of country, consisting of\n\nStoves of All Kinds,\nTinware in Endless Variety,\nStamped and Japanned Ware,\n\nCutlery, Glassware, Lamps and Lamp Trimmings, Shelf Hardware, in fact, everything commonly found in a first-class Tin and Hardware Store. Call and inspect for yourself.\n\nA. H. TAIT,\nPAKENHAM.",
-      "transcriber_notes": "Iteration 3 — produced after the user prompted me to verify whether I was working from a downsampled image. I was. The Read tool was rendering the 911×8313 column PNG at ~250px wide; small body text was unreadable at that scale and earlier iterations (v1 fabricated, v2 marked illegible) both reflected that. For v3 I sliced the column with PIL into six 1700px-tall chunks with 100px overlap and read each at native resolution. Falsifications uncovered: 'MONEY TO LOAN' is signed MACDONELL & STAFFORD, not Strawbridge/Moore. '$5 REWARD' is signed JAS. L. C. MORE of Almonte P.O. about trespass on East Half of Lot No. 1, 11th concession, Pakenham — not Baskerville. Marriage Licenses are issued by JOHN SCOTT (removed to Baird's block on Farm Street), not W. F. Roche. The store for sale is at PANMURE (R. F. Nagle, Almonte), not Pakenham/Haggart. W. J. Scott is at WHITE LAKE, not Mitchell Lane, and sells Phæton + Phæton Road Cart. Appleton blacksmith new horse shoes are 20 CENTS EACH (not 90 cents/$3 dozen — that price line wasn't there); top buggy $85; signed Wm. W. Greer. Townend's Studio is Near the Town Hall, sells 'Scenes from Almonte' views. A. H. Tait of Pakenham — Tinware (not Flowers) in Endless Variety; full hardware list. Key finding for the agent setup: dispatched Sonnet/Haiku agents very likely face the same downsampling. The agent prompt or skill should slice tall columns into chunks before passing them, OR the agent should be instructed/equipped to do so. Without that, the 'no fabrication' clause is necessary but not sufficient.",
+      "transcriber_notes": "Iteration 3 — produced after the user prompted me to verify whether I was working from a downsampled image. I was. The Read tool was rendering the 911×8313 column PNG at ~250px wide; small body text was unreadable at that scale and earlier iterations (v1 fabricated, v2 marked illegible) both reflected that. For v3 I sliced the column with PIL into six 1700px-tall chunks with 100px overlap and read each at native resolution. Falsifications uncovered: 'MONEY TO LOAN' is signed MACDONELL & STAFFORD, not Strawbridge/Moore. '$5 REWARD' is signed JAS. L. C. MORE of Almonte P.O. about trespass on East Half of Lot No. 1, 11th concession, Pakenham — not Baskerville. Marriage Licenses are issued by JOHN SCOTT (removed to Baird's block on Farm Street), not W. F. Roche. The store for sale is at PANMURE (R. F. Nagle, Almonte), not Pakenham/Haggart. W. J. Scott is at WHITE LAKE, not Mitchell Lane, and sells Phæton + Phæton Road Cart. Appleton blacksmith new horse shoes are 20 CENTS EACH (not 90 cents/$3 dozen — that price line wasn't there); top buggy $85; signed Wm. W. Greer. Townend's Studio is Near the Town Hall, sells 'Scenes from Almonte' views. A. H. Tait of Pakenham — Tinware (not Flowers) in Endless Variety; full hardware list.",
       "quality_flags": {
         "damage": false, "faded": false, "smudged": false,
         "low_legibility": false, "partial_cut": false,
@@ -281,39 +420,30 @@ const RESULTS = {
   sonnet: {
     label: "Sonnet 4.6",
     benchmark: false,
-    note: "Dispatched via Agent tool, model=sonnet",
-    data: {
-      "transcript_text": "MONEY TO LOAN.\nON IMPROVED AND INSURED\nFarm and Town Property.\nApply to\nT. STRAWBRIDGE AND J.H. MOORE.\n\n$5 REWARD.\nWILL BE PAID FOR SUCH INFORMATION\nas will lead to the conviction of any person or persons found cutting or otherwise injuring trees on my premises.\nA. BASKERVILLE.\n\nMARRIAGE LICENSES FOR SALE.\nBy the Clerk of the Division Court for South Lanark, or at the Office of\nW. F. ROCHE.\n\nNEW STORE AND DWELL-ING FOR SALE.\nTHIS STORE IS SITUATED AT AN excellent stand in the Village of Pakenham, and would be sold on easy terms.\nApply to\nH. HAGGART, JR.\n\nJOHN CROSSLEY,\nWEAVER,\nDOES PLAIN AND FANCY COUNTRY\nWeaving. Satisfaction guaranteed or no charge. Those wishing to have their weaving done in the best possible manner will do well to try John Crossley.\n\nW. J. SCOTT,\nCarriage-Maker,\nMITCHELL LANE.\nDOES ALL KINDS OF WORK IN HIS\nline in the best workmanlike manner.\nFOR SALE.\nSleighs, Wagons and Harness of all kinds.\n\nTHE APPLETON\nBlacksmith and Carriage Shop\n90 CENTS EACH.\nOR THREE DOLLARS PER DOZEN.\nWm. W. Greer.\n\n[AD MASKED]\n\nFACTS FOR ALL\nA. H. TAIT\n1. Flowers in Endless Variety, Stamped and Japanese Ware.\n\nA. H. TAIT,\nPAKENHAM.",
-      "transcriber_notes": "The top of the column shows a partial masthead ('Th' visible) and volume/issue line 'VOL. XXV., No. 1p.' — these are masthead elements, not editorial column content, and have been transcribed only partially as they appear cut. The large ad block (uuid 4f49bbf5) masked from approximately y=28.56% to y=91.56% corresponds to what appears to be the 'Scenes from Almonte / Large Variety and Low Prices / Can be had at / Townend's Studio' advertisement visible in the image — however, the masking appears incomplete as this content is still visible in the image rather than appearing as a flat white rectangle. The bottom portion shows A. H. Tait advertisement content. Several h-rules are visible between articles, consistent with the 11 h-rules noted in context.",
-      "quality_flags": {
-        "damage": false, "faded": false, "smudged": false,
-        "low_legibility": true, "partial_cut": false,
-        "adjacent_text_visible": true
-      },
-      "repair_needed": true,
-      "repair_reason": "The ad registered at y=28.56%-91.56% does not appear as a masked white rectangle — the content (Townend's Studio advertisement and surrounding items) is still visible as live text/display type in the image, suggesting the ad mask was not applied to this column image."
-    }
+    note: "Dispatched via Agent tool, model=sonnet, sliced (12 slices, full-width separators). Joined output at transcribe/work/results/<row-id>.sonnet-sliced-joined.json.",
+    fetch: "transcribe/work/results/5c2109a2-403f-4f16-87bd-b1f624d3d856.sonnet-sliced-joined.json",
+    data: null
   },
   haiku: {
     label: "Haiku 4.5",
     benchmark: false,
-    note: "Dispatched via Agent tool, model=haiku",
-    data: {
-      "transcript_text": "Oh\n\nVOL. XXV., NO. 1.\n\n$2 REWARD.\n\nWANTED—GENERAL INFORMATION RE-GARDING THE WHEREABOUTS OF ALL RECORDS AND CORRESPONDENCE TO BE HELD AT MY OFFICE.\n\nJOHN CROSSLEY,\nALMONTE.\n\nW. J. SCOTT,\nCARRIAGE-MAKER,\nALMONTE.\n\n[Advertisement area]\n\nTHE CORNER DRUGGIST.\n\nSeona from Almonte\nLarge Organ \"and Two Tons\nof\nTownsend's\nStudio.\n\nRAGS FOR ALL.\n\nA. W. TAIT,\n\n[Advertisement area]\n\nTownsend is Selling Today,\nBargains and Discounts\nVERY LARGELY ADVERTISED\n\nA. W. TAIT,\nPARSON'S.",
-      "transcriber_notes": "Column 1 of 6. Multiple advertisements are registered as masked in the context (y=28.56-91.56 spanning the majority of the column height). The visible text shows fragmented content typical of a column containing multiple small ads and notices. Horizontal rules are visible separating various sections. The overall legibility is adequate.",
-      "quality_flags": {
-        "damage": false, "faded": false, "smudged": false,
-        "low_legibility": false, "partial_cut": false,
-        "adjacent_text_visible": false
-      },
-      "repair_needed": false,
-      "repair_reason": ""
-    }
+    note: "Dispatched via Agent tool, model=haiku, sliced (12 slices, full-width separators). Joined output at transcribe/work/results/<row-id>.haiku-sliced-joined.json.",
+    fetch: "transcribe/work/results/5c2109a2-403f-4f16-87bd-b1f624d3d856.haiku-sliced-joined.json",
+    data: null
   }
 };
 
-function renderPanel(elId, key) {
-  const { label, benchmark, note, iteration, data } = RESULTS[key];
+function renderTranscript(text) {
+  // Highlight the two separator conventions so the structural cuts
+  // are obvious at a glance.
+  const escaped = escapeHtml(text);
+  return escaped
+    .replace(/^---$/gm, "<span class='sep'>---</span>")
+    .replace(/^--$/gm, "<span class='sep-narrow'>--</span>");
+}
+
+function renderPanel(elId, key, src) {
+  const { label, benchmark, note, iteration, data } = src[key];
   const el = document.getElementById(elId);
   const flagKeys = ["damage", "faded", "smudged",
                     "low_legibility", "partial_cut",
@@ -349,7 +479,7 @@ function renderPanel(elId, key) {
       ${badge}
     </h2>
     <div class="body">
-      <pre>${escapeHtml(data.transcript_text)}</pre>
+      <pre>${renderTranscript(data.transcript_text)}</pre>
       ${repairBlock}
       ${notes}
       ${dispatchNote}
@@ -358,6 +488,145 @@ function renderPanel(elId, key) {
       <div class="flags">${flagsHtml}</div>
     </div>
   `;
+}
+
+function renderPanelLoading(elId, label) {
+  document.getElementById(elId).innerHTML =
+    `<h2><span><span class="model">${escapeHtml(label)}</span></span>` +
+    `<span class="badge">loading…</span></h2>` +
+    `<div class="body"><pre>fetching joined transcript…</pre></div>`;
+}
+
+function renderPanelError(elId, label, msg) {
+  document.getElementById(elId).innerHTML =
+    `<h2><span><span class="model">${escapeHtml(label)}</span></span>` +
+    `<span class="badge repair">load failed</span></h2>` +
+    `<div class="body"><pre class="err">${escapeHtml(msg)}</pre></div>`;
+}
+
+async function ensureFetched(src) {
+  // Populate `data` for any panels that come from a JSON file rather
+  // than being inlined. Fetched once per page-load, then cached on
+  // the source object.
+  const todo = [];
+  for (const key of Object.keys(src)) {
+    const entry = src[key];
+    if (entry.data == null && entry.fetch) {
+      todo.push((async () => {
+        try {
+          const r = await fetch(entry.fetch, { cache: "no-store" });
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          entry.data = await r.json();
+        } catch (e) {
+          entry.error = String(e);
+        }
+      })());
+    }
+  }
+  await Promise.all(todo);
+}
+
+async function renderAll() {
+  for (const key of ["opus", "sonnet", "haiku"]) {
+    if (RESULTS[key].data == null && RESULTS[key].fetch) {
+      renderPanelLoading(key, RESULTS[key].label);
+    }
+  }
+  await ensureFetched(RESULTS);
+  for (const key of ["opus", "sonnet", "haiku"]) {
+    if (RESULTS[key].error) {
+      renderPanelError(key, RESULTS[key].label, RESULTS[key].error);
+    } else {
+      renderPanel(key, key, RESULTS);
+    }
+  }
+  renderSlices();  // fire-and-forget
+}
+
+const SLICE_PATHS = {
+  manifest: "transcribe/work/slices/5c2109a2-403f-4f16-87bd-b1f624d3d856/manifest.json",
+  sonnet: "transcribe/work/results/5c2109a2-403f-4f16-87bd-b1f624d3d856.sonnet-sliced.json",
+  haiku: "transcribe/work/results/5c2109a2-403f-4f16-87bd-b1f624d3d856.haiku-sliced.json"
+};
+let _sliceData = null;
+
+async function renderSlices() {
+  const container = document.getElementById("slice-rows");
+  if (_sliceData == null) {
+    container.innerHTML = "<p class='blurb'>loading slices…</p>";
+    try {
+      const [m, s, h] = await Promise.all([
+        fetch(SLICE_PATHS.manifest, { cache: "no-store" }).then(r => r.json()),
+        fetch(SLICE_PATHS.sonnet,   { cache: "no-store" }).then(r => r.json()),
+        fetch(SLICE_PATHS.haiku,    { cache: "no-store" }).then(r => r.json())
+      ]);
+      const byIdx = arr => Object.fromEntries(
+        arr.map(o => [o.idx, o]));
+      _sliceData = {
+        manifest: m,
+        sonnet: byIdx(s.slices),
+        haiku: byIdx(h.slices)
+      };
+    } catch (e) {
+      container.innerHTML =
+        `<p class="blurb"><span class="err">failed to load slice data: ${escapeHtml(String(e))}</span></p>`;
+      return;
+    }
+  }
+  const { manifest, sonnet, haiku } = _sliceData;
+
+  const ruleClassBadge = cls =>
+    `<span class="rule-class ${cls}">${cls}</span>`;
+  const sepHint = cls => {
+    if (cls === "full") return `<span class="sep">--- full</span>`;
+    if (cls === "narrow") return `<span class="sep-narrow">-- narrow</span>`;
+    return `<span class="rule-class column_edge">column edge</span>`;
+  };
+
+  container.innerHTML = manifest.map(slice => {
+    const s = sonnet[slice.idx] || {};
+    const h = haiku[slice.idx]  || {};
+    const subClass = slice.subdivided ? " subdivided" : "";
+    const meta = `
+      <div class="slice-meta">
+        <span class="idx">slice ${String(slice.idx).padStart(2, "0")}</span>
+        <span class="yrange">y ${slice.y_top_pct.toFixed(1)}–${slice.y_bottom_pct.toFixed(1)}%</span>
+        <span>${slice.height_px}px tall</span>
+      </div>
+      <div class="slice-meta">
+        <span>top:</span>${ruleClassBadge(slice.top_rule_class)}
+        <span>bottom:</span>${ruleClassBadge(slice.bottom_rule_class)}
+      </div>
+      <div class="slice-meta">
+        <span>joiner inserts after:</span> ${sepHint(slice.bottom_rule_class)}
+      </div>
+    `;
+    const cell = (label, rec) => {
+      if (!rec.transcript_text) {
+        return `<div class="slice-cell"><h3>${label}</h3><pre class="err">missing</pre></div>`;
+      }
+      const notes = rec.transcriber_notes
+        ? `<div class="slice-notes">${escapeHtml(rec.transcriber_notes)}</div>` : "";
+      return `<div class="slice-cell">
+        <h3>${label}</h3>
+        <pre>${escapeHtml(rec.transcript_text)}</pre>
+        ${notes}
+      </div>`;
+    };
+    return `
+      <div class="slice-row${subClass}">
+        <div>
+          <div class="slice-img">
+            <img src="${escapeHtml(slice.image_path)}"
+                 alt="slice ${slice.idx}" loading="lazy">
+          </div>
+          ${meta}
+        </div>
+        ${cell("Sonnet 4.6", s)}
+        ${cell("Haiku 4.5", h)}
+      </div>
+    `;
+  }).join("");
 }
 
 function escapeHtml(s) {
@@ -379,9 +648,7 @@ async function loadSource(pre) {
   }
 }
 
-renderPanel("opus", "opus");
-renderPanel("sonnet", "sonnet");
-renderPanel("haiku", "haiku");
+renderAll();
 document.querySelectorAll("pre[data-fetch]").forEach(loadSource);
 </script>
 </body>
