@@ -190,6 +190,88 @@ def mark_column_done(conn: sqlite3.Connection,
     conn.commit()
 
 
+def claim_ad(conn: sqlite3.Connection,
+             *,
+             ad_uuid: str,
+             year: int, month: int, day: int, page: int,
+             image_path: str,
+             image_sha256: str) -> str:
+    """Insert a stub row in ``ad_transcripts`` with
+    ``status='claimed'``. Idempotent on the unique key
+    ``(ad_uuid, image_sha256)`` — if a row already exists for this
+    image content, returns its id without a new insert.
+    """
+    existing = conn.execute(
+        """SELECT id, status FROM ad_transcripts
+           WHERE ad_uuid=? AND image_sha256=?""",
+        (ad_uuid, image_sha256)).fetchone()
+    if existing is not None:
+        return existing["id"]
+
+    new_id = new_uuid()
+    conn.execute(
+        """INSERT INTO ad_transcripts
+           (id, ad_uuid, year, month, day, page, image_path,
+            image_sha256, status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'claimed', ?)""",
+        (new_id, ad_uuid, year, month, day, page, image_path,
+         image_sha256, now_iso()))
+    conn.commit()
+    return new_id
+
+
+def mark_ad_done(conn: sqlite3.Connection,
+                 row_id: str,
+                 *,
+                 transcript_text: str,
+                 transcriber_notes: str | None,
+                 quality_flags: dict | None,
+                 repair_needed: bool,
+                 repair_reason: str | None,
+                 model: str,
+                 prompt_hash_value: str,
+                 raw_response_json: str,
+                 tokens_in: int | None = None,
+                 tokens_out: int | None = None,
+                 cost_usd: float | None = None) -> None:
+    """Update a claimed ad row with the LLM result."""
+    conn.execute(
+        """UPDATE ad_transcripts SET
+              status='done',
+              transcript_text=?,
+              transcriber_notes=?,
+              quality_flags=?,
+              repair_needed=?,
+              repair_reason=?,
+              model=?,
+              prompt_hash=?,
+              raw_response_json=?,
+              tokens_in=?,
+              tokens_out=?,
+              cost_usd=?,
+              updated_at=?
+            WHERE id=?""",
+        (transcript_text, transcriber_notes,
+         json.dumps(quality_flags) if quality_flags is not None else None,
+         1 if repair_needed else 0, repair_reason,
+         model, prompt_hash_value, raw_response_json,
+         tokens_in, tokens_out, cost_usd, now_iso(), row_id))
+    conn.commit()
+
+
+def mark_ad_failed(conn: sqlite3.Connection,
+                   row_id: str,
+                   error_message: str) -> None:
+    conn.execute(
+        """UPDATE ad_transcripts SET
+              status='failed',
+              transcriber_notes=?,
+              updated_at=?
+            WHERE id=?""",
+        (error_message, now_iso(), row_id))
+    conn.commit()
+
+
 def mark_column_failed(conn: sqlite3.Connection,
                        row_id: str,
                        error_message: str) -> None:
