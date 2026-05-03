@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Transcribe sample — 1892-01-01 p1 col0</title>
+<title>Transcribe sample — 1892-01-01 issue browser</title>
 <style>
   :root {
     --bg: #fafaf7;
@@ -22,86 +22,106 @@
     color: var(--fg);
   }
   header {
-    padding: 12px 20px;
+    padding: 10px 20px;
     border-bottom: 1px solid var(--rule);
     background: #fff;
+    position: sticky;
+    top: 0;
+    z-index: 10;
   }
-  header h1 { margin: 0; font-size: 16px; font-weight: 600; }
-  header .sub { color: var(--muted); margin-top: 2px; font-size: 12px; }
-  main {
-    padding: 16px 20px;
-  }
-  .top-grid {
-    display: grid;
-    grid-template-columns: minmax(220px, 22%) repeat(3, 1fr);
-    gap: 16px;
-  }
-  .panel {
-    background: #fff;
-    border: 1px solid var(--rule);
-    border-radius: 4px;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-  }
-  .panel h2 {
+  header h1 {
     margin: 0;
-    padding: 8px 12px;
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 600;
-    border-bottom: 1px solid var(--rule);
-    background: #f4f2ec;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 6px;
   }
-  .panel h2 .model { color: var(--accent); }
-  .panel h2 .model.benchmark { color: var(--good); }
-  .panel h2 .badge {
+  .nav-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+  .nav-row button {
+    font: inherit;
+    padding: 4px 12px;
+    border: 1px solid var(--rule);
+    background: #f4f2ec;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .nav-row button:hover:not(:disabled) { background: #e8e5dd; }
+  .nav-row button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .nav-row select {
+    font: inherit;
+    padding: 4px 6px;
+    border: 1px solid var(--rule);
+    background: #fff;
+    border-radius: 4px;
+  }
+  .nav-row .pos {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .nav-row .pos strong { color: var(--fg); }
+  .nav-row .badge {
     font-size: 11px;
-    font-weight: 500;
-    padding: 1px 6px;
+    padding: 1px 7px;
     border-radius: 3px;
     background: var(--rule);
     color: var(--muted);
     white-space: nowrap;
   }
-  .panel h2 .badge.repair { background: #f5dcc0; color: var(--warn); }
-  .panel h2 .badge.benchmark { background: #d8ead8; color: var(--good); }
-  .body {
-    padding: 12px;
-    overflow: auto;
-    flex: 1;
-    min-height: 0;
-    max-height: 70vh;
+  .nav-row .badge.repair { background: #f5dcc0; color: var(--warn); }
+  .nav-row .badge.clean  { background: #d8ead8; color: var(--good); }
+  main { padding: 14px 20px; }
+  .summary-panel {
+    background: #fff;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    margin-bottom: 16px;
+    overflow: hidden;
   }
-  .body pre {
+  .summary-panel summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 8px 14px;
+    background: #f4f2ec;
+    font-weight: 600;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .summary-panel summary::-webkit-details-marker { display: none; }
+  .summary-panel summary::before {
+    content: "▶";
+    font-size: 10px;
+    transition: transform 0.15s;
+  }
+  .summary-panel[open] summary::before { transform: rotate(90deg); }
+  .summary-panel .body { padding: 12px 14px; max-height: 60vh; overflow: auto; }
+  .summary-panel pre {
     white-space: pre-wrap;
     font-family: "SF Mono", Menlo, Consolas, monospace;
     font-size: 12px;
     line-height: 1.45;
     margin: 0;
   }
-  .img-panel .body {
-    padding: 0;
-    background: #2a2a28;
-    text-align: center;
-    max-height: 70vh;
-  }
-  .img-panel img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
-  .meta {
-    border-top: 1px solid var(--rule);
-    padding: 8px 12px;
-    background: #f9f8f4;
+  .repair-reason {
+    margin: 0 0 10px 0;
+    padding: 8px 10px;
+    background: #fff5e8;
+    border-left: 3px solid var(--warn);
     font-size: 12px;
-    color: var(--muted);
+    color: var(--fg);
   }
-  .meta dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; }
-  .meta dt { font-weight: 600; color: var(--fg); }
-  .meta dd { margin: 0; word-break: break-word; }
-  .flags { display: flex; flex-wrap: wrap; gap: 4px; }
+  .quality-flags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
   .flag {
     font-size: 11px;
     padding: 1px 6px;
@@ -110,23 +130,10 @@
     color: var(--muted);
   }
   .flag.on { background: #f5dcc0; color: var(--warn); }
-  .repair-reason {
-    margin-top: 6px;
-    padding: 6px 8px;
-    background: #fff5e8;
-    border-left: 3px solid var(--warn);
-    font-size: 12px;
-    color: var(--fg);
-  }
   .sep { color: var(--accent); font-weight: 600; }
   .sep-narrow { color: var(--warn); font-weight: 600; }
-  .slices-section {
-    margin-top: 24px;
-    padding-top: 16px;
-    border-top: 2px solid var(--rule);
-  }
   .slices-section h2.section {
-    font-size: 14px;
+    font-size: 13px;
     margin: 0 0 4px 0;
     color: var(--muted);
     font-weight: 600;
@@ -140,8 +147,8 @@
   }
   .slice-row {
     display: grid;
-    grid-template-columns: minmax(180px, 22%) 1fr 1fr;
-    gap: 12px;
+    grid-template-columns: minmax(220px, 28%) 1fr;
+    gap: 14px;
     background: #fff;
     border: 1px solid var(--rule);
     border-radius: 4px;
@@ -154,21 +161,21 @@
     border-radius: 3px;
     overflow: hidden;
     text-align: center;
-    max-height: 360px;
+    max-height: 420px;
     display: flex;
     align-items: center;
     justify-content: center;
   }
   .slice-img img {
     max-width: 100%;
-    max-height: 360px;
+    max-height: 420px;
     height: auto;
     display: block;
   }
   .slice-meta {
     font-size: 11px;
     color: var(--muted);
-    margin-bottom: 6px;
+    margin-top: 6px;
     display: flex;
     flex-wrap: wrap;
     gap: 4px 8px;
@@ -191,14 +198,11 @@
   }
   .slice-meta .rule-class.full { background: #d8e4f4; color: var(--accent); }
   .slice-meta .rule-class.narrow { background: #f5dcc0; color: var(--warn); }
-  .slice-meta .rule-class.column_edge {
-    background: #ececec;
-    color: var(--muted);
-  }
+  .slice-meta .rule-class.column_edge { background: #ececec; color: var(--muted); }
   .slice-cell {
     min-width: 0;
     overflow: auto;
-    max-height: 360px;
+    max-height: 420px;
   }
   .slice-cell h3 {
     margin: 0 0 4px 0;
@@ -220,19 +224,14 @@
     color: var(--muted);
     font-style: italic;
   }
-  .notes {
-    margin-top: 6px;
-    font-size: 12px;
-    color: var(--muted);
-    font-style: italic;
-  }
+  .err { color: var(--warn); font-style: italic; }
   .sources {
     margin-top: 24px;
     padding-top: 16px;
     border-top: 2px solid var(--rule);
   }
   .sources h2.section {
-    font-size: 14px;
+    font-size: 13px;
     margin: 0 0 12px 0;
     color: var(--muted);
     font-weight: 600;
@@ -247,7 +246,7 @@
     overflow: hidden;
   }
   details.source > summary {
-    padding: 10px 14px;
+    padding: 9px 14px;
     cursor: pointer;
     background: #f4f2ec;
     font-weight: 600;
@@ -290,72 +289,53 @@
     line-height: 1.5;
     white-space: pre-wrap;
   }
-  details.source .src-body .err {
-    color: var(--warn);
-    font-style: italic;
-  }
 </style>
 </head>
 <body>
 <header>
-  <h1>Transcribe sample — 1892-01-01 page 1, column 0</h1>
-  <div class="sub">
-    Comparison of three transcribers on the same column image:
-    Opus 4 (direct, by the orchestrator) as a benchmark, plus
-    Sonnet 4.6 and Haiku 4.5 dispatched as <code>column-transcriber</code> subagents.
-    row_id <code>5c2109a2-403f-4f16-87bd-b1f624d3d856</code>.
-    Dispatch is the h-rule-bounded sliced flow (production default
-    since 2026-05-02): the orchestrator cuts the column at upstream
-    h-rules and hands the agent a list of small slice PNGs.
-    Source materials are below the previews.
+  <h1>Transcribe sample — 1892-01-01 issue</h1>
+  <div class="nav-row">
+    <button id="prev-btn" type="button">◀ Prev</button>
+    <button id="next-btn" type="button">Next ▶</button>
+    <select id="col-select"></select>
+    <span class="pos" id="pos"></span>
+    <span class="badge" id="repair-badge"></span>
+    <span class="badge" id="char-badge"></span>
+    <span class="badge" id="slice-badge"></span>
   </div>
 </header>
+
 <main>
-  <section class="top-grid">
-    <div class="panel img-panel">
-      <h2>Column image <span class="badge">col0 of 6</span></h2>
-      <div class="body">
-        <img src="columns/1892-01-01/p1/1892-01-01-01_col1.png"
-             alt="1892-01-01 page 1 column 0">
-      </div>
-      <div class="meta">
-        <dl>
-          <dt>Column x</dt><dd>13.05% – 26.54% (width 13.49%)</dd>
-          <dt>Right neighbour</dt><dd>col1 starts at 26.54%</dd>
-          <dt>H-rules in column</dt><dd>11</dd>
-          <dt>Registered ad</dt>
-          <dd>4f49bbf5… spanning y 28.56–91.56 (full column coverage)</dd>
-          <dt>SHA-256</dt><dd><code>382f53ed…</code></dd>
-        </dl>
-      </div>
+  <details class="summary-panel" id="joined-panel">
+    <summary>Joined transcript <span class="badge" id="joined-chars"></span></summary>
+    <div class="body">
+      <div id="quality-flags" class="quality-flags"></div>
+      <div id="repair-reason"></div>
+      <pre id="joined-text">loading…</pre>
     </div>
+  </details>
 
-    <section class="panel" id="opus"></section>
-    <section class="panel" id="sonnet"></section>
-    <section class="panel" id="haiku"></section>
-  </section>
-
-  <section class="slices-section" id="slices-section">
+  <section class="slices-section">
     <h2 class="section">Per-slice view</h2>
     <p class="blurb">
-      The 12 slices the orchestrator cut from the column at upstream
-      h-rules. Each row pairs the slice image (what the agent actually
-      saw) with the per-slice transcripts Sonnet and Haiku returned.
-      The joined transcript at the top of the page is built from
-      these by concatenating with <span class="sep">---</span> /
+      The slices the orchestrator cut from this column at upstream
+      h-rules. Each row pairs the slice image (what the agent
+      actually saw) with the per-slice transcript Sonnet returned.
+      The joined transcript above is built from these by
+      concatenating with <span class="sep">---</span> /
       <span class="sep-narrow">--</span> separators based on rule
       class.
     </p>
-    <div id="slice-rows"></div>
+    <div id="slice-rows"><p class="blurb">loading…</p></div>
   </section>
 
   <section class="sources">
-    <h2 class="section">Source materials — what the agents were given</h2>
+    <h2 class="section">Source materials — what the agent was given</h2>
 
     <details class="source" id="src-agent">
       <summary>
         <span class="filepath">.claude/agents/column-transcriber.md</span>
-        <span class="blurb">Agent definition (frontmatter) + durable transcription instructions — the source of truth for what a column transcriber does.</span>
+        <span class="blurb">Agent definition + durable transcription instructions — same for every column.</span>
       </summary>
       <div class="src-body"><pre data-fetch=".claude/agents/column-transcriber.md">loading…</pre></div>
     </details>
@@ -363,218 +343,168 @@
     <details class="source" id="src-skill">
       <summary>
         <span class="filepath">.claude/skills/transcribe-issue/SKILL.md</span>
-        <span class="blurb">User-invocable workflow — the orchestrator's procedure for claim → dispatch → ingest, including the actual prompt template the agents see.</span>
+        <span class="blurb">Orchestration procedure (claim → dispatch → ingest), including the per-call prompt template.</span>
       </summary>
       <div class="src-body"><pre data-fetch=".claude/skills/transcribe-issue/SKILL.md">loading…</pre></div>
     </details>
 
     <details class="source" id="src-ticket">
       <summary>
-        <span class="filepath">transcribe/work/columns/5c2109a2-403f-4f16-87bd-b1f624d3d856.json</span>
-        <span class="blurb">Per-call ticket — the variable bits handed to the agent: image path, column position, neighbours, registered ads, h-rules, prompt-hash, and (since 2026-05-02) the slice manifest.</span>
+        <span class="filepath" id="src-ticket-path">transcribe/work/columns/&lt;row-id&gt;.json</span>
+        <span class="blurb">Per-call ticket — image path, column position, neighbours, h-rules, slice manifest.</span>
       </summary>
-      <div class="src-body"><pre data-fetch="transcribe/work/columns/5c2109a2-403f-4f16-87bd-b1f624d3d856.json">loading…</pre></div>
-    </details>
-
-    <details class="source" id="src-slicer">
-      <summary>
-        <span class="filepath">transcribe/slice.py</span>
-        <span class="blurb">Pure helper that cuts a column PNG at h-rules, classifies each rule full/narrow, sub-divides tall slices, and joins per-slice transcripts back together with <code>---</code> / <code>--</code> separators.</span>
-      </summary>
-      <div class="src-body"><pre data-fetch="transcribe/slice.py">loading…</pre></div>
+      <div class="src-body"><pre id="src-ticket-pre">loading…</pre></div>
     </details>
 
     <details class="source" id="src-manifest">
       <summary>
-        <span class="filepath">transcribe/work/slices/5c2109a2-403f-4f16-87bd-b1f624d3d856/manifest.json</span>
-        <span class="blurb">The slice manifest produced for this column — 12 slices, all bounded by full-width rules. Carried inside the ticket and consumed by the agent + the joiner on the way back in.</span>
+        <span class="filepath" id="src-manifest-path">transcribe/work/slices/&lt;row-id&gt;/manifest.json</span>
+        <span class="blurb">Slice manifest for this column — y-ranges, rule classes, image paths.</span>
       </summary>
-      <div class="src-body"><pre data-fetch="transcribe/work/slices/5c2109a2-403f-4f16-87bd-b1f624d3d856/manifest.json">loading…</pre></div>
+      <div class="src-body"><pre id="src-manifest-pre">loading…</pre></div>
     </details>
   </section>
 </main>
 
 <script>
-// Opus benchmark stays inline (it was hand-produced by manually
-// slicing in /tmp before the production slicer existed). Sonnet and
-// Haiku panels are fetched from the joined-result files so this
-// HTML stays in sync with the on-disk artefacts.
-const RESULTS = {
-  opus: {
-    label: "Opus 4 (direct)",
-    benchmark: true,
-    iteration: 3,
-    note: "Iteration 3 — read at native resolution by slicing the 911×8313 PNG into six 1700px-tall chunks (PIL, 100px overlap) at /tmp/col0_chunk{0..5}.png. v1 fabricated body text from siblings; v2 honestly marked it illegible — but both were reading a downsampled view. v3 is the actual content. v1/v2 preserved at transcribe/work/results/<row-id>.opus-direct.v{1,2}.json.",
-    data: {
-      "transcript_text": "Th[...continues in next column...]\n\nVOL. XXV., No. 1[?b].\n\n---\n\nMONEY TO LOAN.\n\nTHE UNDERSIGNED ARE PREPARED to loan private funds on real estate security at lowest rate of interest.\nMACDONELL & STAFFORD,\nAlmonte.\n\n---\n\n$5 REWARD.\n\nWILL BE PAID FOR SUCH INFORMATION as will lead t[o] the conviction of any person or person[s] [t]respassing on East Half of Lot No. 1, 11th concession, Pakenham.\nJAS. L. C. MORE,\nAlmonte. P.O.\nt.f.\n\n---\n\nMARRIAGE LICENSES FOR SALE.\n\nTHE UNDERSIGNED HAVING REMOVED to Mr. Baird's block on Farm Street, parties requiring Marriage Licenses can be supplied with them at all reasonable times.\nJOHN SCOTT,\nIssuer of Marriage Licenses.\n\n---\n\nNEW STORE AND DWELLING for Sale or to Rent.\n\nTHIS STORE IS SITUATED AT PANMURE, nine miles from Almonte and seven from Pakenham. Convenient to store is a piece of land (4½ acres). All to be sold on reasonable terms. Immediate possession can be given. Apply at store, or to\nR. F. NAGLE,\nAlmonte.\n\n---\n\nJOHN CROSSLEY,\nWEAVER,\n\nIS BACK FROM THE OLD COUNTRY, and ready to attend to the wants of customers. Carpet weaving a specialty.\n\n---\n\n☞ I have some first-rate Black Cloths and [P]attern Cloths which I will exchange for good [cl]ean Wool—suitable for making Blankets. [F]armers will do well to see these goods.\nJOHN CROSSLEY.\n\n---\n\nW. J. SCOTT,\nCarriage-Maker,\nWHITE LAKE,\n\nDOES ALL KINDS OF WORK IN HIS line on short notice, in first-class style, and at reasonable rates. Try him.\n\n---\n\nFOR SALE.\nPhæton, with small seat, lamps and fenders all complete.\nPhæton Road Cart.\n\n---\n\nTHE APPLETON\nBlacksmith and Carriage Shop\n\n---\n\nTHE UNDERSIGNED TAKES THIS means of thanking the public for the liberal patronage bestowed upon him since commencing business in Appleton, and would at the same time say that he will, as heretofore, always be found at his post, ready to do all kinds of work in his line in a manner that will not fail to give satisfaction and at prices as low as anyone else. As a sample of prices will put on New Horse Shoes for\n\n20 CENTS EACH,\n\nand will remove shoes for 8 Cents Each.\nA new Top Buggy for sale at $85.00.\n☞ Give me a call.\nWm. W. Greer.\n\n---\n\nScenes from Almonte\n—IN—\nLarge Variety and at Low Prices\nCan be had at\nTownend's Studio,\nNear the Town Hall.\n\n---\n\n☞ Your friends at a distance will appreciate these views, and they will at the same time prove a fine advertisement of the beauty of our town.\n\n---\n\nFACTS FOR ALL\n\nA. H. TAIT\n\nHas the Largest Assortment, the Choicest Stock and the most Modern Style of Goods in his line in this section of country, consisting of\n\nStoves of All Kinds,\nTinware in Endless Variety,\nStamped and Japanned Ware,\n\nCutlery, Glassware, Lamps and Lamp Trimmings, Shelf Hardware, in fact, everything commonly found in a first-class Tin and Hardware Store. Call and inspect for yourself.\n\nA. H. TAIT,\nPAKENHAM.",
-      "transcriber_notes": "Iteration 3 — produced after the user prompted me to verify whether I was working from a downsampled image. I was. The Read tool was rendering the 911×8313 column PNG at ~250px wide; small body text was unreadable at that scale and earlier iterations (v1 fabricated, v2 marked illegible) both reflected that. For v3 I sliced the column with PIL into six 1700px-tall chunks with 100px overlap and read each at native resolution. Falsifications uncovered: 'MONEY TO LOAN' is signed MACDONELL & STAFFORD, not Strawbridge/Moore. '$5 REWARD' is signed JAS. L. C. MORE of Almonte P.O. about trespass on East Half of Lot No. 1, 11th concession, Pakenham — not Baskerville. Marriage Licenses are issued by JOHN SCOTT (removed to Baird's block on Farm Street), not W. F. Roche. The store for sale is at PANMURE (R. F. Nagle, Almonte), not Pakenham/Haggart. W. J. Scott is at WHITE LAKE, not Mitchell Lane, and sells Phæton + Phæton Road Cart. Appleton blacksmith new horse shoes are 20 CENTS EACH (not 90 cents/$3 dozen — that price line wasn't there); top buggy $85; signed Wm. W. Greer. Townend's Studio is Near the Town Hall, sells 'Scenes from Almonte' views. A. H. Tait of Pakenham — Tinware (not Flowers) in Endless Variety; full hardware list.",
-      "quality_flags": {
-        "damage": false, "faded": false, "smudged": false,
-        "low_legibility": false, "partial_cut": false,
-        "adjacent_text_visible": true
-      },
-      "repair_needed": false,
-      "repair_reason": ""
-    }
-  },
-  sonnet: {
-    label: "Sonnet 4.6",
-    benchmark: false,
-    note: "Dispatched via Agent tool, model=sonnet, sliced (12 slices, full-width separators). Joined output at transcribe/work/results/<row-id>.sonnet-sliced-joined.json.",
-    fetch: "transcribe/work/results/5c2109a2-403f-4f16-87bd-b1f624d3d856.sonnet-sliced-joined.json",
-    data: null
-  },
-  haiku: {
-    label: "Haiku 4.5",
-    benchmark: false,
-    note: "Dispatched via Agent tool, model=haiku, sliced (12 slices, full-width separators). Joined output at transcribe/work/results/<row-id>.haiku-sliced-joined.json.",
-    fetch: "transcribe/work/results/5c2109a2-403f-4f16-87bd-b1f624d3d856.haiku-sliced-joined.json",
-    data: null
-  }
-};
+const INDEX_PATH = "transcribe_sample_index.json";
+let INDEX = null;     // {issue, columns: [...]}
+let cur = 0;          // current index into INDEX.columns
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"
+  }[c]));
+}
 
 function renderTranscript(text) {
-  // Highlight the two separator conventions so the structural cuts
-  // are obvious at a glance.
-  const escaped = escapeHtml(text);
-  return escaped
+  return escapeHtml(text)
     .replace(/^---$/gm, "<span class='sep'>---</span>")
     .replace(/^--$/gm, "<span class='sep-narrow'>--</span>");
 }
 
-function renderPanel(elId, key, src) {
-  const { label, benchmark, note, iteration, data } = src[key];
-  const el = document.getElementById(elId);
-  const flagKeys = ["damage", "faded", "smudged",
-                    "low_legibility", "partial_cut",
-                    "adjacent_text_visible"];
-  const flagsHtml = flagKeys.map(k =>
-    `<span class="flag${data.quality_flags[k] ? ' on' : ''}">` +
-    `${k}${data.quality_flags[k] ? ': true' : ''}</span>`
-  ).join("");
-  let badge;
-  if (benchmark) {
-    const iterText = iteration ? `benchmark · iter ${iteration}` : 'benchmark';
-    badge = `<span class="badge benchmark">${iterText}</span>`;
-  } else if (data.repair_needed) {
-    badge = '<span class="badge repair">repair_needed</span>';
+function updateNavUI() {
+  const total = INDEX.columns.length;
+  const c = INDEX.columns[cur];
+  document.getElementById("prev-btn").disabled = cur <= 0;
+  document.getElementById("next-btn").disabled = cur >= total - 1;
+  document.getElementById("pos").innerHTML =
+    `<strong>${cur + 1}</strong> / ${total} &nbsp;·&nbsp; ` +
+    `page <strong>${c.page}</strong> col <strong>${c.col_idx}</strong>`;
+  document.title = `Transcribe sample — 1892-01-01 p${c.page} col${c.col_idx}`;
+  const repairBadge = document.getElementById("repair-badge");
+  if (c.repair_needed) {
+    repairBadge.className = "badge repair";
+    repairBadge.textContent = "repair_needed";
   } else {
-    badge = '<span class="badge">clean</span>';
+    repairBadge.className = "badge clean";
+    repairBadge.textContent = "clean";
   }
-  const repairBlock = data.repair_needed
-    ? `<div class="repair-reason"><strong>repair_reason:</strong> ${escapeHtml(data.repair_reason)}</div>`
-    : '';
-  const notes = data.transcriber_notes
-    ? `<div class="notes">${escapeHtml(data.transcriber_notes)}</div>`
-    : '';
-  const dispatchNote = note
-    ? `<div class="notes" style="font-style:normal; color:var(--muted); margin-top:4px; font-size:11px;">${escapeHtml(note)}</div>`
-    : '';
-  const charCount = data.transcript_text.length;
-  const modelClass = benchmark ? "model benchmark" : "model";
-
-  el.innerHTML = `
-    <h2>
-      <span><span class="${modelClass}">${label}</span> <span class="badge">${charCount} chars</span></span>
-      ${badge}
-    </h2>
-    <div class="body">
-      <pre>${renderTranscript(data.transcript_text)}</pre>
-      ${repairBlock}
-      ${notes}
-      ${dispatchNote}
-    </div>
-    <div class="meta">
-      <div class="flags">${flagsHtml}</div>
-    </div>
-  `;
-}
-
-function renderPanelLoading(elId, label) {
-  document.getElementById(elId).innerHTML =
-    `<h2><span><span class="model">${escapeHtml(label)}</span></span>` +
-    `<span class="badge">loading…</span></h2>` +
-    `<div class="body"><pre>fetching joined transcript…</pre></div>`;
-}
-
-function renderPanelError(elId, label, msg) {
-  document.getElementById(elId).innerHTML =
-    `<h2><span><span class="model">${escapeHtml(label)}</span></span>` +
-    `<span class="badge repair">load failed</span></h2>` +
-    `<div class="body"><pre class="err">${escapeHtml(msg)}</pre></div>`;
-}
-
-async function ensureFetched(src) {
-  // Populate `data` for any panels that come from a JSON file rather
-  // than being inlined. Fetched once per page-load, then cached on
-  // the source object.
-  const todo = [];
-  for (const key of Object.keys(src)) {
-    const entry = src[key];
-    if (entry.data == null && entry.fetch) {
-      todo.push((async () => {
-        try {
-          const r = await fetch(entry.fetch, { cache: "no-store" });
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          entry.data = await r.json();
-        } catch (e) {
-          entry.error = String(e);
-        }
-      })());
-    }
+  document.getElementById("char-badge").textContent = `${c.chars} chars`;
+  document.getElementById("slice-badge").textContent = `${c.slice_count} slices`;
+  document.getElementById("col-select").value = String(cur);
+  // sync URL hash to row_id for deep linking
+  if (location.hash !== "#" + c.row_id) {
+    history.replaceState(null, "", "#" + c.row_id);
   }
-  await Promise.all(todo);
 }
 
-async function renderAll() {
-  for (const key of ["opus", "sonnet", "haiku"]) {
-    if (RESULTS[key].data == null && RESULTS[key].fetch) {
-      renderPanelLoading(key, RESULTS[key].label);
-    }
-  }
-  await ensureFetched(RESULTS);
-  for (const key of ["opus", "sonnet", "haiku"]) {
-    if (RESULTS[key].error) {
-      renderPanelError(key, RESULTS[key].label, RESULTS[key].error);
-    } else {
-      renderPanel(key, key, RESULTS);
-    }
-  }
-  renderSlices();  // fire-and-forget
+function buildSelect() {
+  const sel = document.getElementById("col-select");
+  sel.innerHTML = INDEX.columns.map((c, i) =>
+    `<option value="${i}">p${c.page} col${c.col_idx} — ` +
+    `${c.chars} chars${c.repair_needed ? " · repair" : ""}</option>`
+  ).join("");
+  sel.addEventListener("change", () => {
+    cur = parseInt(sel.value, 10);
+    renderCurrent();
+  });
 }
 
-const SLICE_PATHS = {
-  manifest: "transcribe/work/slices/5c2109a2-403f-4f16-87bd-b1f624d3d856/manifest.json",
-  sonnet: "transcribe/work/results/5c2109a2-403f-4f16-87bd-b1f624d3d856.sonnet-sliced.json",
-  haiku: "transcribe/work/results/5c2109a2-403f-4f16-87bd-b1f624d3d856.haiku-sliced.json"
-};
-let _sliceData = null;
+async function fetchJSON(path) {
+  const r = await fetch(path, { cache: "no-store" });
+  if (!r.ok) throw new Error(`HTTP ${r.status} for ${path}`);
+  return r.json();
+}
 
-async function renderSlices() {
-  const container = document.getElementById("slice-rows");
-  if (_sliceData == null) {
-    container.innerHTML = "<p class='blurb'>loading slices…</p>";
-    try {
-      const [m, s, h] = await Promise.all([
-        fetch(SLICE_PATHS.manifest, { cache: "no-store" }).then(r => r.json()),
-        fetch(SLICE_PATHS.sonnet,   { cache: "no-store" }).then(r => r.json()),
-        fetch(SLICE_PATHS.haiku,    { cache: "no-store" }).then(r => r.json())
-      ]);
-      const byIdx = arr => Object.fromEntries(
-        arr.map(o => [o.idx, o]));
-      _sliceData = {
-        manifest: m,
-        sonnet: byIdx(s.slices),
-        haiku: byIdx(h.slices)
-      };
-    } catch (e) {
-      container.innerHTML =
-        `<p class="blurb"><span class="err">failed to load slice data: ${escapeHtml(String(e))}</span></p>`;
+async function fetchText(path) {
+  const r = await fetch(path, { cache: "no-store" });
+  if (!r.ok) throw new Error(`HTTP ${r.status} for ${path}`);
+  return r.text();
+}
+
+async function renderCurrent() {
+  updateNavUI();
+  const c = INDEX.columns[cur];
+  const rid = c.row_id;
+  const resultPath = `transcribe/work/results/${rid}.json`;
+  const manifestPath = `transcribe/work/slices/${rid}/manifest.json`;
+  const ticketPath = `transcribe/work/columns/${rid}.json`;
+
+  // Reset panels
+  document.getElementById("joined-text").textContent = "loading…";
+  document.getElementById("quality-flags").innerHTML = "";
+  document.getElementById("repair-reason").innerHTML = "";
+  document.getElementById("slice-rows").innerHTML =
+    "<p class='blurb'>loading…</p>";
+
+  // Source-material paths — update labels + reload contents
+  document.getElementById("src-ticket-path").textContent = ticketPath;
+  document.getElementById("src-manifest-path").textContent = manifestPath;
+  loadSourceInto(document.getElementById("src-ticket-pre"), ticketPath);
+  loadSourceInto(document.getElementById("src-manifest-pre"), manifestPath);
+
+  let result, manifest;
+  try {
+    [result, manifest] = await Promise.all([
+      fetchJSON(resultPath),
+      fetchJSON(manifestPath)
+    ]);
+  } catch (e) {
+    document.getElementById("joined-text").innerHTML =
+      `<span class="err">failed to load: ${escapeHtml(String(e))}</span>`;
+    document.getElementById("slice-rows").innerHTML =
+      `<p class="blurb"><span class="err">failed to load slice data</span></p>`;
+    return;
+  }
+
+  // Joined transcript view
+  const slicesByIdx = Object.fromEntries(result.slices.map(s => [s.idx, s]));
+  // Build joined string from the manifest using the same rules as the
+  // ingester so what we display matches the DB.
+  const parts = [];
+  manifest.forEach((m, i) => {
+    const txt = (slicesByIdx[m.idx] || {}).transcript_text || "";
+    if (txt.trim()) parts.push(txt);
+    if (i === manifest.length - 1) return;
+    if (m.subdivided && manifest[i+1].subdivided &&
+        m.idx === manifest[i+1].idx) {
+      // Sub-slices of the same source slice — no separator (joined seamlessly)
       return;
     }
-  }
-  const { manifest, sonnet, haiku } = _sliceData;
+    const cls = m.bottom_rule_class;
+    if (cls === "full") parts.push("---");
+    else if (cls === "narrow") parts.push("--");
+  });
+  const joined = parts.join("\n\n");
 
+  document.getElementById("joined-chars").textContent = `${joined.length} chars`;
+  document.getElementById("joined-text").innerHTML = renderTranscript(joined);
+
+  const flagKeys = ["damage","faded","smudged","low_legibility",
+                    "partial_cut","adjacent_text_visible"];
+  const qf = result.quality_flags || {};
+  document.getElementById("quality-flags").innerHTML = flagKeys.map(k =>
+    `<span class="flag${qf[k] ? ' on' : ''}">${k}` +
+    `${qf[k] ? ': true' : ''}</span>`).join("");
+
+  if (result.repair_needed && result.repair_reason) {
+    document.getElementById("repair-reason").innerHTML =
+      `<div class="repair-reason"><strong>repair_reason:</strong> ` +
+      `${escapeHtml(result.repair_reason)}</div>`;
+  }
+
+  // Per-slice grid
   const ruleClassBadge = cls =>
     `<span class="rule-class ${cls}">${cls}</span>`;
   const sepHint = cls => {
@@ -583,36 +513,16 @@ async function renderSlices() {
     return `<span class="rule-class column_edge">column edge</span>`;
   };
 
-  container.innerHTML = manifest.map(slice => {
-    const s = sonnet[slice.idx] || {};
-    const h = haiku[slice.idx]  || {};
+  document.getElementById("slice-rows").innerHTML = manifest.map(slice => {
+    const rec = slicesByIdx[slice.idx] || {};
     const subClass = slice.subdivided ? " subdivided" : "";
-    const meta = `
-      <div class="slice-meta">
-        <span class="idx">slice ${String(slice.idx).padStart(2, "0")}</span>
-        <span class="yrange">y ${slice.y_top_pct.toFixed(1)}–${slice.y_bottom_pct.toFixed(1)}%</span>
-        <span>${slice.height_px}px tall</span>
-      </div>
-      <div class="slice-meta">
-        <span>top:</span>${ruleClassBadge(slice.top_rule_class)}
-        <span>bottom:</span>${ruleClassBadge(slice.bottom_rule_class)}
-      </div>
-      <div class="slice-meta">
-        <span>joiner inserts after:</span> ${sepHint(slice.bottom_rule_class)}
-      </div>
-    `;
-    const cell = (label, rec) => {
-      if (!rec.transcript_text) {
-        return `<div class="slice-cell"><h3>${label}</h3><pre class="err">missing</pre></div>`;
-      }
-      const notes = rec.transcriber_notes
-        ? `<div class="slice-notes">${escapeHtml(rec.transcriber_notes)}</div>` : "";
-      return `<div class="slice-cell">
-        <h3>${label}</h3>
-        <pre>${escapeHtml(rec.transcript_text)}</pre>
-        ${notes}
-      </div>`;
-    };
+    const txt = rec.transcript_text || "";
+    const notes = rec.transcriber_notes
+      ? `<div class="slice-notes">${escapeHtml(rec.transcriber_notes)}</div>`
+      : "";
+    const cellInner = txt
+      ? `<pre>${escapeHtml(txt)}</pre>${notes}`
+      : `<pre class="err">no transcript text${notes ? '' : ''}</pre>${notes}`;
     return `
       <div class="slice-row${subClass}">
         <div>
@@ -620,36 +530,78 @@ async function renderSlices() {
             <img src="${escapeHtml(slice.image_path)}"
                  alt="slice ${slice.idx}" loading="lazy">
           </div>
-          ${meta}
+          <div class="slice-meta">
+            <span class="idx">slice ${String(slice.idx).padStart(2,"0")}${slice.subdivided ? "."+slice.sub_idx : ""}</span>
+            <span class="yrange">y ${slice.y_top_pct.toFixed(1)}–${slice.y_bottom_pct.toFixed(1)}%</span>
+            <span>${slice.height_px}px tall</span>
+          </div>
+          <div class="slice-meta">
+            <span>top:</span>${ruleClassBadge(slice.top_rule_class)}
+            <span>bottom:</span>${ruleClassBadge(slice.bottom_rule_class)}
+          </div>
+          <div class="slice-meta">
+            <span>joiner inserts after:</span> ${sepHint(slice.bottom_rule_class)}
+          </div>
         </div>
-        ${cell("Sonnet 4.6", s)}
-        ${cell("Haiku 4.5", h)}
+        <div class="slice-cell">
+          <h3>Sonnet 4.6</h3>
+          ${cellInner}
+        </div>
       </div>
     `;
   }).join("");
 }
 
-function escapeHtml(s) {
-  return s.replace(/[&<>"']/g, c => ({
-    "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"
-  }[c]));
-}
-
-// Fetch source materials live so edits to agent/skill/ticket files
-// show up on refresh. Same-origin fetches.
-async function loadSource(pre) {
-  const path = pre.dataset.fetch;
+async function loadSourceInto(pre, path) {
+  pre.textContent = "loading…";
   try {
-    const r = await fetch(path, { cache: "no-store" });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    pre.textContent = await r.text();
+    pre.textContent = await fetchText(path);
   } catch (e) {
     pre.innerHTML = `<span class="err">failed to load ${escapeHtml(path)}: ${escapeHtml(String(e))}</span>`;
   }
 }
 
-renderAll();
-document.querySelectorAll("pre[data-fetch]").forEach(loadSource);
+function indexFromHash() {
+  const h = location.hash.replace(/^#/, "");
+  if (!h) return 0;
+  const i = INDEX.columns.findIndex(c => c.row_id === h);
+  return i >= 0 ? i : 0;
+}
+
+document.addEventListener("keydown", e => {
+  // Don't intercept while typing in the dropdown
+  if (e.target.tagName === "SELECT") return;
+  if (e.key === "ArrowLeft" && cur > 0) { cur--; renderCurrent(); }
+  if (e.key === "ArrowRight" && cur < INDEX.columns.length - 1) { cur++; renderCurrent(); }
+});
+
+document.getElementById("prev-btn").addEventListener("click", () => {
+  if (cur > 0) { cur--; renderCurrent(); }
+});
+document.getElementById("next-btn").addEventListener("click", () => {
+  if (cur < INDEX.columns.length - 1) { cur++; renderCurrent(); }
+});
+
+window.addEventListener("hashchange", () => {
+  const i = indexFromHash();
+  if (i !== cur) { cur = i; renderCurrent(); }
+});
+
+(async () => {
+  try {
+    INDEX = await fetchJSON(INDEX_PATH);
+  } catch (e) {
+    document.body.innerHTML =
+      `<main><p class="err">Failed to load ${INDEX_PATH}: ${escapeHtml(String(e))}</p></main>`;
+    return;
+  }
+  buildSelect();
+  cur = indexFromHash();
+  renderCurrent();
+  // Load shared source material once
+  document.querySelectorAll("pre[data-fetch]").forEach(pre =>
+    loadSourceInto(pre, pre.dataset.fetch));
+})();
 </script>
 </body>
 </html>

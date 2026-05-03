@@ -57,6 +57,18 @@ that is not legibly present.**
 - Mark headlines and sub-headings using a line of all-caps
   followed by a blank line, matching what was printed. Use plain
   text, no markdown for emphasis.
+- **Two-column (or multi-column) lists inside one item.** Some
+  ads and feature blocks arrange short items in two or more
+  visual columns side by side to save space — typically a list
+  of goods, prices, or place names stacked in parallel. Do
+  **not** mimic this layout in the transcript. Sequence the
+  items as one continuous list, reading down the leftmost
+  column first, then the next, and so on. The visual columns
+  are a printer's space-saving device, not semantic structure.
+  Example: a column showing
+  `SARDINES,   APPLES,` / `CHICKEN,   TOMATOES,` / `TURKEY,
+  CORN,` becomes the linear sequence `SARDINES, / CHICKEN, /
+  TURKEY, / ... / APPLES, / TOMATOES, / CORN, / ...`.
 - **Marking horizontal rules** depends on which input mode you
   are in — see "Input modes" below.
 
@@ -185,23 +197,28 @@ them as a check on your own reading:
 - If the context says an ad sits at y=44–63 and you see a flat
   white rectangle in roughly that vertical range, the cut is
   consistent — leave that area blank in the transcript.
-- If the context says an ad is masked but you see body text
-  there, the mask did not land where it should have. Set
-  `repair_needed: true` and explain in `repair_reason`.
+- **If a registered ad is visible as live content** (the mask
+  didn't land, or the ad is single-column and visible in full):
+  transcribe it normally. The text is on the page and worth
+  capturing. In `transcriber_notes` add a short reference
+  identifying which registered ad it corresponds to (e.g.
+  "matches registered ad 4f49bbf5… (full-column)" — the
+  per-call context lists ad uuids and y-ranges). Set
+  `repair_needed: true` only if the mask should have landed
+  there but didn't — describe the mismatch briefly.
+- **If you see an ad that is NOT in the registered list**
+  (visually presents as an advertisement — heavy border,
+  display type, prices, branded product names, "for sale" /
+  "wanted" notices — and no entry in the per-call context
+  matches its location): transcribe it as well, and set
+  `repair_needed: true` with a short repair_reason naming what
+  was missed and roughly where. This is a missed ad the
+  cutting stage didn't see.
 - If you see a flat white rectangle that the context does not
-  list, an ad was missed by the cutting stage. Set
+  list, an ad was masked but isn't registered — set
   `repair_needed: true` and describe where (vertical extent in
-  page-percent if you can estimate).
-- An ad can also be missed without leaving a white rectangle —
-  i.e. it appears in the column as live content the cutting
-  stage didn't recognise as an ad. If you see a block that
-  visually presents as an advertisement (heavy border, large
-  display type, prices, addresses, branded product names, lists
-  of goods for sale, "for sale" / "wanted" notices) and the
-  context does not list an ad in that location, flag this with
-  `repair_needed: true` and a description. Don't spend long
-  reasoning about it — a quick visual check is enough; the
-  full segmentation pass downstream will do the careful work.
+  page-percent if you can estimate). Don't transcribe inside
+  the rectangle.
 - If a horizontal rule the context lists is clearly absent (or
   one is visibly present that the context does not list), note
   it in `transcriber_notes`. A missed h-rule does not on its own
@@ -242,6 +259,36 @@ right"). The most common cases are:
 - An ad is in the wrong place (mask doesn't match what's there)
   or is missing entirely.
 - Physical damage that needs noting before any further work.
+
+## Notes discipline
+
+`transcriber_notes` and `repair_reason` are read by humans and
+by downstream code. Keep them **short and functional**: a note
+earns its place only if a downstream consumer can act on it.
+
+Useful — keep:
+- A missed h-rule's approximate y-position within the slice.
+- An adjacent-column bleed beyond the normal margin.
+- An unlisted ad's location and a one-phrase identifier
+  ("display ad: ANDREW BELL, Canada Company agent").
+- A reading ambiguity that matters for genealogy ("name reads
+  'M'Donald' or 'McDonald'").
+- A reference to a registered ad you transcribed
+  ("matches registered ad 4f49bbf5…").
+
+Not useful — drop:
+- Restating what is already in the transcript ("the heading
+  reads MARRIAGES").
+- Narrating the slice's visual shape ("there is a horizontal
+  rule at the top, then text, then another rule").
+- Explaining standard features (drop caps, display headlines,
+  rules between items, decorative dingbats, the masthead).
+- Echoing the `repair_reason` ("flagged under repair_needed").
+
+Aim for one short phrase per observation — multiple
+observations can share a single sentence separated by
+semicolons. If a slice is unremarkable, leave its
+`transcriber_notes` empty.
 
 ## Response shape
 
