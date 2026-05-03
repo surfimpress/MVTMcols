@@ -6,7 +6,7 @@
 <title>Almonte Gazette — Processed Issues</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html { scroll-padding-top: 120px; }
+html { scroll-padding-top: 145px; }
 body { font-family: -apple-system, system-ui, sans-serif; background: #f5f5f0; color: #333; padding: 0 20px 20px; }
 #page-header { position: sticky; top: 0; background: #f5f5f0; padding: 14px 20px 10px; margin: 0 -20px 14px; z-index: 10; border-bottom: 1px solid #ddd; }
 #page-header h1 { margin-bottom: 8px; }
@@ -26,6 +26,16 @@ body { font-family: -apple-system, system-ui, sans-serif; background: #f5f5f0; c
 }
 .decade-header { font-size: 1.1em; color: #555; margin-top: 6px; padding-top: 12px; border-top: 1px solid #ddd; }
 .decade-header:first-child { border-top: none; padding-top: 0; margin-top: 0; }
+.decade-controls { margin: 2px 0 10px 0; font-size: 0.85em; }
+.global-expand { margin-top: 6px; font-size: 0.85em; }
+.year-block { margin-bottom: 8px; }
+.year-block > summary { background: #efece5; font-size: 1em; }
+.year-block > summary:hover { background: #e5e2db; }
+.year-block .year-content {
+    display: grid; gap: 15px;
+    padding: 12px 15px;
+}
+.year-block .issue-card { margin: 0; }
 h1 { font-size: 1.8em; margin-bottom: 5px; }
 .subtitle { color: #666; margin-bottom: 20px; }
 .issue-list { display: grid; gap: 15px; margin-bottom: 30px; }
@@ -72,6 +82,11 @@ details.ads-section summary { background: #f8f5ee; }
 <header id="page-header">
 <h1>Almonte Gazette</h1>
 <nav id="decade-nav"></nav>
+<div class="global-expand expand-ctrl">
+    <a onclick="setAllYearsOpen(true)">expand all years</a>
+    |
+    <a onclick="setAllYearsOpen(false)">close all years</a>
+</div>
 </header>
 <p class="subtitle">Processed Issues — Column Extraction Pipeline</p>
 <div id="totals" class="totals"></div>
@@ -141,26 +156,70 @@ async function loadIssue(dir) {
 
 function renderList(issues) {
     const el = document.getElementById('issue-list');
-    let lastDecade = null;
-    el.innerHTML = issues.map(issue => {
+
+    // Group issues by decade -> year so we can wrap each year in its
+    // own <details> block and emit per-decade expand/collapse controls
+    // alongside the decade header. Year blocks default to closed so
+    // the initial view is compact; the global and per-decade expand
+    // links open them on demand.
+    const byDecade = new Map();
+    for (const issue of issues) {
         const decade = Math.floor(issue.year / 10) * 10;
-        let prefix = '';
-        if (decade !== lastDecade) {
-            lastDecade = decade;
-            prefix = `<h3 class="decade-header" id="decade-${decade}">${decade}</h3>`;
+        if (!byDecade.has(decade)) byDecade.set(decade, new Map());
+        const byYear = byDecade.get(decade);
+        if (!byYear.has(issue.year)) byYear.set(issue.year, []);
+        byYear.get(issue.year).push(issue);
+    }
+
+    const decades = [...byDecade.keys()].sort((a, b) => a - b);
+    const parts = [];
+    for (const decade of decades) {
+        const byYear = byDecade.get(decade);
+        const years = [...byYear.keys()].sort((a, b) => a - b);
+        parts.push(`<h3 class="decade-header" id="decade-${decade}">${decade}</h3>`);
+        parts.push(`<div class="decade-controls expand-ctrl">
+            <a onclick="setDecadeYearsOpen(${decade}, true)">expand all</a>
+            |
+            <a onclick="setDecadeYearsOpen(${decade}, false)">close all</a>
+        </div>`);
+        for (const year of years) {
+            const yearIssues = byYear.get(year);
+            const nIssues = yearIssues.length;
+            const nCols = yearIssues.reduce((s, i) => s + (i.n_cols || 0), 0);
+            const nAds = yearIssues.reduce((s, i) => s + (i.n_ads || 0), 0);
+            const issueWord = nIssues === 1 ? 'issue' : 'issues';
+            const cards = yearIssues.map(issue => {
+                const date = `${issue.year}-${String(issue.month).padStart(2,'0')}-${String(issue.day).padStart(2,'0')}`;
+                const lastRan = issue.last_ran ? new Date(issue.last_ran + 'Z').toLocaleString() : '';
+                return `<div class="issue-card" onclick="showIssue('${issue.dir}')">
+                    <h2>${date}</h2>
+                    <div class="stats">
+                        ${issue.n_pages || 0} pages \u2022
+                        ${issue.n_cols || 0} columns \u2022
+                        ${issue.n_ads || 0} ads
+                        ${lastRan ? '\u2022 ran ' + lastRan : ''}
+                    </div>
+                </div>`;
+            }).join('');
+            parts.push(`<details class="year-block" data-decade="${decade}" data-year="${year}">
+                <summary>${year} \u2014 ${nIssues} ${issueWord}, ${nCols} columns, ${nAds} ads</summary>
+                <div class="year-content">${cards}</div>
+            </details>`);
         }
-        const date = `${issue.year}-${String(issue.month).padStart(2,'0')}-${String(issue.day).padStart(2,'0')}`;
-        const lastRan = issue.last_ran ? new Date(issue.last_ran + 'Z').toLocaleString() : '';
-        return prefix + `<div class="issue-card" onclick="showIssue('${issue.dir}')">
-            <h2>${date}</h2>
-            <div class="stats">
-                ${issue.n_pages || 0} pages \u2022
-                ${issue.n_cols || 0} columns \u2022
-                ${issue.n_ads || 0} ads
-                ${lastRan ? '\u2022 ran ' + lastRan : ''}
-            </div>
-        </div>`;
-    }).join('');
+    }
+    el.innerHTML = parts.join('');
+}
+
+function setDecadeYearsOpen(decade, open) {
+    document.querySelectorAll(
+        `details.year-block[data-decade="${decade}"]`
+    ).forEach(d => { d.open = open; });
+}
+
+function setAllYearsOpen(open) {
+    document.querySelectorAll('details.year-block').forEach(d => {
+        d.open = open;
+    });
 }
 
 // Lazy detail rendering — replaces the eager `renderDetails(issues)`
@@ -322,10 +381,22 @@ function gotoDecade(decade, ev) {
     if (target) target.scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 
+// Open the year-block <details> that contains `dir` so that when the
+// user closes the issue detail they see the card they came from
+// rather than a collapsed list.
+function openYearForIssue(dir) {
+    const issue = indexByDir.get(dir);
+    if (!issue) return;
+    const yearEl = document.querySelector(
+        `details.year-block[data-year="${issue.year}"]`);
+    if (yearEl) yearEl.open = true;
+}
+
 async function showIssue(name) {
     document.getElementById('issue-list').style.display = 'none';
     history.replaceState(null, '', '?issue=' + name);
     window.scrollTo(0, 0);
+    openYearForIssue(name);
     await ensureDetailMounted(name);
     const el = document.getElementById('detail-' + name);
     if (el) el.classList.add('active');
@@ -341,6 +412,7 @@ async function gotoIssue(from, to) {
     if (fromEl) fromEl.classList.remove('active');
     history.replaceState(null, '', '?issue=' + to);
     window.scrollTo(0, 0);
+    openYearForIssue(to);
     await ensureDetailMounted(to);
     const toEl = document.getElementById('detail-' + to);
     if (toEl) toEl.classList.add('active');
@@ -377,6 +449,7 @@ async function applyDeepLink() {
     const issue = params.get('issue');
     if (issue && indexByDir.has(issue)) {
         document.getElementById('issue-list').style.display = 'none';
+        openYearForIssue(issue);
         await ensureDetailMounted(issue);
         const el = document.getElementById('detail-' + issue);
         if (el) el.classList.add('active');
