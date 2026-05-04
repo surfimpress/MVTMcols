@@ -1477,6 +1477,41 @@ def _undo_apply(conn, table, row_key, before, after):
     return False, "history entry has no before and no after — nothing to undo"
 
 
+def _version_existing(path: str) -> str | None:
+    """Move an existing file aside to a versioned backup.
+
+    Used by regenerate-page so a re-cut PNG never destroys the prior
+    canonical version. The new PNG is written at ``path`` after this
+    helper returns; the prior version is preserved at
+    ``<stem>.v<N>.bak<ext>`` where N is the next free generation
+    (highest existing generation +1, starting at 1). If the path does
+    not exist, this is a no-op and returns None.
+
+    Why not delete: the user's rule is that mutators must protect the
+    prior value. Discoverability matters too — the .vN.bak sits next
+    to the canonical file in the same directory, so an inspector
+    listing the folder sees the lineage immediately. The .bak suffix
+    keeps it out of glob patterns that match canonical PNGs (e.g.
+    `*.png` consumers won't pick up `.bak.png` reorderings if we
+    happened to keep the .png extension; using `.bakN` guards
+    against that explicitly).
+
+    Pre-existing .vN.bak files are preserved — only the canonical
+    name moves. Multiple regenerate-page runs accumulate v1, v2, ...
+    """
+    if not os.path.exists(path):
+        return None
+    base, ext = os.path.splitext(path)
+    n = 1
+    while True:
+        candidate = f"{base}.v{n}.bak{ext}"
+        if not os.path.exists(candidate):
+            break
+        n += 1
+    os.rename(path, candidate)
+    return candidate
+
+
 def cmd_regenerate_page(args) -> int:
     """Re-extract derived per-page artefacts from the current DB
     state. Mutators (adjust-ad, delete-ad, move-boundary, etc.) change
@@ -1580,20 +1615,32 @@ def cmd_regenerate_page(args) -> int:
                                     name_prefix=name_prefix)
         # extract_ad_images writes _<prefix>{i+1}.png by enumeration.
         # Move each output back to the original image_filename so the
-        # uuid → filename mapping in DB stays valid.
+        # uuid → filename mapping in DB stays valid. Before overwriting
+        # an existing canonical PNG, version-archive it so the prior
+        # cut is recoverable.
+        backups = []
         for new, old in zip(results, records):
             desired = os.path.join(ad_out_dir, old["image_filename"])
             written = new["image_path"]
             if os.path.abspath(written) != os.path.abspath(desired):
+                bak = _version_existing(desired)
+                if bak is not None:
+                    backups.append(bak)
                 shutil.move(written, desired)
-        return len(records)
+        return len(records), backups
 
     def _cleanup_orphan_ads(all_records):
-        """Remove ad PNGs in ad_out_dir whose filename no longer
+        """Archive ad PNGs in ad_out_dir whose filename no longer
         corresponds to a current DB row. Without this, a deleted ad
-        leaves a stale PNG that the viewer continues to surface."""
+        leaves a stale PNG that the viewer continues to surface.
+
+        Orphans are version-archived (moved to ``<stem>.v<N>.bak.png``)
+        rather than deleted — the prior cut stays recoverable even
+        when the ad row itself was deleted. Already-archived files
+        (``.bak.png``) are skipped so repeated runs don't archive
+        archives."""
         if not os.path.isdir(ad_out_dir):
-            return 0
+            return 0, []
         keep = {r["image_filename"] for r in all_records
                 if r.get("image_filename")}
         # Also keep stale page_dir copies out of the way: only manage
@@ -1603,7 +1650,7 @@ def cmd_regenerate_page(args) -> int:
         # detect_ads / add-ad (e.g. 1940-02-20-03_*, NOT -3_*).
         prefix = (f"{args.year:04d}-{args.month:02d}-{args.day:02d}"
                   f"-{args.page:02d}_")
-        removed = 0
+        archived = []
         for fn in os.listdir(ad_out_dir):
             if not fn.startswith(prefix):
                 continue
@@ -1611,22 +1658,27 @@ def cmd_regenerate_page(args) -> int:
                 continue
             if fn in keep:
                 continue
-            try:
-                os.remove(os.path.join(ad_out_dir, fn))
-                removed += 1
-            except OSError:
-                pass
-        return removed
+            if ".bak" in fn:
+                # Already an archived prior version; leave alone.
+                continue
+            full = os.path.join(ad_out_dir, fn)
+            bak = _version_existing(full)
+            if bak is not None:
+                archived.append(bak)
+        return len(archived), archived
 
     def _cleanup_stale_page_dir_ads():
         """Earlier regenerate-page runs (before the ad_out_dir fix)
-        wrote ad PNGs into page_dir. Those duplicates are now stale and
-        confuse anyone inspecting the per-page directory. Remove them."""
+        wrote ad PNGs into page_dir. Those duplicates are now stale
+        and confuse anyone inspecting the per-page directory.
+        Version-archive them rather than delete — the .vN.bak.png
+        keeps the prior cut on disk for recovery without polluting
+        the canonical-name expectations of consumers."""
         if not os.path.isdir(page_dir):
-            return 0
+            return 0, []
         prefix = (f"{args.year:04d}-{args.month:02d}-{args.day:02d}"
                   f"-{args.page:02d}_")
-        removed = 0
+        archived = []
         for fn in os.listdir(page_dir):
             if not fn.startswith(prefix):
                 continue
@@ -1634,23 +1686,26 @@ def cmd_regenerate_page(args) -> int:
             stem = fn[len(prefix):]
             if not (stem.startswith("ad") or stem.startswith("sc_ad")):
                 continue
-            try:
-                os.remove(os.path.join(page_dir, fn))
-                removed += 1
-            except OSError:
-                pass
-        return removed
+            if ".bak" in fn:
+                continue
+            full = os.path.join(page_dir, fn)
+            bak = _version_existing(full)
+            if bak is not None:
+                archived.append(bak)
+        return len(archived), archived
 
     if scope in ("ads", "both"):
-        n_multi = _re_extract_set(multi, "ad")
-        n_single = _re_extract_set(single, "sc_ad")
-        n_orphans = _cleanup_orphan_ads(multi + single)
-        n_stale = _cleanup_stale_page_dir_ads()
+        n_multi, multi_baks = _re_extract_set(multi, "ad")
+        n_single, single_baks = _re_extract_set(single, "sc_ad")
+        n_orphans, orphan_baks = _cleanup_orphan_ads(multi + single)
+        n_stale, stale_baks = _cleanup_stale_page_dir_ads()
         actions.append({"step": "ads",
                         "multi_col_rerendered": n_multi,
                         "single_col_rerendered": n_single,
-                        "orphans_removed": n_orphans,
-                        "stale_page_dir_removed": n_stale})
+                        "orphans_archived": n_orphans,
+                        "stale_page_dir_archived": n_stale,
+                        "backups": (multi_baks + single_baks +
+                                    orphan_baks + stale_baks)})
 
     if scope in ("columns", "both"):
         ads_for_cut = [
@@ -1658,6 +1713,24 @@ def cmd_regenerate_page(args) -> int:
              "x_end_pct": r["x_end_pct"], "y_end_pct": r["y_end_pct"]}
             for r in (multi + single)
         ]
+        # Version-archive any existing column PNGs before re-cutting,
+        # so the prior cut survives. extract_columns writes
+        # `<YYYY-MM-DD>-<PP>_col<N>.png` into page_dir; before we
+        # call it, sweep the dir for the canonical-name pattern and
+        # move each match aside.
+        col_baks = []
+        if os.path.isdir(page_dir):
+            col_prefix = (f"{args.year:04d}-{args.month:02d}-"
+                          f"{args.day:02d}-{args.page:02d}_col")
+            for fn in os.listdir(page_dir):
+                if not fn.startswith(col_prefix) or not fn.endswith(".png"):
+                    continue
+                if ".bak" in fn:
+                    continue
+                full = os.path.join(page_dir, fn)
+                bak = _version_existing(full)
+                if bak is not None:
+                    col_baks.append(bak)
         # extract_columns expects boundaries as list of dicts with
         # x_pct, plus peak_darkness + confidence used only to populate
         # the returned ColumnResult metadata (not for the PNG output).
@@ -1669,7 +1742,8 @@ def cmd_regenerate_page(args) -> int:
                                       dpi=450, output_dir=page_dir,
                                       ads_with_uuids=ads_for_cut)
         actions.append({"step": "columns",
-                        "rerendered": len(col_results)})
+                        "rerendered": len(col_results),
+                        "backups": col_baks})
 
     # viewer_data refresh: per-issue (cheap). regenerate-page acts on
     # one issue's page, so only that issue's payload needs rewriting.
