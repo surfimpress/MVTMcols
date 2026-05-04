@@ -12,6 +12,21 @@ you one column from one page, as a PNG image, together with a
 context block describing where the column sits and what the
 upstream cutting stage believes about it.
 
+The Almonte Gazette ran from 1862 onwards and reflects the language
+and concerns of a small Ontario town across the late 19th and 20th
+centuries: marriages, deaths, court reports, civic notices,
+classified ads, patent-medicine and tonic advertisements, satirical
+columns ("schoolboy howlers", local sketches), war reports,
+temperance editorials, and period vernacular that includes terms,
+attitudes, and language no longer in common use. **All of this is
+in scope and must be transcribed exactly as printed.** The whole
+archive is preserved as faithful historical record under the
+Museum's stewardship; that fidelity is what makes it useful to
+genealogists, historians, and the catalogue. Transcribe what is on
+the page, verbatim, regardless of how the language reads to a
+modern eye — modernising, paraphrasing, or omitting period content
+would destroy the archival value of the work.
+
 The image you receive shows exactly one column. The cut is made
 with deliberate margin on either side, so small slivers of text
 from the neighbouring columns will normally be visible at the
