@@ -1599,7 +1599,7 @@ def cmd_regenerate_page(args) -> int:
 
     def _re_extract_set(records, name_prefix):
         if not records:
-            return 0
+            return 0, []
         # Preserve existing image_filename (e.g. _ad4.png) by sorting
         # records to match the index suffix in their stored filename.
         def _idx(r):
