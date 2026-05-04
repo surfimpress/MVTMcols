@@ -1610,19 +1610,35 @@ def cmd_regenerate_page(args) -> int:
                 return 1 << 30
         records.sort(key=_idx)
         os.makedirs(ad_out_dir, exist_ok=True)
+        # Version-archive existing canonical PNGs BEFORE re-extraction
+        # so extract_ad_images' fresh writes don't silently clobber
+        # the prior cuts. Without this archive-first step, when the
+        # extractor's enumeration index happens to match the stored
+        # image_filename suffix (the common case) the new write lands
+        # directly on the existing path and the prior cut is lost.
+        backups = []
+        for r in records:
+            fn = r.get("image_filename")
+            if not fn:
+                continue
+            desired = os.path.join(ad_out_dir, fn)
+            bak = _version_existing(desired)
+            if bak is not None:
+                backups.append(bak)
         results = extract_ad_images(pdf_path, records, ad_out_dir,
                                     page_number=0, dpi=450,
                                     name_prefix=name_prefix)
         # extract_ad_images writes _<prefix>{i+1}.png by enumeration.
-        # Move each output back to the original image_filename so the
-        # uuid → filename mapping in DB stays valid. Before overwriting
-        # an existing canonical PNG, version-archive it so the prior
-        # cut is recoverable.
-        backups = []
+        # If an output filename doesn't match the stored
+        # image_filename (because index ordering changed), rename it
+        # back so the uuid → filename mapping in DB stays valid.
         for new, old in zip(results, records):
             desired = os.path.join(ad_out_dir, old["image_filename"])
             written = new["image_path"]
             if os.path.abspath(written) != os.path.abspath(desired):
+                # Defensive: if a file already lives at desired (it
+                # shouldn't, after the archive sweep above, but be
+                # safe), archive it before the rename.
                 bak = _version_existing(desired)
                 if bak is not None:
                     backups.append(bak)
