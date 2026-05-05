@@ -1,0 +1,658 @@
+{
+  "@context": "http://iiif.io/api/presentation/3/context.json",
+  "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest_pass2.json",
+  "type": "Manifest",
+  "label": {
+    "en": [
+      "Almonte Gazette — 1912-12-27 (pass-2: items)"
+    ]
+  },
+  "metadata": [
+    {
+      "label": {
+        "en": [
+          "Issue date"
+        ]
+      },
+      "value": {
+        "en": [
+          "1912-12-27"
+        ]
+      }
+    },
+    {
+      "label": {
+        "en": [
+          "Pass"
+        ]
+      },
+      "value": {
+        "en": [
+          "2 — items, segmentation, classification, entity mentions"
+        ]
+      }
+    },
+    {
+      "label": {
+        "en": [
+          "Pages with items"
+        ]
+      },
+      "value": {
+        "en": [
+          "p6"
+        ]
+      }
+    },
+    {
+      "label": {
+        "en": [
+          "Items detected"
+        ]
+      },
+      "value": {
+        "en": [
+          "10"
+        ]
+      }
+    },
+    {
+      "label": {
+        "en": [
+          "Source"
+        ]
+      },
+      "value": {
+        "en": [
+          "Mississippi Valley Textile Museum / Almonte Gazette archive"
+        ]
+      }
+    }
+  ],
+  "rights": "http://rightsstatements.org/vocab/UND/1.0/",
+  "items": [
+    {
+      "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p1",
+      "type": "Canvas",
+      "label": {
+        "en": [
+          "p.1"
+        ]
+      },
+      "width": 3000,
+      "height": 4242,
+      "items": [
+        {
+          "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p1/page",
+          "type": "AnnotationPage",
+          "items": [
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p1/page/anno-paint",
+              "type": "Annotation",
+              "motivation": "painting",
+              "body": {
+                "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/pages/p1.jpg",
+                "type": "Image",
+                "format": "image/jpeg",
+                "width": 3000,
+                "height": 4242
+              },
+              "target": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p1"
+            }
+          ]
+        }
+      ],
+      "annotations": [
+        {
+          "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p1/anno-pass2",
+          "type": "AnnotationPage",
+          "items": []
+        }
+      ]
+    },
+    {
+      "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p2",
+      "type": "Canvas",
+      "label": {
+        "en": [
+          "p.2"
+        ]
+      },
+      "width": 3000,
+      "height": 4243,
+      "items": [
+        {
+          "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p2/page",
+          "type": "AnnotationPage",
+          "items": [
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p2/page/anno-paint",
+              "type": "Annotation",
+              "motivation": "painting",
+              "body": {
+                "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/pages/p2.jpg",
+                "type": "Image",
+                "format": "image/jpeg",
+                "width": 3000,
+                "height": 4243
+              },
+              "target": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p2"
+            }
+          ]
+        }
+      ],
+      "annotations": [
+        {
+          "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p2/anno-pass2",
+          "type": "AnnotationPage",
+          "items": []
+        }
+      ]
+    },
+    {
+      "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+      "type": "Canvas",
+      "label": {
+        "en": [
+          "p.3"
+        ]
+      },
+      "width": 3000,
+      "height": 4243,
+      "items": [
+        {
+          "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/page",
+          "type": "AnnotationPage",
+          "items": [
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/page/anno-paint",
+              "type": "Annotation",
+              "motivation": "painting",
+              "body": {
+                "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/pages/p3.jpg",
+                "type": "Image",
+                "format": "image/jpeg",
+                "width": 3000,
+                "height": 4243
+              },
+              "target": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3"
+            }
+          ]
+        }
+      ],
+      "annotations": [
+        {
+          "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2",
+          "type": "AnnotationPage",
+          "items": []
+        }
+      ]
+    },
+    {
+      "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p4",
+      "type": "Canvas",
+      "label": {
+        "en": [
+          "p.4"
+        ]
+      },
+      "width": 3000,
+      "height": 4243,
+      "items": [
+        {
+          "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p4/page",
+          "type": "AnnotationPage",
+          "items": [
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p4/page/anno-paint",
+              "type": "Annotation",
+              "motivation": "painting",
+              "body": {
+                "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/pages/p4.jpg",
+                "type": "Image",
+                "format": "image/jpeg",
+                "width": 3000,
+                "height": 4243
+              },
+              "target": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p4"
+            }
+          ]
+        }
+      ],
+      "annotations": [
+        {
+          "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p4/anno-pass2",
+          "type": "AnnotationPage",
+          "items": []
+        }
+      ]
+    },
+    {
+      "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p5",
+      "type": "Canvas",
+      "label": {
+        "en": [
+          "p.5"
+        ]
+      },
+      "width": 3000,
+      "height": 4243,
+      "items": [
+        {
+          "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p5/page",
+          "type": "AnnotationPage",
+          "items": [
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p5/page/anno-paint",
+              "type": "Annotation",
+              "motivation": "painting",
+              "body": {
+                "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/pages/p5.jpg",
+                "type": "Image",
+                "format": "image/jpeg",
+                "width": 3000,
+                "height": 4243
+              },
+              "target": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p5"
+            }
+          ]
+        }
+      ],
+      "annotations": [
+        {
+          "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p5/anno-pass2",
+          "type": "AnnotationPage",
+          "items": []
+        }
+      ]
+    },
+    {
+      "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6",
+      "type": "Canvas",
+      "label": {
+        "en": [
+          "p.6"
+        ]
+      },
+      "width": 3000,
+      "height": 4243,
+      "items": [
+        {
+          "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6/page",
+          "type": "AnnotationPage",
+          "items": [
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6/page/anno-paint",
+              "type": "Annotation",
+              "motivation": "painting",
+              "body": {
+                "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/pages/p6.jpg",
+                "type": "Image",
+                "format": "image/jpeg",
+                "width": 3000,
+                "height": 4243
+              },
+              "target": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6"
+            }
+          ]
+        }
+      ],
+      "annotations": [
+        {
+          "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6/anno-pass2",
+          "type": "AnnotationPage",
+          "items": [
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6/anno-pass2/item-138bf581-f9b6-4d25-b6b1-6dacb65f9acb",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#1 · article · cross-col · inset · conf 0.98</small></p><p><b>A GIRL OF THE LIMBERLOST — Chapter VII: Wherein Elnora Receives a Warning and Billy Appears on the Scene</b></p><p><em>by Gene Stratton-Porter</em></p><hr><p><b>Transcript</b></p><p>PAGE SIX.</p><p>A<br>GIRL<br>OF THE<br>LIMBERLOST</p><p>BY<br>GENE STRATTON-PORTER</p><p>Copyright, 1909, by Doubleday,<br>Page &amp; Company.<br>Copyright, 1909, by Doubleday,<br>Page &amp; Company.</p><p>CHAPTER VII.</p><p>Wherein Elnora Receives a Warning<br>and Billy Appears on the Scene.</p><p>THEN Mrs. Comstock entered the cabin and began the day’s work, but mingled with the brooding bitterness of her soul was the vision of a sweet young face, glad with a gladness never before seen on it, and over and over she repeated, “I wonder what he’ll say to her?”</p><p>What he said was that she looked as fresh and sweet as a posy and to be careful not to step in the mud or scratch her shoe when she went to the case.</p><p>Elnora found her key and opened the door. Not where she had placed it, but conspicuously in front lay her little heap of bills and a crude scrawl of writing beside it. Elnora picked up the note in astonishment.</p><p>dere Elnory, the lord amighty is hiding you all right done you ever dout it this money of yourn was took for some time las nite but it is returned with intres for god sake done ever come to the swamp at nite or late evnin or mornin or far in any time sompin worse an you know could git you<br>A FREND.</p><p>Elnora began to tremble. She hastily glanced about. The damp earth before the case had been trodden by large, roughly shod feet. She caught up the money and the note, thrust them into her guimpe, locked the case and ran for the road.</p><p>She was so breathless and her face so white Sinton noticed it.</p><p>“What in the world’s the matter, Elnora?” he asked as he helped her into the carriage.</p><p>“I am half afraid,” she panted.</p><p>“Tut, tut, child!” said Wesley Sinton. “Nothing in the world to be afraid of. What happened?”</p><p>“Uncle Wesley,” said Elnora, “I had more money than I brought home last night, and I put it in my case. Some one has been there. The ground is all trampled, and they left this note.”</p><p>“And took your money, I’ll wager,” said Sinton angrily.</p><p>“No,” answered Elnora. “Read the note and, oh, Uncle Wesley, tell me what it means!”</p><p>Sinton’s face was a study. “I don’t know what it means,” he said. “Only one thing is clear. It means some<br>know what it means,” he said. “Only one thing is clear. It means some beast who doesn’t really want to harm you has got his eye on you and he is telling you plain as he can not to give him a chance. You got to keep along the roads, in the open, and not let the biggest moth that ever flew toll you out of hearing of us or your mother. It means that, plain and distinct.”</p><p>“Just when I can sell them; just when everything is so lovely on account of them. I can’t—I can’t stay away from the swamp. The Limberlost is going to buy the books, the clothes, pay the tuition and even start a college fund. I just can’t.”</p><p>“You’ve got to,” said Sinton. “This is plain enough. You go far in the swamp at your own risk, even in daytime.”</p><p>“Uncle Wesley,” said the girl in a whisper, “last night before I went to bed I was so happy I tried to pray, and I thanked God for hiding me ‘under the shadow of his wing.’ But how in the world could any one know it?”</p><p>Wesley Sinton’s heart gave one great leap in his breast. His face was whiter than the girl’s now.</p><p>“Was you praying out loud, honey?” he almost whispered.</p><p>“I might have said words,” answered Elnora. “I know I do sometimes. I’ve never had any one to talk to, and I’ve played with and talked to myself all my life. You’ve caught me at it often, but it always makes mother angry when she does. She says it’s silly. I forget and do it when I’m alone. But, Uncle Wesley, if I said anything last night you know it was the merest whisper, because I’d have been so afraid of waking mother. Don’t you see? I sat up late and did two lessons.”</p><p>Simon was steadying himself. “I’ll stop and examine the case as I come back,” he said. “Maybe I can find some clew. That other—that was just accidental. It’s a common expression. All the preachers use it. If I was go-<br>ing to pray that would be the very first thing I’d say.”</p><p>The color came back to Elnora’s face.</p><p>“Did you tell your mother about this money, Elnora?” he asked.</p><p>“No, I didn’t,” said Elnora. “It’s dreadful not to, but I was afraid. You see, they are clearing the swamp so fast. Every year it grows harder to find things, and Indian stuff gets scarcer. I want to graduate, and that’s four years unless I can double on the course. That means $20 tuition each year and new books and clothes. There won’t ever be so much at one time again—that I know. I just got to hang to my money. I was afraid to tell her for fear she would want it for taxes, and she really must sell a tree or some cattle for that, mustn’t she, Uncle Wesley?”</p><p>“On your life, she must!” said Wesley. “You put your little wad in the bank all safe and never mention it to a living soul. It don’t seem right, but your case is peculiar. Every word you say is a true word. Each year you will get less from the swamp, and things everywhere will be scarcer. If you ever get a few dollars ahead, that can start your college fund. You know you are going to college, Elnora!”</p><p>“Of course I am,” said Elnora.</p><p>She jumped from the carriage and soon found that with her books, her lunch box and the box of arrow points she had a heavy load. She was almost to the bridge crossing the culvert when she heard the distressed screams of a child. Across an orchard of the suburbs came a small boy, after him a big dog, urged by a man in the background. Elnora’s heart was with the small flying figure in any event whatever. She dropped her load on the bridge and with practiced hand caught up a stone and flung it at the dog. The beast curled double with a howl. The boy reached the fence, and Elnora was there to help him over. As he touched the top she swung him to the ground, but he clung to her, clasping her tightly, sobbing and shivering with fear. Elnora carried him to the bridge and sat with him in her arms. For a time his replies to her questions were indistinct, but at last he became quieter and she could understand.</p><p>He was a mite of a boy, nothing but skin covered bones, his burned, freck-<br>led face in a mortar of tears and dust, his clothing unspeakably dirty, one great toe in a festering mass from a broken nail and sores all over the visible portions of the small body.</p><p>“You wouldn’t set a dog on a boy for just taking a few old apples when you fed ‘em to pigs with a shovel every day, would you?” he said.</p><p>“No, I would not,” said Elnora hotly.</p><p>“You’d give a boy all the apples he wanted if he hadn’t any breakfast and was so hungry he was all twisty inside, wouldn’t you?”</p><p>“Yes, I would,” said Elnora.</p><p>“If you had anything to eat you would give me something right now, wouldn’t you?”</p><p>“Yes,” said Elnora. “There’s nothing but just stones in the package. But my dinner is in that case. I’ll gladly divide.”</p><p>She opened the box. The famished child gave a little cry and reached both hands. Elnora caught them back.</p><p>“Did you have any supper?”<br>“No.”<br>“Any dinner yesterday?”<br>“An apple and some grapes I stole.”<br>“Whose boy are you?”<br>“Old Tom Billings’.”<br>“Why don’t your father get you something to eat?”<br>“He does most days, but he’s drunk now.”</p><p>“Hush! You must not!” said Elnora. “He’s your father!”</p><p>“He’s spent all the money to get drunk, too,” said the boy, “and Jimmy and Belle are both crying for breakfast. I’d ‘a’ got out all right with an apple for myself, but I tried to get some for them, and the dog got too close. Say, you can just throw, can’t you?”</p><p>“Yes,” admitted Elnora. She poured half the milk into the cup. “Drink [illegible]<br>this,” she said, holding it to him.<br>The boy gulped the milk and swore joyously, gripping the cup with shaking fingers.<br>“Hush!” cried Elnora. “That’s dreadful!”<br>“What’s dreadful?”<br>“To say such awful words.”<br>“Hub, pa says worser ’an that every breath he draws.”<br>Elnora stared into the quaint little face and saw that the child was older than she had thought. He might have been forty by his hard, unchildish expression.<br>“Do you want to be like your father?”<br>“No; I want to be like you. Couldn’t a angel be prettier ’an you! Can I have more milk?”<br>Elnora emptied the flask. The boy drained the cup. He drew a breath of satisfaction as he gazed into her face.<br>“You wouldn’t go off and leave your little boy, would you?” he asked.<br>“Did some one go away and leave you?” questioned Elnora in return.<br>“Yes; my mother went off and left me and left Jimmy and Belle, too,” said the boy. “You wouldn’t leave your little boy, would you?”<br>“No.”<br>The boy looked eagerly at the box. Elnora lifted a sandwich and uncovered the fried chicken. The boy gasped with delight.<br>“Say, I could eat the stuff in the glass and the other box and carry the bread and the chicken to Jimmy and Belle,” he offered.<br>Elnora silently uncovered the custard with preserved cherries on top and handed it and the spoon to the child. Never did food disappear faster. The salad went next, and a sandwich and half a chicken breast followed.<br>“I better leave the rest for Jimmy and Belle,” he said. “They’re ’ist fighting’ hungry.”<br>Elnora gave him the remainder of the carefully prepared lunch. The boy clutched it and ran with a sidewise hop like a wild thing.<br>Elnora covered the dishes and cup, polished the spoon, replaced it and closed the beautiful case. She caught her breath in a tremulous laugh.<br>“If Aunt Margaret knew that she’d never forgive me,” she said. “It seems as if secrecy is literally forced upon me, and I hate it. What will I do for<br>lunch? I’ll have to go sell my arrows and keep enough money for a restaurant sandwich.”<br>So she walked hurriedly into town, sold her points at a good price, deposited her funds and went away with a neat little bank book and the note from the Limberlost carefully folded inside. Elnora passed down the great hall that morning, and no one paid the slightest attention to her. The truth was she looked so like every one else that she was perfectly inconspicuous. But in the coat room there were members of her class. Surely no one intended it, but the whisper was too loud.<br>“Look at the girl from the Limberlost in the clothes that woman gave her!”<br>Elnora turned on them. “I beg your pardon,” she said unsteadily; “I couldn’t help hearing that! No one gave me these clothes. I paid for them myself.”<br>Some one muttered, “Pardon me,” but incredulous faces greeted her.<br>Elnora felt driven. “Aunt Margaret selected them, and she meant to give<br>them to me,” she explained, “but I wouldn’t take them. I paid for them myself.” There was a dead silence.<br>“Don’t you believe me?” panted Elnora.<br>“Really, it is none of our affair,” said another girl. “Come on; let’s go.”<br>Elnora stepped before the girl who had spoken. “You have made this your affair,” she said, “because you told a thing which was not true. No one gave me what I am wearing. I paid for my clothes myself with money I earned selling moths to the Bird Woman. I just came from the bank where I deposited what I did not use. Here is my credit.” Elnora drew out and offered the little red book. “Surely you will believe that,” she said.<br>“Why, of course,” said the girl who first had spoken. “We met such a lovely woman in Brownlee’s store, and she said she wanted our help to buy some things for a girl, and that’s how we came to know.”<br>“Dear Aunt Margaret,” said Elnora, “it was like her to ask you. Isn’t she splendid?”<br>“She is indeed,” chorused the girls.<br>Elnora set down her lunch box and<br>books and unpinned her hat, hanging it beside the others. While her back was turned into the room came the girl of her encounter on the first day, walked to the rack and, with an exclamation of approval, took down Elnora’s hat.</p><p>“Just the thing I have been wanting,” she said. “I never saw such beautiful quills in all my life. They match my new broadcloth to perfection. I’ve got to have that kind of quills for my hat. I never saw the like. Whose is it, and where did it come from?”</p><p>No one said a word, for Elnora’s question, the reply and her answer had gone the rounds of the high school. Every one knew that the Limberlost girl had come out ahead, and Sadie Reed had not felt amiable when the little flourish had been added to Elnora’s name in the algebra class. Elnora’s swift glance was pathetic, but no one helped her. Sadie Reed glanced from the hat to the faces around her and wondered.</p><p>“Why, this is the freshman section. Whose hat is it?” she asked again, this time impatiently.</p><p>“That’s the tassel of the cornstalk,” said Elnora, with a forced laugh.</p><p>The response was genuine. Every one shouted. Sadie Reed blushed, but she laughed also.</p><p>“Well, it’s beautiful,” she said, “especially the quills. They are exactly what I want. I know I don’t deserve any kindness from you, but I do wish you would tell me at whose store you got those quills.”</p><p>“Gladly,” said Elnora. “You can’t get quills like those at a store. They are from a living bird. Phoebe Simms gathers them in her orchard as her peacocks shed them. They are wing quills from the males.”</p><p>Then there was a perfect silence. How was Elnora to know that not a girl there would have told that?</p><p>“I haven’t a doubt but I can get you some,” she offered. “She gave Aunt Margaret a great bunch, and those are part of them. I am quite sure she has more and would spare some.”</p><p>Sadie Reed laughed shortly. “You needn’t trouble,” she said, “I was fooled. I thought they were expensive quills. I wanted them for a twenty dollar velvet toque to match my new suit. If they are picked off the ground, really, I couldn’t use them.”</p><p>“Only in spots,” said Elnora. “They<br>&quot;sult. If they are picked off the ground, really, I couldn&#x27;t use them.&quot;</p><p>&quot;Only in spots,&quot; said Elnora. &quot;They don&#x27;t just cover the earth. Phoebe Simms&#x27; peacocks are the only ones within miles of Onabasha, and they moult but once a year. If your hat only cost $20 it&#x27;s hardly good enough for those quills. You see, the Almighty made and colored those him-self, and he puts the same kind on Phoebe Simms&#x27; peacocks that be put on the head of the family in the forests of Ceylon away back in the begin-ning. Any old manufactured guill from New York or Chicago will do for your little twenty dollar hat. You ought to have something infinitely better than that to be worthy of quills that are<br>&quot;made by the Creator.&quot;</p><p>How those girls did laugh! One of them walked by Elnora to the audi-torium, sat with ber during exercises and tried to talk whenever she dared to keep Elnora from seeing the curious and admiring looks bent upon her.</p><p>For the brown eyed boy whistled, and there was pantomime of all sorts go ing on behind Elnora&#x27;s back that day.</p><p>Happy with her books no one knew how much she saw, and from her ab sorption in her studies it was evident she cared too little to notice. It soon dereloped that to be inconspicuous and to work was all Elnora craved After school she went again to the home of the Bird Woman, and together they visited the swamp and took away more specimens. This time Elnora asked the Bird Woman to Keep the money until noon of the next day, when she would call for it and have it added to her bank account. She slow. ly walked home, for the visit to the awamp had brought back full force the expertence of the morning. Again and again she examined the crude little note, for she did not know what it meant, yet it bred vague fear.&quot;</p><p>(To be continued.)</p><p>Schoolboy &quot;Howlers.&quot;</p><hr><p>A<br>GIRL<br>OF THE<br>LIMBERLOST</p><p>BY<br>GENE STRATTON-PORTER</p><p>Copyright, 1909, by Doubleday,<br>Page &amp; Company.</p><hr><p><b>People:</b> Elnora Comstock, Gene Stratton-Porter, Mrs. Comstock, Phoebe Simms, Sadie Reed, Tom Billings, Wesley Sinton</p><p><b>Orgs:</b> Doubleday, Page &amp; Company</p><p><b>Places:</b> Ceylon, Limberlost, Onabasha</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "article"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=322,0,1391,4037"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6/anno-pass2/item-596eacfc-3089-4380-bbc0-50cb672bb92a",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#2 · display_ad · inset · conf 0.92</small></p><p><b>That Wonderful Event — Dr. Pierce&#x27;s Favorite Prescription</b></p><hr><p><b>Transcript</b></p><p>That Wonderful Event</p><p>IF THERE is a time above all times when a woman should be in perfect physical condition it is the time previous to the coming of her babe.</p><p>During this period many women suffer from headache, sleeplessness, pains of various description, poor appetite, and a host of other ailments which should be eliminated in justice to the new life about to be ushered into this world.</p><p>DR. PIERCE&#x27;S FAVORITE PRESCRIPTION</p><p>is a scientific medicine carefully compounded by an experienced and skillful physician, and adapted to the needs and requirements of woman&#x27;s delicate system. It has been recommended for over forty years as a remedy for those peculiar ailments which make their appearance during “the expectant” period. Motherhood is made easier by its use. Thousands of women have been benefited by this great medicine.</p><p>Your druggist can supply you in liquid or tablet form, or you can send 50 one-cent stamps for a trial box of Dr. Pierce&#x27;s Favorite Prescription Tablets, to Dr. Pierce, at Invalids&#x27; Hotel and Surgical Institute, Buffalo.</p><p>It is your priviledge to write to Dr. Pierce for advice, and it will be gladly given free of charge. Of course all communications are confidential.</p><hr><p><b>People:</b> Dr. Pierce</p><p><b>Orgs:</b> Invalids&#x27; Hotel and Surgical Institute</p><p><b>Places:</b> Buffalo</p><p><b>Products:</b> Medicines and Remedies</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "display_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=2060,316,645,532"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6/anno-pass2/item-299f99a8-11d4-4e65-9bab-84117efbf71f",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#3 · article · conf 0.96</small></p><p><b>CHRISTMAS GAMES — Tricks With Sheets to Divert the Christmas Company</b></p><hr><p><b>Transcript</b></p><p>CHRISTMAS<br>GAMES</p><hr><p>Tricks With<br>Sheets to Divert<br>the Christmas<br>Company</p><hr><p>A SHEET should always be provided for children’s Christmas games. Arranged as a screen it serves many purposes besides shadow pictures and lantern shows.</p><p>Two capital games are played in this manner. For one an opening about six inches wide should be cut in the sheet at a convenient height for different persons to stand and show only their eyes. No light should be back of the sheet, and the company seated in front must guess whose eyes are staring at them.</p><p>A variation of this idea may be even more amusing because it affords opportunity for misleading the guessers. Instead of an opening the sheet is drawn up a few inches from the floor in order to show the feet of those who stand behind it. Boys accordingly put on skirts, and girls slip their hands into their fathers’ shoes, getting down on all fours in order to deceive.</p><p>Another mirth provoking trick for children of all ages and one that will be heartily appreciated by adults is called mesmerism. Blacken the center of the under side of a small plate by holding it over the flame of a candle, being careful not to soil the edge or top. Put this plate upon another and place them in front of you. The person to be mesmerized must be seated so that by no possibility can he see his reflection in the glass, but must be in full view of the audience.</p><p>The mesmerist says impressively: “You must look me steadily in the eye all the time. Don’t remove your eyes an instant from my face, but do just as I do slowly—see (picking up the blackened plate and handing it to the victim so that the black is toward the spectators). Hold it so (taking up the other plate and holding it with the concave side toward himself). Now this way (rubbing his finger round and round the back of the clean plate and the one who is mesmerized drawing his round the blackened one unconscious of its condition), now so (drawing the finger down the right cheek). Never mind how they laugh. You must not look down. Steady. Now again” (rubbing the finger as before and drawing it across the other cheek). The operation may be repeated until the face of the one mesmerized pre-<br>sents a most comical appearance and the audience is convulsed with laughter.</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "article"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=1712,319,348,1770"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6/anno-pass2/item-d6037840-6e2f-46ed-9af8-18964307a4d6",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#4 · notice · cross-col · conf 0.94</small></p><p><b>York Loan Books</b></p><hr><p><b>Transcript</b></p><p>York Loan company shareholders who have<br>forty years as a remedy for those<br>heir appearance during “the expectant”<br>er by its use. Thousands of women have<br>ine.</p><p>in liquid or tablet form, or you can send<br>of Dr. Pierce’s Favorite Prescription<br>ds’ Hotel and Surgical Institute, Buffalo.</p><p>r. Pierce for advice, and it will be gladly<br>e all communications are confidential.</p><p>be recognized. A special</p><hr><p><b>Orgs:</b> National Trust Company, York Loan Company</p><p><b>Places:</b> Ottawa</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "notice"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=2060,517,695,892"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6/anno-pass2/item-f48d1b32-2abb-4963-a61a-8e8f7b3449bf",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#5 · article · cross-col · conf 0.93</small></p><p><b>SNIGGLE THE SPRIG</b></p><hr><p><b>Transcript</b></p><p>SNIGGLE THE SPRIG.</p><hr><p>“Sniggle the sprig” means simply snare or catch the sprig. Any bit of green plant will do for the latter, and any number of children can play the game. Some one who is not playing hides the sprig, and all search for it. When found it has to be carried to a fancifully trimmed pole and tied there. This is no easy matter, for the sprig must first go through the hands of every player, and it is every one’s aim to catch it before it reaches the pole. No attempt to do this can be made, however, until the sprig has returned to the hands of the finder and that player is running for the goal.</p><p>In the midst of the general search, when the finder has found the sprig, he approaches his nearest neighbor and quietly hands it to him. At the same time he gives his neighbor No. 2, which means that this one is the second person to hold it. The latter in turn as carefully passes it on and numbers this player a unit higher. So the game goes on until the last of the players has held the sprig. This one knows that he is the last, for the reason that before the game began a count was taken, and each participant knows just how many persons are taking part.</p><p>When the number is given to each player the first name of the finder is whispered also. As soon as the last player receives the sprig he passes it to the finder, who at once runs for the goal with it. All follow and give chase except the last player, who is not permitted to run.</p><p>In the scrimmage that follows the sprig may be snatched a dozen times. That one is victor who succeeds in placing it on the pole. Should it be the finder, then his triumph will have been so much the greater, for he will have had the most difficulties to overcome in doing this.</p><p>A CAROL CONTEST.</p><p>A carol contest affords exercise and fun. A young lady is requested to take her place at the piano and play gay Christmas music. Some chairs are placed down the center of the room, back to back, just one less in number than the players. Suppose there are twelve children to play.<br>You place eleven chairs, ten back to back, one extra. Then the twelve children dance hand in hand around the chairs in time to the music.</p><p>Suddenly—sometimes in the middle<br>of a bar—always just when you do not expect it—the player lifts her hands off the piano. Everybody must then attempt to get a seat, and, as there are only eleven, one person will, of course, be left out. She or he is then out of the game and must sit down and watch it.</p><p>Then a chair is taken away, ten being left. The dancers resume their dance as soon as the music begins. The moment it stops they try to get a chair each, and one is, of course, again left out. Then another chair is taken away and the dance resumed.</p><p>The game goes on, losing a dancer and a chair each time, till two dancers and one chair only are left. Then the two dance wildly around the chair, and when the music suddenly stops one sits down, and the other is “out,” like the rest.</p><p>❧ ✠ ❧</p><p>York Loan Books.</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "article"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=1712,827,695,3416"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6/anno-pass2/item-17f2f0a3-2c5c-4cb7-80e5-a9c617444d6c",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#6 · display_ad · conf 0.97</small></p><p><b>NA-DRU-CO LAXATIVES</b></p><hr><p><b>Transcript</b></p><p>NA-DRU-CO<br>LAXATIVES</p><p>are best for nursing mothers because they do not affect the rest of the system. Mild but sure. 25c. a box at your druggist’s.</p><p>NATIONAL DRUG AND CHEMICAL<br>CO. OF CANADA, LIMITED.</p><hr><p><b>Orgs:</b> National Drug and Chemical Co. of Canada, Limited</p><p><b>Products:</b> Medicines and Remedies</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "display_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=2424,1154,312,348"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6/anno-pass2/item-cee11256-2626-40d0-952c-b77bde5d946c",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#7 · display_ad · inset · conf 0.95</small></p><p><b>Cured of a Long-Standing Ailment by RESTORATONE TABLETS</b></p><hr><p><b>Transcript</b></p><p>Cured of a Long-<br>Standing Ailment<br>by<br>RESTO RATONE TABLETS</p><p>249 West 21st Street, New York<br>Your RESTORATONE TABLETS have<br>cured me of a long standing ailment peculiar to women.<br>I am now perfectly well and strong in every way. I will<br>certainly recommend them to all women in poor health.<br>Kathryn Doherty.</p><hr><p><b>People:</b> Kathryn Doherty</p><p><b>Orgs:</b> The Restoratone Co.</p><p><b>Places:</b> New York, Toronto</p><p><b>Products:</b> Medicines and Remedies</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "display_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=2060,1410,742,1130"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6/anno-pass2/item-0b211be0-aa2f-4b55-8b50-518661c33c01",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#8 · display_ad · inset · conf 0.96</small></p><p><b>Ask Any Express Agent — Dominion Express Money Orders</b></p><hr><p><b>Transcript</b></p><p>Ask Any Express Agent—</p><p>You’ll be met with a prompt and courteous explanation of why an Express Order is the safe and simple way to send money by mail. Thousands of dollars go astray annually by carelessness in remitting money. When a few cents for an Express Order will avoid loss and ensure the safe delivery of your remittance, isn’t it, to put it mildly, poor judgment not to use them?</p><p>Your local agent will show you how easy it is to obtain an Express Order. The security of your money is absolutely guaranteed when you remit by</p><p>Dominion Express</p><p>Money<br>Orders<br>[Cheques?]</p><p>Every railway station has an Express Office where “Orders” may be obtained, and in almost every town there are branch Offices located in the residential districts.</p><p>RATES<br>$5 and under . . . 3 cts.<br>Over $5 to $10 . . 6 [ditto]<br>[ditto] 10 [ditto] 30 . . . 10 [ditto]<br>[ditto] 30 [ditto] 50 . . 15 [ditto]<br>[ditto] 50, at same rates.</p><hr><p><b>Orgs:</b> Dominion Express</p><p><b>Products:</b> Financial Products</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "display_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=2060,2519,667,1273"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6/anno-pass2/item-a89c92c5-17d5-4f0f-acad-acd776ec36bb",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#9 · article · conf 0.96</small></p><p><b>Schoolboy &quot;Howlers.&quot;</b></p><hr><p><b>Transcript</b></p><p>Lord Raleigh was the first man to see the invisible Armada.<br>Shakespeare founded “As You Like It” on a book previously written by Sir Oliver Lodge.<br>Tennyson wrote “In Memorandum.”<br>Louis XVI. was gelatined during the French Revolution.<br>Gender shows whether a man is masculine, feminine or neuter.<br>Geometry teaches us how to bisex angels.<br>Parallel lines are the same distance all the way, and cannot meet unless you bend them.<br>Horse-power is the distance one horse can carry a pound of water in an hour.<br>Gravitation is that which if there were none we should all fly away.<br>A vacuum is a large empty space where the Pope lives.<br>A deacon is the lowest kind of Christian.<br>A renegade is a man who kills a king.<br>In India a man out of one cask may not marry a woman out of another cask.<br>The Salic law is that you must take everything with a grain of salt.<br>The Zodiac is the Zoo of the sky where lions, goats and other animals go after they are dead.<br>The Pharisees were people who like to show off their goodness by praying in synonyms.<br>An abstract noun is something you can’t see when you</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "article"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=1365,2617,348,1211"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6/anno-pass2/item-6f0792ec-9637-4ffb-bb86-61a2a86e7f16",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#10 · display_ad · conf 0.88</small></p><p><b>Children Cry for Fletcher&#x27;s Castoria</b></p><hr><p><b>Transcript</b></p><p>are looking at it.</p><p>Children Cry<br>FOR FLETCHER’S<br>CASTORIA</p><hr><p><b>Products:</b> Medicines and Remedies</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "display_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p6",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=1365,3828,348,63"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p7",
+      "type": "Canvas",
+      "label": {
+        "en": [
+          "p.7"
+        ]
+      },
+      "width": 2785,
+      "height": 3938,
+      "items": [
+        {
+          "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p7/page",
+          "type": "AnnotationPage",
+          "items": [
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p7/page/anno-paint",
+              "type": "Annotation",
+              "motivation": "painting",
+              "body": {
+                "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/pages/p7.jpg",
+                "type": "Image",
+                "format": "image/jpeg",
+                "width": 2785,
+                "height": 3938
+              },
+              "target": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p7"
+            }
+          ]
+        }
+      ],
+      "annotations": [
+        {
+          "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p7/anno-pass2",
+          "type": "AnnotationPage",
+          "items": []
+        }
+      ]
+    },
+    {
+      "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p8",
+      "type": "Canvas",
+      "label": {
+        "en": [
+          "p.8"
+        ]
+      },
+      "width": 2693,
+      "height": 3809,
+      "items": [
+        {
+          "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p8/page",
+          "type": "AnnotationPage",
+          "items": [
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p8/page/anno-paint",
+              "type": "Annotation",
+              "motivation": "painting",
+              "body": {
+                "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/pages/p8.jpg",
+                "type": "Image",
+                "format": "image/jpeg",
+                "width": 2693,
+                "height": 3809
+              },
+              "target": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p8"
+            }
+          ]
+        }
+      ],
+      "annotations": [
+        {
+          "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p8/anno-pass2",
+          "type": "AnnotationPage",
+          "items": []
+        }
+      ]
+    }
+  ]
+}

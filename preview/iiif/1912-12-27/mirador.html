@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>MVTM IIIF preview — Almonte Gazette 1912-12-27</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #111; }
+    #mirador {
+      position: absolute;
+      top: 64px; left: 0; right: 0; bottom: 0;
+    }
+    .topbar {
+      position: absolute; top: 0; left: 0; right: 0; height: 64px;
+      padding: 6px 12px;
+      background: #111; color: #ddd;
+      font: 13px/1.4 system-ui, sans-serif;
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      box-sizing: border-box;
+    }
+    .topbar .row { display: flex; gap: 12px; align-items: center; }
+    .topbar .meta { color: #888; }
+    .topbar a { color: #8fb4ff; text-decoration: none; }
+    .topbar a:hover { text-decoration: underline; }
+
+    .tabs { display: flex; gap: 0; }
+    .tab {
+      background: #222; color: #ccc;
+      border: 1px solid #333;
+      border-bottom: none;
+      padding: 4px 14px;
+      font: 13px/1.4 system-ui, sans-serif;
+      cursor: pointer;
+      border-radius: 4px 4px 0 0;
+      margin-right: 2px;
+    }
+    .tab:hover { background: #2a2a2a; }
+    .tab.active {
+      background: #1469c8;
+      color: #fff;
+      border-color: #1469c8;
+    }
+    .tab .count { color: #aaa; margin-left: 6px; font-size: 11px; }
+    .tab.active .count { color: #cfe2ff; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="row">
+      <strong>MVTM IIIF preview</strong>
+      <span class="meta">Almonte Gazette · 1912-12-27 · 8 pages</span>
+      <span style="flex:1"></span>
+      <a id="manifest-link" href="manifest_pass1.json" target="_blank">manifest.json</a>
+    </div>
+    <div class="row tabs">
+      <button class="tab active" id="tab-pass1"
+              onclick="switchPass('pass1')">
+        Pass 1 — raw transcripts <span class="count">(53 cols · 21 ads · all 8 pages)</span>
+      </button>
+      <button class="tab" id="tab-pass2"
+              onclick="switchPass('pass2')">
+        Pass 2 — items &amp; entities <span class="count">(10 items · p6 only)</span>
+      </button>
+    </div>
+  </div>
+  <div id="mirador"></div>
+
+  <!-- Mirador 3.x via CDN. unpkg pins to the latest 3.x line. -->
+  <script src="https://unpkg.com/mirador@3.4.2/dist/mirador.min.js"></script>
+  <script>
+    const BASE = "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27";
+    const MANIFESTS = {
+      pass1: BASE + "/manifest_pass1.json",
+      pass2: BASE + "/manifest_pass2.json",
+    };
+
+    let viewer = null;
+
+    function bootViewer(pass) {
+      const manifestUrl = MANIFESTS[pass];
+      // Mirador.viewer rewires the existing #mirador div on each call.
+      // We rebuild the div on every switch so state from the previous
+      // pass (sidebar selection, zoom) doesn't leak across passes.
+      const old = document.getElementById("mirador");
+      const fresh = document.createElement("div");
+      fresh.id = "mirador";
+      old.parentNode.replaceChild(fresh, old);
+
+      viewer = Mirador.viewer({
+        id: "mirador",
+        windows: [{
+          manifestId: manifestUrl,
+          canvasIndex: 0,
+          defaultSideBarPanel: "annotations",
+          sideBarOpenByDefault: true,
+          highlightAllAnnotations: true,
+        }],
+        window: {
+          allowClose: false,
+          defaultSideBarPanel: "annotations",
+          sideBarOpenByDefault: true,
+        },
+        workspace: { type: "single", showZoomControls: true },
+        workspaceControlPanel: { enabled: false },
+      });
+
+      document.getElementById("manifest-link").href = manifestUrl;
+    }
+
+    function switchPass(pass) {
+      document.getElementById("tab-pass1").classList.toggle("active", pass === "pass1");
+      document.getElementById("tab-pass2").classList.toggle("active", pass === "pass2");
+      bootViewer(pass);
+    }
+
+    // Boot pass-1 by default — it's available across all 8 pages
+    // immediately. Pass-2 only has items on p6 today; switch to it
+    // once items appear on more pages.
+    bootViewer("pass1");
+  </script>
+</body>
+</html>
