@@ -31,6 +31,7 @@ import contextlib
 import io
 import multiprocessing as mp
 import os
+import queue
 import sys
 import threading
 import time
@@ -109,6 +110,22 @@ def _coordinator_loop(req_queue, db_path):
         getattr(direct, op)(*args)
 
 
+def _handle_done(f, future_to_date, results, failures):
+    """Print + collect one completed future. Returns 1 (counts handled)."""
+    date = future_to_date[f]
+    ymd = f"{date[0]}-{date[1]:02d}-{date[2]:02d}"
+    try:
+        r = f.result()
+    except Exception as e:
+        print(f"\n!!! FAILED {ymd}: {e!r}", file=sys.stderr)
+        failures.append((date, e))
+        return 1
+    print(f"\n=== {ymd}  ({r['elapsed']:.1f}s) ===")
+    sys.stdout.write(r["log"])
+    results.append(r)
+    return 1
+
+
 def _enable_wal(db_path):
     """One-shot WAL mode. Coordinator is the only writer so WAL isn't
     strictly needed for correctness, but it lets concurrent worker reads
@@ -131,9 +148,47 @@ def _predownload_serial(dates, db_path, download_dir):
         download_issue(year, month, day, db_path, download_dir)
 
 
+def _streaming_downloader(dates, db_path, download_dir, ready_q,
+                          batch_size=1, batch_pause_s=0.0):
+    """Download issues serially and stream them onto a ready queue.
+
+    Producer side of the streaming-pipeline mode. Stays polite to the
+    source (one connection at a time) but drops the up-front "wait for
+    all 50 PDFs" stall — workers can start processing the moment the
+    first issue is on disk.
+
+    Args:
+        dates: list of (y,m,d) tuples to download in order.
+        ready_q: queue.Queue receiving each downloaded date as
+            (year, month, day). A bare None signals end-of-stream.
+        batch_size: how many issues to release together. 1 = fully
+            pipelined. >1 = the producer downloads `batch_size`
+            issues, releases them, then continues. Useful only if
+            the caller wants explicit batch boundaries; performance-
+            wise, 1 is strictly best.
+        batch_pause_s: optional sleep between batches (seconds). Use
+            it if the source server starts rate-limiting; default 0.
+    """
+    from process_issue import download_issue
+    pending_release = []
+    for i, (year, month, day) in enumerate(dates):
+        download_issue(year, month, day, db_path, download_dir)
+        pending_release.append((year, month, day))
+        if len(pending_release) >= batch_size:
+            for d in pending_release:
+                ready_q.put(d)
+            pending_release.clear()
+            if batch_pause_s and i + 1 < len(dates):
+                time.sleep(batch_pause_s)
+    for d in pending_release:
+        ready_q.put(d)
+    ready_q.put(None)
+
+
 def process_archive(dates, db_path="data/mvtm.db", output_root="columns",
                     download_dir=None, dpi=450, max_workers=None,
-                    download_serially=True):
+                    download_serially=True, download_batch_size=1,
+                    download_batch_pause_s=0.0):
     """Run process_issue across many issues in parallel.
 
     Args:
@@ -143,8 +198,20 @@ def process_archive(dates, db_path="data/mvtm.db", output_root="columns",
         download_dir: PDF cache dir.
         dpi: render resolution.
         max_workers: process pool size. Default: min(cpu_count, 8).
-        download_serially: pre-download all PDFs in the main process
-            before spawning workers. Recommended for cold-cache batches.
+        download_serially: download PDFs from the main process one
+            connection at a time (polite to the source server). When
+            True (default), uses a streaming pipeline: a downloader
+            thread fetches each issue and hands it to the worker pool
+            the moment its PDFs land on disk, so workers don't wait
+            for the whole batch to download. When False, workers
+            fetch their own PDFs concurrently from inside the pool —
+            faster on a warm cache but rude to the source on cold.
+        download_batch_size: number of issues released together in
+            streaming mode. Default 1 (fully pipelined). Larger values
+            release issues in groups; only useful if you want explicit
+            batch boundaries.
+        download_batch_pause_s: optional sleep between download
+            batches (seconds). Use if the source server rate-limits.
 
     Returns:
         dict with timing and per-issue results.
@@ -159,10 +226,6 @@ def process_archive(dates, db_path="data/mvtm.db", output_root="columns",
     print(f"process_archive: {len(dates)} issues, max_workers={max_workers}")
 
     _enable_wal(db_path)
-
-    if download_serially:
-        print(f"Pre-downloading {len(dates)} issues serially...")
-        _predownload_serial(dates, db_path, download_dir)
 
     # spawn context required: PyMuPDF/fitz is not fork-safe on macOS.
     ctx = mp.get_context("spawn")
@@ -187,25 +250,74 @@ def process_archive(dates, db_path="data/mvtm.db", output_root="columns",
         initargs=(req_queue,),
     ) as pool:
         future_to_date = {}
-        for year, month, day in dates:
-            output_dir = f"{output_root}/{year}-{month:02d}-{day:02d}"
-            f = pool.submit(_run_issue, year, month, day,
-                            db_path, output_dir, dpi)
-            future_to_date[f] = (year, month, day)
+        done_q = queue.Queue()
+        completed_count = 0
+        submitted_count = 0
+        all_submitted = threading.Event()
 
-        for f in as_completed(future_to_date):
-            date = future_to_date[f]
-            try:
-                r = f.result()
-            except Exception as e:
-                ymd = f"{date[0]}-{date[1]:02d}-{date[2]:02d}"
-                print(f"\n!!! FAILED {ymd}: {e!r}", file=sys.stderr)
-                failures.append((date, e))
-                continue
-            ymd = f"{date[0]}-{date[1]:02d}-{date[2]:02d}"
-            print(f"\n=== {ymd}  ({r['elapsed']:.1f}s) ===")
-            sys.stdout.write(r["log"])
-            results.append(r)
+        def _submit(date_tuple):
+            nonlocal submitted_count
+            year, month, day = date_tuple
+            output_dir = f"{output_root}/{year}-{month:02d}-{day:02d}"
+            fut = pool.submit(_run_issue, year, month, day,
+                              db_path, output_dir, dpi)
+            future_to_date[fut] = date_tuple
+            fut.add_done_callback(done_q.put)
+            submitted_count += 1
+
+        if download_serially:
+            # Streaming pipeline: downloader thread feeds the pool as
+            # each issue lands. Workers start the moment the first PDF
+            # is on disk; no up-front "wait for all N PDFs" stall.
+            ready_q = queue.Queue()
+            print(
+                f"Streaming downloads → pool "
+                f"(batch_size={download_batch_size}, "
+                f"pause_between_batches={download_batch_pause_s:g}s)"
+            )
+
+            dl_thread = threading.Thread(
+                target=_streaming_downloader,
+                args=(dates, db_path, download_dir, ready_q,
+                      download_batch_size, download_batch_pause_s),
+                name="downloader",
+                daemon=False,
+            )
+            dl_thread.start()
+
+            # Submit-as-ready, draining completions in the same loop so
+            # logs appear in completion order without waiting for the
+            # downloader to finish.
+            while True:
+                # Drain anything already finished (non-blocking).
+                while True:
+                    try:
+                        f = done_q.get_nowait()
+                    except queue.Empty:
+                        break
+                    completed_count += _handle_done(
+                        f, future_to_date, results, failures
+                    )
+                # Pick up next downloaded issue (blocks). When the
+                # downloader signals end-of-stream, stop submitting.
+                item = ready_q.get()
+                if item is None:
+                    break
+                _submit(item)
+            dl_thread.join()
+            all_submitted.set()
+        else:
+            # Cold-unsafe fast path: let workers fetch concurrently.
+            for date in dates:
+                _submit(date)
+            all_submitted.set()
+
+        # Drain remaining completions.
+        while completed_count < submitted_count:
+            f = done_q.get()
+            completed_count += _handle_done(
+                f, future_to_date, results, failures
+            )
 
     # Workers are joined by the executor's __exit__; their mp.Queue
     # feeder threads have flushed by the time we get here.
@@ -241,7 +353,14 @@ if __name__ == "__main__":
     p.add_argument("--db", default="data/mvtm.db")
     p.add_argument("--workers", type=int, default=None)
     p.add_argument("--no-predownload", action="store_true",
-                   help="Skip serial pre-download (for warm-cache runs)")
+                   help="Let workers fetch their own PDFs concurrently "
+                        "(faster on a warm cache, rude to source on cold)")
+    p.add_argument("--download-batch-size", type=int, default=1,
+                   help="Issues released to the pool per download "
+                        "batch (default 1 = fully pipelined)")
+    p.add_argument("--download-batch-pause", type=float, default=0.0,
+                   help="Seconds to pause between download batches "
+                        "(default 0; raise if source rate-limits)")
     args = p.parse_args()
 
     dates = [_parse_date(s) for s in args.dates]
@@ -250,4 +369,6 @@ if __name__ == "__main__":
         db_path=args.db,
         max_workers=args.workers,
         download_serially=not args.no_predownload,
+        download_batch_size=args.download_batch_size,
+        download_batch_pause_s=args.download_batch_pause,
     )
