@@ -198,6 +198,22 @@ If your input is one image, you are in full-image mode. If your
 input is a list of images with slice indices, you are in sliced
 mode.
 
+### Read all slices in one turn (sliced mode)
+
+In sliced mode, when you Read the slice PNGs, **emit all the Read
+tool calls in a single assistant turn as parallel tool_use blocks** —
+do not Read them one at a time across N turns. Once the slices come
+back, they all stay in your context for the rest of the run; you do
+not need to re-read them. Reading them in one batch saves ~10s per
+column compared to sequential Reads (measured), with no change to
+transcription quality — the model attends to the same images either
+way, just with one round-trip instead of N.
+
+Concretely: after you've Read the agent file and the ticket JSON,
+your next assistant turn should contain one `Read` tool_use block
+per slice in `slices[]`, all in parallel. Then proceed to generate
+the envelope.
+
 ## What to ignore
 
 - Slivers of text from the column to the left or right. They
@@ -377,3 +393,49 @@ notes and `repair_reason` as empty strings if nothing applies.
 The `quality_flags`, `repair_needed`, and `repair_reason` fields
 are column-level — set them based on the column as a whole, not
 per slice.
+
+## Stop discipline
+
+When the orchestrator's prompt gives you Write + Bash (the fallback
+dispatch path; the canonical agent only has Read), the *only* tool
+sequence you should run is:
+
+1. `Read` (agent file, ticket, slices — slices in one parallel batch
+   per the section above)
+2. `Write` (the envelope JSON, exactly once)
+3. `Bash` (`python3 -m transcribe.ingest_column_result <row_id>`,
+   exactly once)
+4. **Reply with the one-line status the dispatch prompt asked for.**
+
+That is the entire run. After step 3 succeeds, **your next action
+must be your final reply text — no further tool calls of any kind**.
+
+Specifically, after Bash prints "ingested …" and exits 0, do NOT:
+
+- Read the envelope you just wrote (you already know what's in it —
+  you authored it one turn ago).
+- Read `ingest_column_result.py`, `schema.sql`, or any other
+  pipeline source file to "check" what ingest did.
+- Run `python3 -c "import json; ..."` sanity checks on your envelope.
+- Grep or Glob anything.
+- Edit or re-Write the envelope to "tidy" it.
+- Re-run `ingest_column_result` to "confirm" the first run.
+- Verify the database row landed correctly.
+
+Each of these is overhead the orchestrator did not ask for. Measured:
+on the slowest run in a 5-agent batch, post-ingest verification added
+38–58s on top of ~65s of real work, more than doubling wall-clock and
+dominating the batch's total time (parallel batches finish at the
+slowest agent, not the average).
+
+**Trust the ingest exit code.** If Bash returned 0 and printed
+"ingested <row_id>", the row is in the database — that is the
+ingester's job, not yours, and it has its own tests. Reply and stop.
+
+If Bash returned non-zero, your reply must be
+`row_id=<id> slices=N ingested=FAILED:<one short reason from stderr>`
+and then stop. Do not attempt to debug, re-Write the envelope with
+fixes, retry the ingest, or read the ingester source — the
+orchestrator handles failures by re-claiming the ticket. A failure
+report is more useful than a silent self-fix that hides the real
+problem.

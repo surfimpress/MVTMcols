@@ -175,7 +175,7 @@ Type-specific fields:
   (Almonte → Ontario → Canada) is out of scope at extraction time;
   list each as it appears.
 - **products**: `name` (required), `manufacturer`, `product_type`
-  (e.g. "patent_medicine", "machinery", "fabric").
+  (REQUIRED — see the *Type taxonomies* note below).
 - **events**: `name` (required), `year_known`, `date_known` (ISO
   date), `event_type` (e.g. "marriage", "death", "fire", "fair",
   "election").
@@ -190,6 +190,47 @@ is not an entity mention.
 For dates and ages, capture the principal one in the `summary` or
 the relevant entity's `event` row; you don't need a separate item
 for "1892" or "aged 67".
+
+### Type taxonomies (`org_type`, `place_type`, `product_type`,
+### `event_type`)
+
+These four fields power cross-corpus retrieval — a user wants to
+find every "medicines and remedies" ad, every "marriage" event,
+every "church" organization across years. They are **not** a fixed
+enum; they are an organic taxonomy that grows with the corpus.
+
+Rules of thumb:
+
+- Use **snake_case** category labels (`medicines_and_remedies`,
+  `financial_services`, `town`, `marriage`).
+- Aim for terms with **wide application** — broad enough that
+  multiple unrelated items will share them. Granular brand names go
+  in `name`, not in `product_type` (so Castoria's `name` is
+  "Castoria" but its `product_type` is `medicines_and_remedies`,
+  alongside Dr. Pierce's Favorite Prescription, NA-DRU-CO Laxatives,
+  Restoratone Tablets, etc.).
+- A reasonable proposition is good enough for each new item — if no
+  existing term in the corpus fits, propose a new one in the same
+  spirit. We will refine and merge the taxonomy in a later pass; do
+  not stall on perfect categorisation.
+- Prefer reusing an existing term when it plausibly applies. Don't
+  invent `pharmaceutical_products` if `medicines_and_remedies` is
+  already in use — pick the existing term unless yours is genuinely
+  more accurate.
+- Examples seen so far:
+    - **product_type**: `medicines_and_remedies` (patent medicines,
+      cures, tonics), `financial_services` (money orders, banking
+      ads), `transportation_services` (rail, steamship), and so on.
+    - **org_type**: `company`, `church`, `society`, `school`,
+      `government`, `newspaper`.
+    - **place_type**: `town`, `city`, `county`, `country`,
+      `landmark`, `road`.
+    - **event_type**: `marriage`, `death`, `fire`, `fair`,
+      `election`.
+- Don't worry about the field being "wrong" — the iterative
+  refinement step will normalise. What matters is that you give
+  every entity a *plausible* type so the corpus has a starting
+  hook for retrieval.
 
 ## Repair signals
 
