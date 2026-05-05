@@ -10,11 +10,12 @@ Produces, under ``preview/iiif/<YYYY-MM-DD>/``:
   * ``manifest_pass2.json`` — items (segmentation + classification +
     entity mentions). Annotations placed on stored item bboxes from
     ``transcribe.items``. Skipped when no items exist for the issue.
-  * ``mirador.html`` — a per-issue copy of the central viewer. The
-    HTML derives the issue date from its own path, so the same source
-    works at the central ``preview/iiif/mirador.html?issue=...`` path
-    and the per-issue path. The per-issue copy is what
-    ``viewer.html`` links to today.
+
+The viewer itself is the single central ``preview/iiif/mirador.html``;
+``viewer.html`` links to it with ``?issue=YYYY-MM-DD`` so a config
+or theme change to the viewer takes effect for every issue at once
+without needing to rebuild manifests. We deliberately do **not**
+ship a per-issue copy of the HTML.
 
 Image bodies in the manifests reference the existing
 ``columns/<issue>/p<N>/page_display.avif`` files — same asset the
@@ -38,7 +39,6 @@ import argparse
 import html
 import json
 import os
-import shutil
 import sqlite3
 import sys
 from contextlib import closing
@@ -50,7 +50,6 @@ MVTM_DB = ROOT / "data" / "mvtm.db"
 TXC_DB = ROOT / "transcribe" / "data" / "transcribe.db"
 COLUMNS_DIR = ROOT / "columns"
 PREVIEW_ROOT = ROOT / "preview" / "iiif"
-CENTRAL_VIEWER = PREVIEW_ROOT / "mirador.html"
 PUBLIC_BASE = "https://mcmniintstdio.surfaceimpression.com/MVTM"
 
 
@@ -592,15 +591,6 @@ def build_one(issue: str) -> dict:
             report["pass2"] = {"items": nitems,
                                "pages_with_items": ppages}
 
-        # Per-issue mirador.html — copy of the central viewer. The HTML
-        # derives the issue date from its URL path, so a vanilla copy
-        # works without any per-issue templating.
-        if CENTRAL_VIEWER.exists():
-            shutil.copy2(CENTRAL_VIEWER, out_dir / "mirador.html")
-            report["mirador_html"] = True
-        else:
-            report["mirador_html"] = False
-
     return report
 
 
@@ -629,7 +619,6 @@ def main(argv=None) -> int:
         if r["pass2"]:
             bits.append(f"pass-2 ({r['pass2']['items']} items on "
                         f"{len(r['pass2']['pages_with_items'])} pages)")
-        bits.append("mirador.html" if r["mirador_html"] else "(no central viewer)")
         print(f"=== {d}: " + ", ".join(bits))
     return rc
 

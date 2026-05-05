@@ -127,8 +127,80 @@
 
     document.title = `MVTM IIIF preview — ${ISSUE}`;
 
+    // The build script hardcodes the public host
+    // (mcmniintstdio.surfaceimpression.com) into the manifest body
+    // URLs and target URIs. When the page is served from a different
+    // origin (localhost:3000 in dev, or the same host but as the
+    // manifest is fetched cross-origin for any other reason),
+    // OpenSeaDragon's `<img>` request becomes cross-origin and the
+    // browser strips cookies → Cloudflare Access 302s to login → image
+    // fails with NS_BINDING_ABORTED. Rewriting body / target URIs to
+    // the page's own origin keeps everything same-origin so cookies
+    // flow naturally.
+    function rewriteOriginInManifest(manifest) {
+      const targetOrigin = window.location.origin;
+      function patch(u) {
+        if (typeof u !== "string") return u;
+        try {
+          const url = new URL(u);
+          // Only rewrite URLs that reference our own MVTM tree —
+          // leave external URIs (e.g. iiif.io @context) alone.
+          if (!url.pathname.startsWith("/MVTM/")) return u;
+          return targetOrigin + url.pathname + url.search + url.hash;
+        } catch (e) { return u; }
+      }
+      // Annotation targets are usually SpecificResource objects with
+      // a `source` URL inside; sometimes a bare URL string. Bodies
+      // can be a single object, an array of objects, or a string.
+      function patchTarget(t) {
+        if (typeof t === "string") return patch(t);
+        if (t && typeof t === "object") {
+          if (typeof t.source === "string") t.source = patch(t.source);
+          if (typeof t.id === "string")     t.id     = patch(t.id);
+        }
+        return t;
+      }
+      function patchBody(b) {
+        if (!b) return b;
+        if (Array.isArray(b)) { b.forEach(patchBody); return b; }
+        if (typeof b === "object" && typeof b.id === "string") {
+          b.id = patch(b.id);
+        }
+        return b;
+      }
+      for (const canvas of (manifest.items || [])) {
+        canvas.id = patch(canvas.id);
+        for (const ap of (canvas.items || [])) {
+          ap.id     = patch(ap.id);
+          ap.target = patchTarget(ap.target);
+          for (const anno of (ap.items || [])) {
+            anno.id     = patch(anno.id);
+            anno.target = patchTarget(anno.target);
+            patchBody(anno.body);
+          }
+        }
+        // Painting annotations are nested under canvas.items; non-
+        // painting annotations live in canvas.annotations.
+        for (const ap of (canvas.annotations || [])) {
+          ap.id     = patch(ap.id);
+          ap.target = patchTarget(ap.target);
+          for (const anno of (ap.items || [])) {
+            anno.id     = patch(anno.id);
+            anno.target = patchTarget(anno.target);
+            patchBody(anno.body);
+          }
+        }
+      }
+      manifest.id = patch(manifest.id);
+      return manifest;
+    }
+
+    // Cache rewritten manifests by pass so bootViewer can hand
+    // Mirador the patched JSON via a Blob URL. probe() populates this.
+    const patchedManifestUrls = { pass1: null, pass2: null };
+
     function bootViewer(pass) {
-      const manifestUrl = MANIFESTS[pass];
+      const manifestUrl = patchedManifestUrls[pass] || MANIFESTS[pass];
       // Mirador.viewer rewires the existing #mirador div on each call.
       // We rebuild the div on every switch so state from the previous
       // pass (sidebar selection, zoom) doesn't leak across passes.
@@ -153,9 +225,101 @@
         },
         workspace: { type: "single", showZoomControls: true },
         workspaceControlPanel: { enabled: false },
+        // Mirador 3.4.2's annotation overlay reads colours from
+        // theme.palette.annotations.{default,hovered,selected} and
+        // theme.palette.search.{default,hovered,selected}, applied
+        // by CanvasAnnotationDisplay (see Mirador
+        // src/lib/CanvasAnnotationDisplay.js and the defaults in
+        // src/config/settings.js). Defaults are cyan/magenta/yellow.
+        // Override `selected` and `hovered` to orange — colour-blind
+        // safe and matches the project palette.
+        //
+        // NB: an earlier attempt used theme.palette.highlights
+        // .primary/secondary — that path does NOT exist in Mirador
+        // 3.4.2 and was being silently ignored, leaving the yellow
+        // default visible.
+        //
+        // Stroke thickness can't be set here: CanvasAnnotationDisplay
+        // overwrites lineWidth with `1 / zoomRatio` per frame. A
+        // thicker selected stroke would require a Mirador plugin or
+        // a custom OSD overlay hook — not done yet.
+        theme: {
+          palette: {
+            annotations: {
+              hovered:  { strokeStyle: "#ff8c00", globalAlpha: 1 },
+              selected: { strokeStyle: "#ff8c00", globalAlpha: 1 },
+            },
+            search: {
+              hovered:  { fillStyle: "#ff8c00", globalAlpha: 0.3 },
+              selected: { fillStyle: "#ff8c00", globalAlpha: 0.3 },
+            },
+          },
+        },
+        // Belt-and-braces alongside the URL-rewrite above: tell
+        // OpenSeaDragon not to set `<img>.crossOrigin="anonymous"`,
+        // so the CF AppSession cookie flows on same-origin image
+        // requests.
+        osdConfig: { crossOriginPolicy: false },
       });
 
-      document.getElementById("manifest-link").href = manifestUrl;
+      // Keep the manifest-link pointing at the canonical URL so the
+      // user can copy it from the topbar — not the Blob URL.
+      document.getElementById("manifest-link").href = MANIFESTS[pass];
+
+      // Mirador 3 initialises static-image canvases at native pixels
+      // — the user lands staring at the top-left margin and has to
+      // hit "reset zoom" to fit the page. Rather than fight OSD's
+      // init (which broke annotations last time we tried), wait for
+      // Mirador's redux store to report that OSD has finished setting
+      // up the viewport, then click the user-visible reset-zoom
+      // button. This is exactly what the user does manually.
+      autoClickResetZoom(viewer);
+    }
+
+    // Click the reset-zoom button once OSD has actually opened a tile
+    // source. Earlier attempts that clicked as soon as the button
+    // mounted blew up OSD's springs because viewport.contentSize was
+    // still (0, 0). Mirador's redux store records non-zero zoom in
+    // `state.viewers[windowId]` only after OSD's `open` event fires,
+    // so subscribing to the store gives us a clean readiness signal.
+    let _resetUnsubscribe = null;
+    function autoClickResetZoom(mViewer) {
+      if (_resetUnsubscribe) _resetUnsubscribe();
+      _resetUnsubscribe = null;
+      const SELECTORS = [
+        'button[aria-label="Reset zoom"]',
+        'button[aria-label="Zoom reset"]',
+        'button[aria-label*="reset zoom" i]',
+      ].join(", ");
+      const clickIfReady = () => {
+        const state = mViewer.store.getState();
+        const viewers = state.viewers || {};
+        // Wait until at least one window has a numeric zoom set —
+        // that's the post-`open` state.
+        const ready = Object.values(viewers).some(
+          v => v && typeof v.zoom === "number" && v.zoom > 0
+        );
+        if (!ready) return false;
+        const root = document.getElementById("mirador");
+        const btn = root && root.querySelector(SELECTORS);
+        if (!btn || btn.disabled) return false;
+        btn.click();
+        return true;
+      };
+      // Subscribe; on every store update, attempt a click.
+      _resetUnsubscribe = mViewer.store.subscribe(() => {
+        if (clickIfReady()) {
+          _resetUnsubscribe();
+          _resetUnsubscribe = null;
+        }
+      });
+      // Safety net: stop subscribing after 10s.
+      setTimeout(() => {
+        if (_resetUnsubscribe) {
+          _resetUnsubscribe();
+          _resetUnsubscribe = null;
+        }
+      }, 10000);
     }
 
     function showEmpty(msg) {
@@ -206,10 +370,31 @@
       available.pass1 = !!m1;
       available.pass2 = !!m2;
 
+      // Patch hard-coded URLs to match this page's origin and stash a
+      // Blob URL for each. Mirador will fetch the Blob (no auth, no
+      // redirect) and read body URIs that resolve to same-origin
+      // image requests with cookies attached.
+      if (m1) {
+        rewriteOriginInManifest(m1);
+        patchedManifestUrls.pass1 = URL.createObjectURL(
+          new Blob([JSON.stringify(m1)], { type: "application/json" })
+        );
+      }
+      if (m2) {
+        rewriteOriginInManifest(m2);
+        patchedManifestUrls.pass2 = URL.createObjectURL(
+          new Blob([JSON.stringify(m2)], { type: "application/json" })
+        );
+      }
+
       const pageCount =
         (m1 && m1.items?.length) || (m2 && m2.items?.length) || 0;
-      document.getElementById("meta").textContent =
-        `Almonte Gazette · ${ISSUE} · ${pageCount} pages`;
+      // Wrap the meta in a link back to the issue's detail view in
+      // the main MVTM viewer. Absolute /MVTM/ path works from either
+      // origin (localhost:3000 dev or the public host).
+      const issueHref = `/MVTM/viewer.html?issue=${encodeURIComponent(ISSUE)}`;
+      document.getElementById("meta").innerHTML =
+        `<a href="${issueHref}">Almonte Gazette · ${ISSUE} · ${pageCount} pages</a>`;
 
       const t1 = document.getElementById("tab-pass1");
       const t2 = document.getElementById("tab-pass2");

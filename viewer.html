@@ -333,7 +333,7 @@ function renderOneIssueDetail(issue) {
 
     const ts = transcribeStatus[issue.dir];
     const iiifBtn = (ts && ts.manifest_dir)
-        ? `<a class="back-btn iiif-btn" href="preview/iiif/${issue.dir}/mirador.html" target="_blank">Transcripts (IIIF) \u2192</a>`
+        ? `<a class="back-btn iiif-btn" href="preview/iiif/mirador.html?issue=${issue.dir}" target="_blank">Transcripts (IIIF) \u2192</a>`
         : '';
 
     return `<div class="issue-detail" id="detail-${issue.dir}">
