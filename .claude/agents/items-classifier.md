@@ -52,11 +52,38 @@ The list of valid `item_type` values is:
 
 Pick the closest fit. The classifier does not need to be subtle — a
 news item is `article`; an ad with prominent product framing or
-borders is `display_ad`; a short for-sale or wanted notice is
-`classified_ad`; a civic / official notice is `notice`. The boundary
-between `article` and `letter` is whether the piece is signed by an
-ordinary correspondent (letter) versus run as editorial content
-(article).
+borders is `display_ad`; the boundary between `article` and `letter`
+is whether the piece is signed by an ordinary correspondent (letter)
+versus run as editorial content (article).
+
+**`classified_ad` vs `notice`.** This pair is easy to confuse —
+default to `classified_ad`, reserve `notice` for the narrow civic
+case.
+
+- `classified_ad` — anything a private individual, company, or
+  professional has *paid the paper to run* as a small text block:
+  professional cards (doctors, dentists, lawyers, surveyors,
+  veterinarians), "Wanted", "For Sale", "Lost", "Stray Calf",
+  "Hound Lost", "Teacher Wanted", "Wood Wanted" by a private buyer,
+  "Concrete Tiling — John Fulton", "Farm For Sale", auction lots,
+  business announcements, room-to-let, employment-wanted, etc. The
+  line is signed by an individual or firm, not by an authority. If
+  in doubt — it's a `classified_ad`.
+- `notice` — civic, official, or legally-required announcements:
+  council resolutions, by-law publications, sheriff's notices,
+  election proclamations, court notices, municipal nominations,
+  township meetings, school-board "Wood Wanted for Town Hall" or
+  "for Public School" (paid by the *school board*, not a private
+  citizen), railway company annual general meetings (statutorily
+  required), official appointments and removals. The signer is a
+  public office, council, board, or returning officer — not a
+  private individual.
+
+A school-board ad signed by the board chairman is a `notice`. A
+"Teacher Wanted" classified ad with the board's name in the body
+but signed by the secretary acting on the board's behalf is more
+ambiguous — lean `classified_ad` unless the language is clearly
+official / statutory.
 
 ## How items map to column spans and ads
 
@@ -101,11 +128,29 @@ if a "narrow" rule looks more like an item separator (the text below
 clearly opens a new piece), treat it as one. If a "full-width" rule
 falls between a one-line headline and its body, merge them.
 
-The slice metadata (`slice_boundaries` on each column) carries the
-rule classifications and the char ranges of each slice — use it to
-choose your `start_offset` / `end_offset` cleanly at slice boundaries
-when possible. A char range that ends mid-line is technically valid
-but harder to verify; cleaner is better.
+**Missing-rule case.** Sometimes the cutting stage misses a rule —
+thicker rules and double rules slip past the detector. The absence
+of a `---` marker between two pieces of text is **not** evidence
+that they belong to the same item. If the text clearly opens a new
+piece (em-dash brief-news items "—Mr. So-and-so…", a new dateline,
+an obvious topic shift, the start of a list of marriages or
+deaths), split it as a separate item even with no rule marker.
+
+**Sub-slices are not item boundaries.** Inspect the slice's
+`subdivided` flag in `slice_boundaries`. When `subdivided: true`,
+that slice was split into pieces for image-size reasons only — the
+break between consecutive sub-slices is a pixel cut, not a content
+cut. Never end an item exactly at a sub-slice boundary unless the
+text content actually ends there. Treat all sub-slices that share
+the same parent slice (same `top_rule_y_pct` / `bottom_rule_y_pct`)
+as one continuous span when deciding item boundaries.
+
+The slice metadata also carries the char ranges of each slice — use
+it to choose your `start_offset` / `end_offset` cleanly at slice
+boundaries **when the content actually ends there**. Aligning to a
+slice boundary is convenient only when it is also where the item
+ends; do not pull a content boundary toward a slice boundary just
+because the slice boundary is round.
 
 ## Cross-column items
 

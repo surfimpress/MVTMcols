@@ -201,10 +201,20 @@ def _interpolate_y_pct(slice_boundaries: list[dict],
 
 
 def _span_y_extents(span: dict,
-                    column: dict) -> tuple[float | None, float | None]:
+                    column: dict,
+                    snap_ctx: dict | None = None
+                    ) -> tuple[float | None, float | None]:
     """Return (top_pct, bottom_pct) for one column-span using the
-    column's slice_boundaries. Falls back to None when slice meta is
-    missing — the caller should then pad with sensible defaults.
+    column's slice_boundaries, then snap to natural divisions when
+    a snap context is provided. Falls back to None when slice meta
+    is missing — the caller should then pad with sensible defaults.
+
+    The slice interpolation is approximate because chars per pct are
+    not uniform (headlines have lower density than body, ads have
+    different leading from articles). The snap pulls the bbox edge
+    onto a real horizontal feature: a detected h-rule (preferred) or
+    the start/end of a body-text run (a whitespace gap that often
+    coincides with an item-separating rule the cutter missed).
     """
     sb = column.get("slice_boundaries")
     if isinstance(sb, str):
@@ -217,7 +227,187 @@ def _span_y_extents(span: dict,
 
     top = _interpolate_y_pct(sb, span["start_offset"])
     bot = _interpolate_y_pct(sb, span["end_offset"])
+
+    if snap_ctx is not None:
+        col_idx = int(column["col_idx"])
+        top = _snap_y(top, "top", col_idx, snap_ctx)
+        bot = _snap_y(bot, "bottom", col_idx, snap_ctx)
+
     return top, bot
+
+
+# ---------- y-snap to natural divisions ----------------------------
+
+# Tolerances for snapping. Tuned to be permissive enough to catch
+# missed-rule cases (where the linear-interp y is several percent
+# off the real division) but tight enough not to pull a clean
+# boundary off its true position.
+H_RULE_SNAP_PCT = 1.5
+BODY_SNAP_PCT   = 5.0
+# Body=False runs shorter than this (typical inter-paragraph
+# leading) are filtered out so we don't snap to mid-paragraph gaps.
+MIN_GAP_PCT     = 0.40
+
+
+def _body_runs_from_chart(chart: dict) -> list[tuple[float, float]]:
+    """Compute body=True runs from a body_text_chart entry.
+
+    Short body=False gaps (< MIN_GAP_PCT) are absorbed into the
+    surrounding body=True run — those are paragraph leading, not
+    item separators. Item-separating gaps in this corpus are
+    consistently 0.4–0.6% page-pct wide.
+    """
+    ys = chart.get("y_pct") or []
+    body = chart.get("body") or []
+    if not ys or not body or len(ys) != len(body):
+        return []
+
+    runs: list[tuple[float, float]] = []
+    i = 0
+    n = len(body)
+    while i < n:
+        # advance past any leading non-body
+        while i < n and not body[i]:
+            i += 1
+        if i >= n:
+            break
+        run_start = ys[i]
+        # extend through body=True, absorbing short body=False gaps
+        last_body_y = ys[i]
+        while i < n:
+            if body[i]:
+                last_body_y = ys[i]
+                i += 1
+                continue
+            # found a False; peek ahead for end of this False-run
+            j = i
+            while j < n and not body[j]:
+                j += 1
+            gap_width = ys[min(j, n - 1)] - ys[i]
+            if gap_width < MIN_GAP_PCT and j < n:
+                # short gap (paragraph leading) — keep extending
+                i = j
+                continue
+            # real gap: terminate run here
+            break
+        runs.append((run_start, last_body_y))
+    return runs
+
+
+def _h_rules_for_col(h_rules: list[dict],
+                     col_left_pct: float,
+                     col_right_pct: float) -> list[float]:
+    """y_pct of every h_rule whose x-extent overlaps this column.
+
+    The detector tags each rule with the column it was found in
+    (col_idx), but we filter by x-extent here too so a multi-column
+    rule that was detected in a neighbouring column's strip still
+    counts for this column.
+    """
+    out: list[float] = []
+    for r in h_rules:
+        x1 = r.get("x1_pct")
+        x2 = r.get("x2_pct")
+        if x1 is None or x2 is None:
+            continue
+        # any x-overlap with the column counts
+        if x2 < col_left_pct or x1 > col_right_pct:
+            continue
+        y = r.get("y_pct")
+        if y is None:
+            continue
+        out.append(float(y))
+    return sorted(out)
+
+
+def build_snap_context(year: int, month: int, day: int, page: int,
+                       boundary_positions: list[float] | None = None,
+                       ) -> dict | None:
+    """Build the per-column snap context from page_analysis.json.
+
+    Returns ``{col_idx: {"body_runs": [(y0, y1), ...],
+                          "h_rule_ys": [y, ...]}}`` or ``None`` when
+    page_analysis.json is missing (the ingester then falls back to
+    pure linear interpolation, the previous behaviour).
+    """
+    date_str = f"{year:04d}-{month:02d}-{day:02d}"
+    path = os.path.join(_db.REPO_ROOT, "columns", date_str,
+                        f"p{page}", "page_analysis.json")
+    if not os.path.isfile(path):
+        return None
+    with open(path) as f:
+        pa = json.load(f)
+
+    ctx: dict[int, dict] = {}
+    for chart in pa.get("body_text_charts", []) or []:
+        ci = int(chart["col_idx"])
+        ctx[ci] = {"body_runs": _body_runs_from_chart(chart),
+                   "h_rule_ys": []}
+
+    # h_rules: filter to this column's x-extent. Need column
+    # boundaries; if not provided, fall back to col_idx tag on each
+    # rule (the detector emits one).
+    h_rules = pa.get("h_rules", []) or []
+    if boundary_positions:
+        for ci in ctx:
+            if 0 <= ci < len(boundary_positions) - 1:
+                ctx[ci]["h_rule_ys"] = _h_rules_for_col(
+                    h_rules,
+                    float(boundary_positions[ci]),
+                    float(boundary_positions[ci + 1]))
+    else:
+        for r in h_rules:
+            ci = r.get("col_idx")
+            if ci is None or ci not in ctx:
+                continue
+            y = r.get("y_pct")
+            if y is not None:
+                ctx[ci]["h_rule_ys"].append(float(y))
+        for ci in ctx:
+            ctx[ci]["h_rule_ys"].sort()
+
+    return ctx
+
+
+def _snap_y(y: float | None, kind: str, col_idx: int,
+            snap_ctx: dict | None) -> float | None:
+    """Snap a candidate y_pct to the nearest natural division.
+
+    ``kind`` is ``"top"`` or ``"bottom"`` — for ``top`` we snap to
+    body-run starts, for ``bottom`` to body-run ends. h_rules are
+    eligible regardless of kind.
+
+    No-op when ``y`` is None, the snap context is missing, or the
+    column has no chart data. No-op when the nearest target is
+    farther than the tolerance.
+    """
+    if y is None or snap_ctx is None:
+        return y
+    info = snap_ctx.get(col_idx)
+    if info is None:
+        return y
+
+    # Pass 1: tight h_rule snap.
+    h_ys = info.get("h_rule_ys") or []
+    if h_ys:
+        best = min(h_ys, key=lambda hy: abs(hy - y))
+        if abs(best - y) <= H_RULE_SNAP_PCT:
+            return float(best)
+
+    # Pass 2: body-run edge snap.
+    runs = info.get("body_runs") or []
+    if not runs:
+        return y
+
+    if kind == "top":
+        edges = [r_start for r_start, _ in runs]
+    else:
+        edges = [r_end for _, r_end in runs]
+
+    best_edge = min(edges, key=lambda e: abs(e - y))
+    if abs(best_edge - y) <= BODY_SNAP_PCT:
+        return float(best_edge)
+    return y
 
 
 def _ad_bbox(ticket_ads: list[dict],
@@ -247,9 +437,11 @@ def _column_for_id(columns: list[dict],
 
 
 def derive_item_bbox(item: dict,
-                     ticket: dict) -> tuple[float, float, float, float,
-                                            list[int], list[float | None],
-                                            list[float | None]]:
+                     ticket: dict,
+                     snap_ctx: dict | None = None,
+                     ) -> tuple[float, float, float, float,
+                                list[int], list[float | None],
+                                list[float | None]]:
     """Compute (left_pct, top_pct, right_pct, bottom_pct,
     column_idxs, span_top_pcts, span_bottom_pcts) for one item.
 
@@ -258,6 +450,10 @@ def derive_item_bbox(item: dict,
     item_column_spans rows. None entries indicate the slice
     interpolation didn't yield a value (rare; the bbox ends up using
     the column's full extent for those).
+
+    When ``snap_ctx`` is provided, span y-extents are snapped to
+    nearby h-rules / body-run edges (see ``_snap_y``) so the bbox
+    pulls onto natural divisions instead of sub-slice pixel cuts.
     """
     boundary_positions = ticket["page_state"]["boundary_positions"]
     columns = ticket["columns"]
@@ -283,7 +479,7 @@ def derive_item_bbox(item: dict,
         lefts.append(l)
         rights.append(r)
 
-        t, b = _span_y_extents(span, col)
+        t, b = _span_y_extents(span, col, snap_ctx=snap_ctx)
         span_tops.append(t)
         span_bottoms.append(b)
         if t is not None:
@@ -539,6 +735,13 @@ def ingest(page_id: str,
 
     column_ids = [c["column_transcript_id"] for c in ticket["columns"]]
 
+    # Snap context: per-column body-runs and h-rules, used to pull
+    # bbox edges off slice-pixel boundaries onto natural divisions
+    # (see C in the bbox-too-tall plan).
+    boundary_positions = ticket["page_state"]["boundary_positions"]
+    snap_ctx = build_snap_context(year, month, day, page,
+                                  boundary_positions)
+
     conn = _db.open_connection(attach_mvtm=False)
     items_inserted = 0
     spans_inserted = 0
@@ -553,7 +756,7 @@ def ingest(page_id: str,
         for item in envelope["items"]:
             (bb_left, bb_top, bb_right, bb_bottom,
              col_idxs, span_tops, span_bottoms) = derive_item_bbox(
-                item, ticket)
+                item, ticket, snap_ctx=snap_ctx)
 
             full_text = assemble_full_text(item, column_text_by_id)
             crosses_columns = 1 if len(set(col_idxs)) > 1 else 0
