@@ -28,6 +28,9 @@ display_trial/
 
 # transcribe pipeline runtime data (DB + work tickets)
 transcribe/data/transcribe.db
+transcribe/data/transcribe.db.*
+transcribe/data/*.bak
+transcribe/data/*.bak-*
 transcribe/data/db_backups/
 transcribe/work/columns/*.json
 transcribe/work/ads/*.json

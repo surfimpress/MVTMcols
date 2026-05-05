@@ -1,0 +1,745 @@
+"""Ingest one items-classifier result back into transcribe.db.
+
+The orchestrator (Claude Code) saves the agent's JSON envelope for a
+page to ``transcribe/work/results/<page-id>.json`` and then runs::
+
+    python3 -m transcribe.ingest_item_result <page-id>
+
+where ``<page-id>`` is the ticket's stem (e.g. ``1912-12-27_p6``).
+
+The envelope shape is::
+
+    {
+      "items": [
+        {
+          "item_type": "article|display_ad|classified_ad|notice|masthead|
+                        cartoon|letter|announcement|table|index|other",
+          "headline": "..." | null,
+          "byline":   "..." | null,
+          "summary":  "...",
+          "language": "en",
+          "classification_confidence": 0.0..1.0,
+          "column_spans": [                             # zero or more
+            {"column_transcript_id": "uuid",
+             "sequence": 0,
+             "start_offset": int,
+             "end_offset":   int}
+          ],
+          "ad_uuids": ["uuid", ...],                    # zero or more
+          "people":        [<mention>, ...],            # optional
+          "organizations": [<mention>, ...],            # optional
+          "places":        [<mention>, ...],            # optional
+          "products":      [<mention>, ...],            # optional
+          "events":        [<mention>, ...],            # optional
+          "continued_from_item_id": null,
+          "continued_to_item_id":   null,
+          "repair_needed": false,
+          "repair_reason": ""
+        }
+      ],
+      "page_repair_needed": false,
+      "page_repair_reason": ""
+    }
+
+Each ``<mention>`` is a small dict::
+
+    {"full_name": "James McLeod",        # for people
+     "first_name": "James",
+     "last_name":  "McLeod",
+     "title":      "Mr.",
+     # OR for orgs/places/products/events:
+     # "name": "...", "place_type": "...", etc.
+     "role":         "subject|byline|mentioned|...",
+     "mention_text": "Mr. James McLeod",
+     "span_start":   42,                 # offset into items.full_text
+     "span_end":     58,
+     "confidence":   0.85}
+
+The ingester:
+
+  * loads the ticket (so we have the column extents, ad bboxes, slice
+    metadata, content_hash);
+  * validates the envelope;
+  * for each item, derives a page-percent bbox from the column spans
+    + slice_boundaries (vertical) and the page_layouts boundary
+    positions (horizontal), unioning with ad bboxes where present;
+  * builds full_text by concatenating each column span's
+    transcript_text[start:end];
+  * inserts items, item_column_spans, item_ad_associations, and
+    entity rows + mentions in one transaction;
+  * raises a repair if the agent flagged ``page_repair_needed`` or
+    any per-item ``repair_needed``;
+  * tags every item's ``notes`` field with
+    ``content_hash=<hex>`` so a later re-run can detect that this
+    page has already been classified for this set of transcripts.
+
+No mvtm.db writes; ad bbox lookups go through the ATTACHed read-only
+connection.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sqlite3
+import sys
+
+from . import db as _db
+from . import ingest_column_result as _col
+
+
+RESULTS_DIR = os.path.join(_db.REPO_ROOT, "transcribe", "work", "results")
+WORK_TICKETS_DIR = os.path.join(
+    _db.REPO_ROOT, "transcribe", "work", "items")
+AGENT_FILE_REL = ".claude/agents/items-classifier.md"
+
+
+_VALID_ITEM_TYPES = {
+    "article", "display_ad", "classified_ad", "notice", "masthead",
+    "cartoon", "letter", "announcement", "table", "index", "other",
+}
+
+
+# ---------- envelope parsing ---------------------------------------
+
+def parse_envelope(raw: str) -> dict:
+    """Validate the items envelope. Returns the parsed dict on success.
+
+    Raises ValueError with a helpful message on bad shape.
+    """
+    try:
+        data = json.loads(_col.strip_fence(raw))
+    except json.JSONDecodeError as e:
+        raise ValueError(f"result is not valid JSON: {e}") from e
+
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"result must be a JSON object, got {type(data).__name__}")
+
+    if "items" not in data or not isinstance(data["items"], list):
+        raise ValueError("envelope must have an 'items' list")
+
+    for i, item in enumerate(data["items"]):
+        if not isinstance(item, dict):
+            raise ValueError(f"items[{i}] must be a JSON object")
+        for k in ("item_type", "summary"):
+            if k not in item:
+                raise ValueError(
+                    f"items[{i}] missing required field {k!r}")
+        if item["item_type"] not in _VALID_ITEM_TYPES:
+            raise ValueError(
+                f"items[{i}].item_type {item['item_type']!r} not in "
+                f"{sorted(_VALID_ITEM_TYPES)}")
+
+        spans = item.get("column_spans", [])
+        ads = item.get("ad_uuids", [])
+        if not spans and not ads:
+            raise ValueError(
+                f"items[{i}] has neither column_spans nor ad_uuids; "
+                f"every item must anchor to at least one")
+
+        for j, span in enumerate(spans):
+            for k in ("column_transcript_id", "start_offset",
+                      "end_offset"):
+                if k not in span:
+                    raise ValueError(
+                        f"items[{i}].column_spans[{j}] missing {k!r}")
+
+    return data
+
+
+# ---------- bbox derivation ----------------------------------------
+
+def _column_extent(boundary_positions: list[float],
+                   col_idx: int) -> tuple[float, float]:
+    """Return (left_pct, right_pct) for a column index using the
+    page_layouts.boundary_positions list. boundary_positions has
+    num_columns+1 entries; col_idx 0 spans positions[0..1].
+    """
+    if col_idx < 0 or col_idx + 1 >= len(boundary_positions):
+        raise ValueError(
+            f"col_idx {col_idx} out of range for "
+            f"{len(boundary_positions)}-entry boundary_positions")
+    return (float(boundary_positions[col_idx]),
+            float(boundary_positions[col_idx + 1]))
+
+
+def _interpolate_y_pct(slice_boundaries: list[dict],
+                       char_offset: int) -> float | None:
+    """Map a char offset into a column's transcript_text to a
+    page-percent y position by finding the slice that contains the
+    offset and linear-interpolating between its y_top_pct and
+    y_bottom_pct.
+
+    Returns None if slice_boundaries is empty / missing or the
+    offset is past the end (in which case the caller should fall
+    back to the column's overall extent).
+    """
+    if not slice_boundaries:
+        return None
+
+    for s in slice_boundaries:
+        a = s.get("char_offset_start")
+        b = s.get("char_offset_end")
+        if a is None or b is None:
+            continue
+        if a <= char_offset <= b:
+            span = b - a
+            if span <= 0:
+                return float(s["y_top_pct"])
+            frac = (char_offset - a) / span
+            return float(s["y_top_pct"]) + frac * (
+                float(s["y_bottom_pct"]) - float(s["y_top_pct"]))
+
+    # past-end fallback: clamp to last slice's y_bottom_pct
+    last = slice_boundaries[-1]
+    if char_offset > (last.get("char_offset_end") or 0):
+        return float(last["y_bottom_pct"])
+    return None
+
+
+def _span_y_extents(span: dict,
+                    column: dict) -> tuple[float | None, float | None]:
+    """Return (top_pct, bottom_pct) for one column-span using the
+    column's slice_boundaries. Falls back to None when slice meta is
+    missing — the caller should then pad with sensible defaults.
+    """
+    sb = column.get("slice_boundaries")
+    if isinstance(sb, str):
+        try:
+            sb = json.loads(sb)
+        except json.JSONDecodeError:
+            sb = None
+    if not sb:
+        return None, None
+
+    top = _interpolate_y_pct(sb, span["start_offset"])
+    bot = _interpolate_y_pct(sb, span["end_offset"])
+    return top, bot
+
+
+def _ad_bbox(ticket_ads: list[dict],
+             ad_uuid: str) -> tuple[float, float, float, float] | None:
+    for a in ticket_ads:
+        if a["ad_uuid"] == ad_uuid:
+            b = a["bbox_pct"]
+            return (float(b["x_pct"]),     float(b["y_pct"]),
+                    float(b["x_end_pct"]), float(b["y_end_pct"]))
+    return None
+
+
+def _column_index_for_id(columns: list[dict],
+                         column_transcript_id: str) -> int | None:
+    for c in columns:
+        if c["column_transcript_id"] == column_transcript_id:
+            return int(c["col_idx"])
+    return None
+
+
+def _column_for_id(columns: list[dict],
+                   column_transcript_id: str) -> dict | None:
+    for c in columns:
+        if c["column_transcript_id"] == column_transcript_id:
+            return c
+    return None
+
+
+def derive_item_bbox(item: dict,
+                     ticket: dict) -> tuple[float, float, float, float,
+                                            list[int], list[float | None],
+                                            list[float | None]]:
+    """Compute (left_pct, top_pct, right_pct, bottom_pct,
+    column_idxs, span_top_pcts, span_bottom_pcts) for one item.
+
+    span_top_pcts / span_bottom_pcts are aligned with the item's
+    column_spans list (one entry each), to be written into
+    item_column_spans rows. None entries indicate the slice
+    interpolation didn't yield a value (rare; the bbox ends up using
+    the column's full extent for those).
+    """
+    boundary_positions = ticket["page_state"]["boundary_positions"]
+    columns = ticket["columns"]
+    ads = ticket["ads"]
+
+    lefts:   list[float] = []
+    rights:  list[float] = []
+    tops:    list[float] = []
+    bottoms: list[float] = []
+    col_idxs:        list[int] = []
+    span_tops:    list[float | None] = []
+    span_bottoms: list[float | None] = []
+
+    for span in item.get("column_spans", []):
+        cid = span["column_transcript_id"]
+        col = _column_for_id(columns, cid)
+        if col is None:
+            raise ValueError(
+                f"unknown column_transcript_id in span: {cid}")
+        ci = int(col["col_idx"])
+        col_idxs.append(ci)
+        l, r = _column_extent(boundary_positions, ci)
+        lefts.append(l)
+        rights.append(r)
+
+        t, b = _span_y_extents(span, col)
+        span_tops.append(t)
+        span_bottoms.append(b)
+        if t is not None:
+            tops.append(t)
+        if b is not None:
+            bottoms.append(b)
+
+    for ad_uuid in item.get("ad_uuids", []):
+        ab = _ad_bbox(ads, ad_uuid)
+        if ab is None:
+            raise ValueError(
+                f"unknown ad_uuid in item: {ad_uuid}")
+        x1, y1, x2, y2 = ab
+        lefts.append(x1)
+        tops.append(y1)
+        rights.append(x2)
+        bottoms.append(y2)
+
+    if not lefts or not rights:
+        raise ValueError(
+            "could not derive bbox: item has no resolvable column "
+            "or ad anchors")
+
+    bbox_left   = min(lefts)
+    bbox_right  = max(rights)
+
+    # If we got no vertical info (no slices, no ads), default to the
+    # full column extent — page geometry doesn't carry vertical
+    # text-area extents today, so 0/100 is the honest fallback.
+    bbox_top    = min(tops)    if tops    else 0.0
+    bbox_bottom = max(bottoms) if bottoms else 100.0
+
+    return (round(bbox_left, 2),   round(bbox_top, 2),
+            round(bbox_right, 2),  round(bbox_bottom, 2),
+            col_idxs, span_tops, span_bottoms)
+
+
+# ---------- full_text assembly -------------------------------------
+
+def assemble_full_text(item: dict,
+                       column_text_by_id: dict[str, str]) -> str:
+    """Concatenate transcript_text[start:end] per span (in sequence
+    order) joined by a single newline. Ad-only items return the empty
+    string here — the ad transcript is captured separately on the
+    ad_transcripts row (joined to the item via item_ad_associations).
+    """
+    spans = sorted(item.get("column_spans", []),
+                   key=lambda s: s.get("sequence", 0))
+    parts: list[str] = []
+    for s in spans:
+        cid = s["column_transcript_id"]
+        text = column_text_by_id.get(cid)
+        if text is None:
+            raise ValueError(
+                f"column_transcript_id {cid} not found in DB; the "
+                f"agent referenced a column not on this page")
+        a = max(0, int(s["start_offset"]))
+        b = min(len(text), int(s["end_offset"]))
+        if b > a:
+            parts.append(text[a:b])
+    return "\n".join(parts)
+
+
+# ---------- entity dedup -------------------------------------------
+
+_NORM_RE = re.compile(r"[^a-z0-9]+")
+
+
+def normalise_key(name: str) -> str:
+    """Loose dedup key: lowercase, strip non-alphanumerics."""
+    return _NORM_RE.sub("", name.lower()).strip()
+
+
+def upsert_entity(conn: sqlite3.Connection,
+                  table: str,
+                  *,
+                  name: str,
+                  extra_cols: dict | None = None) -> str:
+    """Find-or-insert. Returns entity id.
+
+    ``extra_cols`` carries the type-specific columns (first_name,
+    last_name, title etc.) that get filled in on insert. On lookup,
+    we use ``normalised_key`` only — first-write-wins on the rich
+    columns; later mentions inherit the existing canonical row.
+    """
+    nk = normalise_key(name)
+    if not nk:
+        raise ValueError(f"empty normalised key for name {name!r}")
+
+    row = conn.execute(
+        f"SELECT id FROM {table} WHERE normalised_key=? LIMIT 1",
+        (nk,)).fetchone()
+    if row is not None:
+        return row["id"]
+
+    new_id = _db.new_uuid()
+    cols = ["id", "normalised_key", "created_at"]
+    vals: list = [new_id, nk, _db.now_iso()]
+    if table == "people":
+        cols.append("full_name")
+        vals.append(name)
+    else:
+        cols.append("name")
+        vals.append(name)
+
+    if extra_cols:
+        for k, v in extra_cols.items():
+            cols.append(k)
+            vals.append(v)
+
+    placeholders = ", ".join("?" * len(cols))
+    conn.execute(
+        f"INSERT INTO {table} ({', '.join(cols)}) "
+        f"VALUES ({placeholders})", vals)
+    return new_id
+
+
+# ---------- ingestion ----------------------------------------------
+
+def load_ticket(page_id: str) -> dict:
+    path = os.path.join(WORK_TICKETS_DIR, f"{page_id}.json")
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"no ticket file at {path}")
+    with open(path) as f:
+        return json.load(f)
+
+
+def load_result(page_id: str, result_path: str | None = None) -> str:
+    if result_path is None:
+        result_path = os.path.join(RESULTS_DIR, f"{page_id}.json")
+    if not os.path.isfile(result_path):
+        raise FileNotFoundError(
+            f"no result file at {result_path}; the orchestrator "
+            f"should save the agent's envelope there before ingest")
+    with open(result_path) as f:
+        return f.read()
+
+
+def _fetch_column_texts(conn: sqlite3.Connection,
+                        column_ids: list[str]) -> dict[str, str]:
+    if not column_ids:
+        return {}
+    placeholders = ", ".join("?" * len(column_ids))
+    rows = conn.execute(
+        f"SELECT id, transcript_text FROM column_transcripts "
+        f"WHERE id IN ({placeholders})", column_ids).fetchall()
+    return {r["id"]: (r["transcript_text"] or "") for r in rows}
+
+
+def _insert_mentions(conn: sqlite3.Connection,
+                     *,
+                     item_id: str,
+                     mentions: list[dict],
+                     entity_table: str,
+                     junction_table: str,
+                     junction_fk_col: str,
+                     name_keys: tuple[str, ...]) -> int:
+    """Insert a list of mentions into the appropriate junction table,
+    upserting the entity by normalised name. Returns the count
+    inserted. ``name_keys`` is the ordered list of candidate name
+    fields (e.g. ('full_name', 'name')) — the first one present on
+    the mention dict is used for normalisation.
+    """
+    inserted = 0
+    seen_keys: set[tuple[str, int]] = set()  # (entity_id, span_start)
+    for m in mentions:
+        if not isinstance(m, dict):
+            continue
+        name = None
+        for k in name_keys:
+            if m.get(k):
+                name = m[k]
+                break
+        if not name:
+            continue
+
+        extra: dict = {}
+        if entity_table == "people":
+            for k in ("first_name", "last_name", "title", "suffix"):
+                if m.get(k):
+                    extra[k] = m[k]
+        elif entity_table == "organizations":
+            if m.get("org_type"):
+                extra["org_type"] = m["org_type"]
+        elif entity_table == "places":
+            if m.get("place_type"):
+                extra["place_type"] = m["place_type"]
+        elif entity_table == "products":
+            if m.get("manufacturer"):
+                extra["manufacturer"] = m["manufacturer"]
+            if m.get("product_type"):
+                extra["product_type"] = m["product_type"]
+        elif entity_table == "events":
+            if m.get("year_known") is not None:
+                extra["year_known"] = m["year_known"]
+            if m.get("date_known"):
+                extra["date_known"] = m["date_known"]
+            if m.get("event_type"):
+                extra["event_type"] = m["event_type"]
+
+        eid = upsert_entity(conn, entity_table,
+                            name=name, extra_cols=extra)
+
+        span_start = int(m.get("span_start") or 0)
+        span_end   = m.get("span_end")
+        span_end   = int(span_end) if span_end is not None else None
+
+        # Junction PK is (item_id, entity_id, span_start). If the
+        # agent emitted two mentions of the same entity at the same
+        # span_start (rare; usually the agent collapses them), keep
+        # the first.
+        dedup_key = (eid, span_start)
+        if dedup_key in seen_keys:
+            continue
+        seen_keys.add(dedup_key)
+
+        conn.execute(
+            f"INSERT OR IGNORE INTO {junction_table} "
+            f"(item_id, {junction_fk_col}, role, mention_text, "
+            f" span_start, span_end, confidence) "
+            f"VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (item_id, eid,
+             m.get("role"),
+             m.get("mention_text") or name,
+             span_start, span_end,
+             m.get("confidence")))
+        inserted += 1
+    return inserted
+
+
+def ingest(page_id: str,
+           *,
+           result_path: str | None = None,
+           model: str | None = None) -> dict:
+    """Validate and ingest one items result. Returns a small report."""
+    ticket = load_ticket(page_id)
+    raw = load_result(page_id, result_path)
+    envelope = parse_envelope(raw)
+
+    if model is None:
+        agent_path = os.path.join(_db.REPO_ROOT, AGENT_FILE_REL)
+        if os.path.isfile(agent_path):
+            model = _db.read_agent_default_model(agent_path) or "unknown"
+        else:
+            model = "unknown"
+
+    year   = ticket["issue"]["year"]
+    month  = ticket["issue"]["month"]
+    day    = ticket["issue"]["day"]
+    page   = ticket["page"]
+    chash  = ticket.get("content_hash", "")
+    prompt_h = ticket.get("prompt_hash", "")
+
+    column_ids = [c["column_transcript_id"] for c in ticket["columns"]]
+
+    conn = _db.open_connection(attach_mvtm=False)
+    items_inserted = 0
+    spans_inserted = 0
+    ad_assocs_inserted = 0
+    mentions_inserted = 0
+    repair_ids: list[str] = []
+    item_ids: list[str] = []
+
+    try:
+        column_text_by_id = _fetch_column_texts(conn, column_ids)
+
+        for item in envelope["items"]:
+            (bb_left, bb_top, bb_right, bb_bottom,
+             col_idxs, span_tops, span_bottoms) = derive_item_bbox(
+                item, ticket)
+
+            full_text = assemble_full_text(item, column_text_by_id)
+            crosses_columns = 1 if len(set(col_idxs)) > 1 else 0
+            is_inset = 1 if (item.get("ad_uuids")
+                             and item.get("column_spans")) else 0
+
+            item_id = _db.new_uuid()
+            item_ids.append(item_id)
+
+            conn.execute(
+                """INSERT INTO items
+                   (id, item_type, year, month, day, page,
+                    bbox_left_pct, bbox_top_pct, bbox_right_pct,
+                    bbox_bottom_pct, column_span_json,
+                    crosses_columns, is_inset, crosses_pages,
+                    continued_to_item_id, continued_from_item_id,
+                    headline, byline, summary, full_text,
+                    language, classification_confidence,
+                    model, prompt_hash, raw_response_json,
+                    repair_needed, repair_reason,
+                    created_at, notes)
+                   VALUES (?, ?, ?, ?, ?, ?,
+                           ?, ?, ?, ?, ?,
+                           ?, ?, 0,
+                           ?, ?,
+                           ?, ?, ?, ?,
+                           ?, ?,
+                           ?, ?, ?,
+                           ?, ?,
+                           ?, ?)""",
+                (item_id, item["item_type"], year, month, day, page,
+                 bb_left, bb_top, bb_right, bb_bottom,
+                 json.dumps(sorted(set(col_idxs))),
+                 crosses_columns, is_inset,
+                 item.get("continued_to_item_id"),
+                 item.get("continued_from_item_id"),
+                 item.get("headline"),
+                 item.get("byline"),
+                 item.get("summary"),
+                 full_text,
+                 item.get("language") or "en",
+                 item.get("classification_confidence"),
+                 model, prompt_h, raw,
+                 1 if item.get("repair_needed") else 0,
+                 item.get("repair_reason") or None,
+                 _db.now_iso(),
+                 f"content_hash={chash}"))
+            items_inserted += 1
+
+            # Column spans
+            for i, span in enumerate(item.get("column_spans", [])):
+                seq = int(span.get("sequence", i))
+                conn.execute(
+                    """INSERT INTO item_column_spans
+                       (item_id, column_transcript_id, sequence,
+                        start_offset, end_offset,
+                        bbox_top_pct, bbox_bottom_pct)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (item_id, span["column_transcript_id"], seq,
+                     int(span["start_offset"]),
+                     int(span["end_offset"]),
+                     span_tops[i], span_bottoms[i]))
+                spans_inserted += 1
+
+            # Ad associations
+            for ad_uuid in item.get("ad_uuids", []):
+                conn.execute(
+                    """INSERT OR IGNORE INTO item_ad_associations
+                       (item_id, ad_uuid) VALUES (?, ?)""",
+                    (item_id, ad_uuid))
+                ad_assocs_inserted += 1
+
+            # Entity mentions
+            mentions_inserted += _insert_mentions(
+                conn, item_id=item_id,
+                mentions=item.get("people", []),
+                entity_table="people",
+                junction_table="item_people_mentions",
+                junction_fk_col="person_id",
+                name_keys=("full_name", "name"))
+            mentions_inserted += _insert_mentions(
+                conn, item_id=item_id,
+                mentions=item.get("organizations", []),
+                entity_table="organizations",
+                junction_table="item_organizations_mentions",
+                junction_fk_col="organization_id",
+                name_keys=("name", "full_name"))
+            mentions_inserted += _insert_mentions(
+                conn, item_id=item_id,
+                mentions=item.get("places", []),
+                entity_table="places",
+                junction_table="item_places_mentions",
+                junction_fk_col="place_id",
+                name_keys=("name", "full_name"))
+            mentions_inserted += _insert_mentions(
+                conn, item_id=item_id,
+                mentions=item.get("products", []),
+                entity_table="products",
+                junction_table="item_products_mentions",
+                junction_fk_col="product_id",
+                name_keys=("name", "full_name"))
+            mentions_inserted += _insert_mentions(
+                conn, item_id=item_id,
+                mentions=item.get("events", []),
+                entity_table="events",
+                junction_table="item_events_mentions",
+                junction_fk_col="event_id",
+                name_keys=("name", "full_name"))
+
+            if item.get("repair_needed"):
+                rid = _db.raise_repair(
+                    conn,
+                    target_kind="page",
+                    target_ref={"year": year, "month": month,
+                                "day": day, "page": page},
+                    repair_kind="other",
+                    description=item.get("repair_reason") or
+                                "(no reason given)",
+                    raised_by=model,
+                    related_item_id=item_id)
+                repair_ids.append(rid)
+
+        if envelope.get("page_repair_needed"):
+            rid = _db.raise_repair(
+                conn,
+                target_kind="page",
+                target_ref={"year": year, "month": month,
+                            "day": day, "page": page},
+                repair_kind="other",
+                description=envelope.get("page_repair_reason") or
+                            "(no reason given)",
+                raised_by=model)
+            repair_ids.append(rid)
+
+        conn.commit()
+    finally:
+        conn.close()
+
+    return {
+        "page_id": page_id,
+        "model": model,
+        "items_inserted": items_inserted,
+        "spans_inserted": spans_inserted,
+        "ad_assocs_inserted": ad_assocs_inserted,
+        "mentions_inserted": mentions_inserted,
+        "repair_ids": repair_ids,
+        "item_ids": item_ids,
+        "content_hash": chash,
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(
+        description="Ingest one items-classifier result.")
+    p.add_argument("page_id",
+                   help="Ticket stem, e.g. 1912-12-27_p6")
+    p.add_argument("--result-file", default=None,
+                   help="Path to the agent's JSON envelope file "
+                        "(default: transcribe/work/results/"
+                        "<page-id>.json)")
+    p.add_argument("--model", default=None,
+                   help="Model name the agent ran as (default: read "
+                        "from agent file frontmatter)")
+    args = p.parse_args(argv)
+
+    try:
+        report = ingest(args.page_id,
+                        result_path=args.result_file,
+                        model=args.model)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"ingest failed: {e}", file=sys.stderr)
+        return 1
+
+    print(f"ingested {report['page_id']}")
+    print(f"  model:               {report['model']}")
+    print(f"  items inserted:      {report['items_inserted']}")
+    print(f"  column spans:        {report['spans_inserted']}")
+    print(f"  ad associations:     {report['ad_assocs_inserted']}")
+    print(f"  entity mentions:     {report['mentions_inserted']}")
+    print(f"  content_hash:        {report['content_hash'][:12]}...")
+    if report["repair_ids"]:
+        print(f"  repairs raised:      {len(report['repair_ids'])}")
+        for rid in report["repair_ids"]:
+            print(f"    {rid}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
