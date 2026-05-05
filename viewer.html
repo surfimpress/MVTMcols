@@ -39,10 +39,25 @@ body { font-family: -apple-system, system-ui, sans-serif; background: #f5f5f0; c
 h1 { font-size: 1.8em; margin-bottom: 5px; }
 .subtitle { color: #666; margin-bottom: 20px; }
 .issue-list { display: grid; gap: 15px; margin-bottom: 30px; }
-.issue-card { background: white; border: 1px solid #ddd; border-radius: 8px; padding: 15px; cursor: pointer; }
+.issue-card { background: white; border: 1px solid #ddd; border-radius: 8px; padding: 15px; cursor: pointer; position: relative; }
 .issue-card:hover { border-color: #999; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
 .issue-card h2 { font-size: 1.2em; margin-bottom: 5px; }
 .issue-card .stats { color: #666; font-size: 0.9em; }
+/* Pass badges — top-right, neutral colour (user is colour-blind, so
+   the digit carries the meaning; no green/red signalling). */
+.pass-badges { position: absolute; top: 10px; right: 10px; display: flex; gap: 4px; }
+.pass-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: #2c3e50; color: white;
+    font-size: 0.78em; font-weight: 600;
+    line-height: 1;
+}
+.pass-badge[title] { cursor: help; }
+.iiif-btn { background: #6a4f9a; color: white; border-color: #4a3578; }
+.iiif-btn:hover { background: #7a5fb0; color: white; }
+.detail-title { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; }
+.detail-title .pass-badges { position: static; }
 .issue-detail { display: none; background: white; border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 30px; }
 .issue-detail.active { display: block; }
 .back-btn { display: inline-block; margin-bottom: 15px; padding: 5px 12px; background: #eee; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; text-decoration: none; color: #333; }
@@ -116,13 +131,29 @@ const issueCache = new Map();
 // Index issues, populated from index.json — keyed by `dir` for lookup.
 let indexIssues = [];
 const indexByDir = new Map();
+// Transcribe status, loaded from columns/transcribe_status.json.
+// Keyed by `dir` (YYYY-MM-DD); shape: {pass1, pass2, manifest_dir, ...}.
+// Issues with no transcribe footprint are simply absent.
+let transcribeStatus = {};
 
 async function init() {
     try {
-        const resp = await fetch(BASE + '/index.json');
+        // index.json is required; transcribe_status.json is optional —
+        // a fresh checkout that hasn't run the transcribe pipeline yet
+        // simply shows no badges. Run them in parallel.
+        const [resp, statusResp] = await Promise.all([
+            fetch(BASE + '/index.json'),
+            fetch(BASE + '/transcribe_status.json').catch(() => null),
+        ]);
         const data = await resp.json();
         indexIssues = data.issues || [];
         for (const i of indexIssues) indexByDir.set(i.dir, i);
+        if (statusResp && statusResp.ok) {
+            try {
+                const sd = await statusResp.json();
+                transcribeStatus = sd.issues || {};
+            } catch (_) { transcribeStatus = {}; }
+        }
 
         document.getElementById('loading').style.display = 'none';
         renderList(indexIssues);
@@ -152,6 +183,26 @@ async function loadIssue(dir) {
     const payload = await resp.json();
     issueCache.set(dir, payload);
     return payload;
+}
+
+// Pass badges: "1" when pass-1A + pass-1B are complete for the issue,
+// "2" joins it once pass-2 has produced items on every page. Drawn
+// top-right of the card; the digit carries the meaning (no colour
+// signalling — user is colour-blind).
+function renderPassBadges(dir) {
+    const s = transcribeStatus[dir];
+    if (!s) return '';
+    const parts = [];
+    if (s.pass1) {
+        const tip = `Pass 1 complete: ${s.n_cols_done}/${s.n_cols_expected} columns, ${s.n_ads_done}/${s.n_ads_expected} ads`;
+        parts.push(`<span class="pass-badge" title="${tip}">1</span>`);
+    }
+    if (s.pass2) {
+        const tip = `Pass 2 complete: items extracted on ${s.n_pages_with_items}/${s.n_pages_expected} pages`;
+        parts.push(`<span class="pass-badge" title="${tip}">2</span>`);
+    }
+    if (parts.length === 0) return '';
+    return `<div class="pass-badges">${parts.join('')}</div>`;
 }
 
 function renderList(issues) {
@@ -192,6 +243,7 @@ function renderList(issues) {
                 const date = `${issue.year}-${String(issue.month).padStart(2,'0')}-${String(issue.day).padStart(2,'0')}`;
                 const lastRan = issue.last_ran ? new Date(issue.last_ran + 'Z').toLocaleString() : '';
                 return `<div class="issue-card" onclick="showIssue('${issue.dir}')">
+                    ${renderPassBadges(issue.dir)}
                     <h2>${date}</h2>
                     <div class="stats">
                         ${issue.n_pages || 0} pages \u2022
@@ -279,11 +331,17 @@ function renderOneIssueDetail(issue) {
         </details>`;
     }
 
+    const ts = transcribeStatus[issue.dir];
+    const iiifBtn = (ts && ts.manifest_dir)
+        ? `<a class="back-btn iiif-btn" href="preview/iiif/${issue.dir}/mirador.html" target="_blank">Transcripts (IIIF) \u2192</a>`
+        : '';
+
     return `<div class="issue-detail" id="detail-${issue.dir}">
         <div class="detail-header">
             <div class="detail-header-left">
                 <a class="back-btn" onclick="hideIssue('${issue.dir}')">\u2190 Back to list</a>
                 <a class="back-btn inspector-btn" href="page_viewer.html?issue=${issue.dir}&page=1" target="_blank">Inspector \u2192</a>
+                ${iiifBtn}
             </div>
             <span class="expand-ctrl">
                 <a onclick="setAllDetails('${issue.dir}', true)">open all</a>
@@ -291,7 +349,7 @@ function renderOneIssueDetail(issue) {
                 <a onclick="setAllDetails('${issue.dir}', false)">close all</a>
             </span>
         </div>
-        <h2>${date}</h2>
+        <div class="detail-title"><h2>${date}</h2>${renderPassBadges(issue.dir)}</div>
         <p class="stats" style="margin-bottom:15px">
             ${issue.n_cols || 0} columns \u2022
             ${ads.length} ads
