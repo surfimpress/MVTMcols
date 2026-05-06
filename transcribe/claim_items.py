@@ -181,12 +181,16 @@ def build_ticket(*, year: int, month: int, day: int, page: int,
 
 def claim_for_page(conn: sqlite3.Connection,
                    *, year: int, month: int, day: int, page: int,
-                   prompt_template_text: str) -> tuple[bool, str | None]:
+                   prompt_template_text: str,
+                   force: bool = False) -> tuple[bool, str | None]:
     """Claim one page. Returns (wrote_ticket, ticket_path_or_None).
 
     Conditions for skipping:
       - no column transcripts in 'done' state on this page → not ready
       - items already exist for this content_hash → already done
+        (bypass with ``force=True`` — used to re-run pass-2 when only
+        the agent prompt has changed; the new batch lands alongside
+        the old one, distinguishable by ``prompt_hash``)
     """
     date_str = f"{year:04d}-{month:02d}-{day:02d}"
 
@@ -236,7 +240,7 @@ def claim_for_page(conn: sqlite3.Connection,
         [c["id"] for c in columns_dedup],
         [a["id"] for a in ads_dedup])
 
-    if page_done(conn, year, month, day, page, chash):
+    if not force and page_done(conn, year, month, day, page, chash):
         return False, None
 
     page_layout = conn.execute(
@@ -281,6 +285,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--page", type=int, default=None,
                    help="Only claim this page (default: every page where "
                         "pass-1A is done)")
+    p.add_argument("--force", action="store_true",
+                   help="Re-claim even if items already exist for this "
+                        "content_hash. Used when only the agent prompt "
+                        "has changed; the new batch lands alongside the "
+                        "old one (distinguishable by prompt_hash).")
     args = p.parse_args(argv)
 
     year, month, day = parse_date(args.date)
@@ -314,7 +323,8 @@ def main(argv: list[str] | None = None) -> int:
             ok, path = claim_for_page(
                 conn,
                 year=year, month=month, day=day, page=page,
-                prompt_template_text=prompt_template_text)
+                prompt_template_text=prompt_template_text,
+                force=args.force)
             if ok:
                 print(f"  p{page}: ticket -> {path}")
                 wrote += 1

@@ -136,6 +136,50 @@ piece (em-dash brief-news items "—Mr. So-and-so…", a new dateline,
 an obvious topic shift, the start of a list of marriages or
 deaths), split it as a separate item even with no rule marker.
 
+**Heading attribution at item boundaries.** Your edge over a
+mechanical splitter is **reading the text**. The cutting-stage
+markers (`---`, `--`, slice boundaries) are hints — sometimes
+wrong, sometimes missing, sometimes placed inside an item rather
+than between items. Decide where one item ends and another begins
+by what the text *means*, not by where a rule fell.
+
+When attributing a heading (a short ALL-CAPS line like `WOOD
+WANTED.`, `FOR SALE.`, `NOTICE.`, `AUCTION SALE.`, `G. S. SADLER,
+M.D.`) to one side or the other, weigh these factors in this
+order:
+
+1. **Did the context of the text change?** (most important.)
+   Read what's above the heading and what's below. If the topic,
+   subject, vendor, or genre clearly shifts at the heading, the
+   heading belongs with the new content. Concrete case: a paragraph
+   ending `…apply to the Patents Office, Ottawa.` followed by
+   `WOOD WANTED.` followed by `TENDERS WILL BE RECEIVED…` —
+   the subject shifts from patent applications to a wood-tender
+   notice, so `WOOD WANTED.` is the start of the next item, not
+   the end of the previous one.
+
+2. **Have we transitioned to a heading from smaller body text?**
+   A jump from mixed-case body to a short ALL-CAPS line — especially
+   one preceded by a blank line — is the visual signal of a new
+   item beginning. The heading goes with the item it titles, not
+   the one it follows.
+
+3. **Are there rule or boundary markers nearby?** Use these to
+   confirm a decision already reached from factors 1 and 2 — never
+   to override them. Headings frequently have rules *after* them
+   (heading-to-body sub-divider) as well as *before* them
+   (item-to-item separator), and sometimes both at once. A `---`
+   marker just below a heading does **not** prove the heading
+   belongs to the previous item; it may be a misclassified
+   heading-to-body sub-divider, or a stray rule the cutter
+   mis-detected. The marker's position alone cannot tell you which
+   side the heading is on.
+
+When in doubt, prefer attributing the heading to the item
+*below* it. This is the same root cause as the missing-rule case
+above — when the cutting stage's markers and the content's true
+boundaries disagree, trust your reading of the content.
+
 **Sub-slices are not item boundaries.** Inspect the slice's
 `subdivided` flag in `slice_boundaries`. When `subdivided: true`,
 that slice was split into pieces for image-size reasons only — the
