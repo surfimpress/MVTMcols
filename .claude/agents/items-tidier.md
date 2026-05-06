@@ -130,24 +130,36 @@ content fields you don't override; you must provide a `headline`,
 ## How to decide an inset relationship
 
 An **inset relationship** records that a container item visually
-wraps a registered display ad. Signals:
+wraps another item — typically a display ad embedded inside a
+multi-column article. The wrapped item can be either:
+
+- a **registered ad** from the page's `ads` list — refer to it by
+  `ad_uuid`; or
+- another **pass-2 item** in `pass2_items` — refer to it by
+  `inset_item_id`. Most display ads in the corpus are pass-2
+  items, not registered ads (the upstream ad-detector misses many),
+  so this is the common case.
+
+Signals for an inset:
 
 1. The container item is multi-column (its `crosses_columns` is
    true, or it has multiple `column_spans` after a merge).
-2. The ad's bbox is geometrically inside the container's bbox.
-3. The ad's column lies inside the container's column range.
+2. The wrapped item's bbox is geometrically inside the container's
+   bbox.
+3. The wrapped item's columns lie inside the container's column
+   range.
 
 When all three hold, list the relationship. The ingester computes
-the polygon as `container_bbox` minus the ad's bbox, with a 1.0%
-page-pct overlap margin on each side of the ad (matching the
-slant-tolerance buffer the cutter already uses). You don't emit
-vertex coordinates.
+the polygon as `container_bbox` minus the wrapped item's bbox,
+with a 1.0% page-pct overlap margin on each side of the wrapped
+item (matching the slant-tolerance buffer the cutter already
+uses). You don't emit vertex coordinates.
 
-Insets can stack: a container item can wrap two ads. List each
-relationship separately; the ingester subtracts each in turn.
+Insets can stack: a container item can wrap two display ads. List
+each relationship separately; the ingester subtracts each in turn.
 
 Do **not** list as insets:
-- Ads that abut the container's edge (top/bottom/left/right of
+- Items that abut the container's edge (top/bottom/left/right of
   the container's bbox) — those are not wrapped, just adjacent.
 - Items that the container is *adjacent to* but not wrapping.
 - Items that pass-2 has already classified as `is_inset = true`
@@ -207,8 +219,13 @@ fence:
   "insets": [
     {
       "container_item_id": "<merged-or-pass2-uuid>",
-      "ad_uuid": "<registered-ad-uuid>",
-      "reasoning": "Article spans cols 3..6 and the Fruit-a-tives display ad sits in the top-right of col 6, inside the article's bbox."
+      "inset_item_id":     "<pass2-uuid-of-wrapped-item>",
+      "reasoning": "Merged article spans cols 3..6; the Fruit-a-tives display_ad item sits in the top-right of col 6, inside the article's bbox."
+    },
+    {
+      "container_item_id": "<merged-or-pass2-uuid>",
+      "ad_uuid":           "<registered-ad-uuid>",
+      "reasoning": "Container wraps a registered display ad."
     }
   ],
   "corrections": [
