@@ -135,6 +135,18 @@ CREATE TABLE IF NOT EXISTS items (
     created_at               TEXT NOT NULL,
     updated_at               TEXT,
     notes                    TEXT,
+    -- Pass-3 (items-tidier) additions. NULL on pass-2 rows.
+    -- geometry_polygon_json: JSON list of [x_pct, y_pct] vertices forming
+    -- a closed polygon (first vertex repeated as last) for items that
+    -- visually wrap an inset (e.g. an article around a display ad).
+    -- When non-null, this is the truthful geometry; bbox_*_pct columns
+    -- still hold the polygon's bounding rectangle for fast queries.
+    -- derived_from_item_ids: JSON list of pass-2 items.id values that
+    -- this row was derived from. Single-element for 1->1 corrections,
+    -- multi-element for merges, single-element repeated across rows
+    -- for splits.
+    geometry_polygon_json    TEXT,
+    derived_from_item_ids    TEXT,
     FOREIGN KEY (continued_to_item_id)   REFERENCES items(id),
     FOREIGN KEY (continued_from_item_id) REFERENCES items(id)
 );
@@ -368,7 +380,11 @@ CREATE TABLE IF NOT EXISTS schema_meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+-- Schema versions:
+--   1 — initial (2026-05-02): columns/ads/items + entity-mention tables
+--   2 — pass-3 additions (2026-05-06): items.geometry_polygon_json,
+--                                      items.derived_from_item_ids
 INSERT OR IGNORE INTO schema_meta (key, value)
-    VALUES ('schema_version', '1');
+    VALUES ('schema_version', '2');
 INSERT OR IGNORE INTO schema_meta (key, value)
     VALUES ('created_at_iso', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
