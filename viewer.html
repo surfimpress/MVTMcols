@@ -31,6 +31,20 @@ body { font-family: -apple-system, system-ui, sans-serif; background: #f5f5f0; c
 .year-block { margin-bottom: 8px; }
 .year-block > summary { background: #efece5; font-size: 1em; }
 .year-block > summary:hover { background: #e5e2db; }
+/* Years with >40 processed issues get a slightly darker summary so
+   progress is visible at a glance from the decade view. Threshold is
+   nominal — a "handful" sample run is <10, a full year is 50-300+. */
+.year-block.well-progressed > summary { background: #d8d2c0; }
+.year-block.well-progressed > summary:hover { background: #cec7b3; }
+/* Empty placeholder years (no issues processed yet) — light grey,
+   close to white, dim text so they recede visually but stay
+   navigable as a complete year list. */
+.year-block.empty > summary { background: #f5f5f3; color: #999; }
+.year-block.empty > summary:hover { background: #ececea; }
+/* Gap years (the paper did not publish that year). Distinct from
+   "not yet processed" so the user can tell history from to-do. */
+.year-block.gap-year > summary { background: #ece8de; color: #888; font-style: italic; }
+.year-block.gap-year > summary:hover { background: #e3dfd5; }
 .year-block .year-content {
     display: grid; gap: 15px;
     padding: 12px 15px;
@@ -205,59 +219,101 @@ function renderPassBadges(dir) {
     return `<div class="pass-badges">${parts.join('')}</div>`;
 }
 
+// Full corpus year span. Every year in this range gets a year-block
+// in the viewer so the user can see progress at a glance. The earliest
+// PDF in mvtm.db is 1861 (24 issues registered); the latest is 2007.
+const CORPUS_START_YEAR = 1861;
+const CORPUS_END_YEAR = 2007;
+// Years inside the corpus span where the paper itself did not publish.
+// Verified 2026-05-07 by querying distinct years in `files`: 1864 is
+// the only gap in 1862-2007. (1987 was a deletion of poor-quality
+// modern scans — not a publication gap; expect 1987 to repopulate
+// once cutting quality for the 1980s+ is addressed.)
+const PUBLICATION_GAP_YEARS = new Set([1864]);
+
+// Per-year override of the "well-progressed" issue threshold (default 40).
+// In the 1860s the paper itself often published far fewer than 40
+// issues per year, so the at-a-glance dark-bar should kick in once
+// the year's actually-published total is reached. Counts verified
+// 2026-05-07 against distinct issue-dates in `files`. Add entries as
+// other sparse years surface; the default of 40 handles full years.
+const YEAR_PROGRESS_THRESHOLDS = {
+    1861: 24,
+    1862: 20,
+    1863: 3,
+    1865: 5,
+    1866: 2,
+    1867: 14,
+};
+
 function renderList(issues) {
     const el = document.getElementById('issue-list');
 
-    // Group issues by decade -> year so we can wrap each year in its
-    // own <details> block and emit per-decade expand/collapse controls
-    // alongside the decade header. Year blocks default to closed so
-    // the initial view is compact; the global and per-decade expand
-    // links open them on demand.
-    const byDecade = new Map();
+    // Group existing issues by year for fast lookup.
+    const byYear = new Map();
     for (const issue of issues) {
-        const decade = Math.floor(issue.year / 10) * 10;
-        if (!byDecade.has(decade)) byDecade.set(decade, new Map());
-        const byYear = byDecade.get(decade);
         if (!byYear.has(issue.year)) byYear.set(issue.year, []);
         byYear.get(issue.year).push(issue);
     }
 
-    const decades = [...byDecade.keys()].sort((a, b) => a - b);
+    // Walk the full corpus span. Each year emits a <details> block —
+    // populated, empty placeholder, or publication-gap — so the user
+    // gets a complete year list with at-a-glance progress shading.
     const parts = [];
-    for (const decade of decades) {
-        const byYear = byDecade.get(decade);
-        const years = [...byYear.keys()].sort((a, b) => a - b);
-        parts.push(`<h3 class="decade-header" id="decade-${decade}">${decade}</h3>`);
-        parts.push(`<div class="decade-controls expand-ctrl">
-            <a onclick="setDecadeYearsOpen(${decade}, true)">expand all</a>
-            |
-            <a onclick="setDecadeYearsOpen(${decade}, false)">close all</a>
-        </div>`);
-        for (const year of years) {
-            const yearIssues = byYear.get(year);
-            const nIssues = yearIssues.length;
-            const nCols = yearIssues.reduce((s, i) => s + (i.n_cols || 0), 0);
-            const nAds = yearIssues.reduce((s, i) => s + (i.n_ads || 0), 0);
-            const issueWord = nIssues === 1 ? 'issue' : 'issues';
-            const cards = yearIssues.map(issue => {
-                const date = `${issue.year}-${String(issue.month).padStart(2,'0')}-${String(issue.day).padStart(2,'0')}`;
-                const lastRan = issue.last_ran ? new Date(issue.last_ran + 'Z').toLocaleString() : '';
-                return `<div class="issue-card" onclick="showIssue('${issue.dir}')">
-                    ${renderPassBadges(issue.dir)}
-                    <h2>${date}</h2>
-                    <div class="stats">
-                        ${issue.n_pages || 0} pages \u2022
-                        ${issue.n_cols || 0} columns \u2022
-                        ${issue.n_ads || 0} ads
-                        ${lastRan ? '\u2022 ran ' + lastRan : ''}
-                    </div>
-                </div>`;
-            }).join('');
-            parts.push(`<details class="year-block" data-decade="${decade}" data-year="${year}">
-                <summary>${year} \u2014 ${nIssues} ${issueWord}, ${nCols} columns, ${nAds} ads</summary>
-                <div class="year-content">${cards}</div>
-            </details>`);
+    let lastDecade = null;
+    for (let year = CORPUS_START_YEAR; year <= CORPUS_END_YEAR; year++) {
+        const decade = Math.floor(year / 10) * 10;
+        if (decade !== lastDecade) {
+            lastDecade = decade;
+            parts.push(`<h3 class="decade-header" id="decade-${decade}">${decade}</h3>`);
+            parts.push(`<div class="decade-controls expand-ctrl">
+                <a onclick="setDecadeYearsOpen(${decade}, true)">expand all</a>
+                |
+                <a onclick="setDecadeYearsOpen(${decade}, false)">close all</a>
+            </div>`);
         }
+
+        if (PUBLICATION_GAP_YEARS.has(year)) {
+            parts.push(`<details class="year-block gap-year" data-decade="${decade}" data-year="${year}">
+                <summary>${year} \u2014 paper did not publish</summary>
+                <div class="year-content"></div>
+            </details>`);
+            continue;
+        }
+
+        const yearIssues = byYear.get(year);
+        if (!yearIssues || yearIssues.length === 0) {
+            parts.push(`<details class="year-block empty" data-decade="${decade}" data-year="${year}">
+                <summary>${year} \u2014 not yet processed</summary>
+                <div class="year-content"></div>
+            </details>`);
+            continue;
+        }
+
+        const nIssues = yearIssues.length;
+        const nCols = yearIssues.reduce((s, i) => s + (i.n_cols || 0), 0);
+        const nAds = yearIssues.reduce((s, i) => s + (i.n_ads || 0), 0);
+        const issueWord = nIssues === 1 ? 'issue' : 'issues';
+        const cards = yearIssues.map(issue => {
+            const date = `${issue.year}-${String(issue.month).padStart(2,'0')}-${String(issue.day).padStart(2,'0')}`;
+            const lastRan = issue.last_ran ? new Date(issue.last_ran + 'Z').toLocaleString() : '';
+            return `<div class="issue-card" onclick="showIssue('${issue.dir}')">
+                ${renderPassBadges(issue.dir)}
+                <h2>${date}</h2>
+                <div class="stats">
+                    ${issue.n_pages || 0} pages \u2022
+                    ${issue.n_cols || 0} columns \u2022
+                    ${issue.n_ads || 0} ads
+                    ${lastRan ? '\u2022 ran ' + lastRan : ''}
+                </div>
+            </div>`;
+        }).join('');
+        const threshold = YEAR_PROGRESS_THRESHOLDS[year] ?? 40;
+        const wellProgressed = nIssues >= threshold ? ' well-progressed' : '';
+        parts.push(`<details class="year-block${wellProgressed}" data-decade="${decade}" data-year="${year}">
+            <summary>${year} \u2014 ${nIssues} ${issueWord}, ${nCols} columns, ${nAds} ads</summary>
+            <div class="year-content">${cards}</div>
+        </details>`);
     }
     el.innerHTML = parts.join('');
 }
@@ -372,7 +428,14 @@ async function ensureDetailMounted(dir) {
 }
 
 function renderDecadeNav(issues) {
-    const decades = [...new Set(issues.map(i => Math.floor(i.year / 10) * 10))].sort((a, b) => a - b);
+    // Show every decade that the corpus span touches so unprocessed
+    // decades are still clickable jump-targets. Issues param kept for
+    // signature compatibility but we derive the range from the
+    // CORPUS_*_YEAR constants.
+    const startDecade = Math.floor(CORPUS_START_YEAR / 10) * 10;
+    const endDecade = Math.floor(CORPUS_END_YEAR / 10) * 10;
+    const decades = [];
+    for (let d = startDecade; d <= endDecade; d += 10) decades.push(d);
     document.getElementById('decade-nav').innerHTML = decades.map(d =>
         `<a href="#decade-${d}" onclick="gotoDecade(${d}, event)">${d}</a>`
     ).join('');
