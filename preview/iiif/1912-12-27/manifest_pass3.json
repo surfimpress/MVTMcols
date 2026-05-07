@@ -1469,7 +1469,7 @@
               }
             },
             {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass3/item-c1ec39c3-f25e-49d9-b175-0c237a7923f5",
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass3/item-48e62215-6efa-43d1-965c-539199ec9c94",
               "type": "Annotation",
               "motivation": "commenting",
               "body": [
@@ -1488,11 +1488,17 @@
               "target": {
                 "type": "SpecificResource",
                 "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=589,289,593,1465"
-                }
+                "selector": [
+                  {
+                    "type": "FragmentSelector",
+                    "conformsTo": "http://www.w3.org/TR/media-frags/",
+                    "value": "xywh=589,289,593,1465"
+                  },
+                  {
+                    "type": "SvgSelector",
+                    "value": "<svg xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M 589 290 L 886 290 L 886 289 L 1034 289 L 1034 659 L 1183 659 L 1183 828 L 1034 828 L 1034 879 L 886 879 L 886 1754 L 589 1754 Z\"/></svg>"
+                  }
+                ]
               }
             },
             {

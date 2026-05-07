@@ -281,6 +281,115 @@ def _bbox_union(boxes: list[tuple[float, float, float, float]]
             round(max(rights), 2), round(max(bottoms), 2))
 
 
+def _rectilinear_union_polygon(
+        rects: list[tuple[float, float, float, float]]
+        ) -> tuple[list[list[float]] | None, str | None]:
+    """Boundary polygon of the union of N axis-aligned rectangles.
+
+    Returns ``(vertices, repair_reason)``. ``vertices`` is a closed
+    rectilinear polygon (first vertex repeated at end) when the union
+    is a single simply-connected region; ``repair_reason`` is non-None
+    when the union forms multiple disjoint pieces or has a hole — in
+    that case ``vertices`` is None.
+
+    Why this exists: the merge of N pass-2 items spans the bounding
+    rectangle of their bboxes, but if the sources are arranged in a
+    staircase (e.g. col 4 full + col 5 top + col 6 small slice) the
+    bounding rectangle "claims" page area that no source actually
+    occupies. The visible polygon is the union of the source
+    rectangles, not their bounding rectangle. Storing this in
+    ``geometry_polygon_json`` keeps the canvas representation honest.
+
+    Algorithm: coordinate compression. Collect all unique x's and y's
+    from the rectangles; build a small grid; mark each cell as covered
+    if any rect contains it; trace the boundary by walking edges that
+    separate a covered cell from an uncovered one (or the grid border).
+    The traced loop is then deduplicated of collinear consecutive
+    vertices and closed.
+    """
+    if not rects:
+        return None, "no rectangles supplied"
+
+    xs = sorted({r[0] for r in rects} | {r[2] for r in rects})
+    ys = sorted({r[1] for r in rects} | {r[3] for r in rects})
+    nx, ny = len(xs) - 1, len(ys) - 1
+    if nx == 0 or ny == 0:
+        return None, "degenerate rectangles (zero width or height)"
+
+    x_idx = {v: i for i, v in enumerate(xs)}
+    y_idx = {v: j for j, v in enumerate(ys)}
+
+    covered = [[False] * ny for _ in range(nx)]
+    for (l, t, r, b) in rects:
+        i0, i1 = x_idx[l], x_idx[r]
+        j0, j1 = y_idx[t], y_idx[b]
+        for i in range(i0, i1):
+            for j in range(j0, j1):
+                covered[i][j] = True
+
+    # Directed boundary edges, oriented clockwise (interior on right).
+    # Top edge → right; right edge → down; bottom edge → left; left
+    # edge → up. ``edges[start_pt] = end_pt`` lets us chain by lookup.
+    edges: dict[tuple[float, float], tuple[float, float]] = {}
+    for i in range(nx):
+        for j in range(ny):
+            if not covered[i][j]:
+                continue
+            x1, x2 = xs[i],   xs[i + 1]
+            y1, y2 = ys[j],   ys[j + 1]
+            if j == 0 or not covered[i][j - 1]:
+                edges[(x1, y1)] = (x2, y1)
+            if i == nx - 1 or not covered[i + 1][j]:
+                edges[(x2, y1)] = (x2, y2)
+            if j == ny - 1 or not covered[i][j + 1]:
+                edges[(x2, y2)] = (x1, y2)
+            if i == 0 or not covered[i - 1][j]:
+                edges[(x1, y2)] = (x1, y1)
+
+    if not edges:
+        return None, "no covered cells (sources don't form a region)"
+
+    # Chain: start anywhere, walk until we return.
+    start = next(iter(edges))
+    chain: list[tuple[float, float]] = [start]
+    seen: set[tuple[tuple[float, float], tuple[float, float]]] = set()
+    cur = edges[start]
+    seen.add((start, cur))
+    while cur != start:
+        chain.append(cur)
+        nxt = edges.get(cur)
+        if nxt is None:
+            return None, "boundary chain broke unexpectedly"
+        if (cur, nxt) in seen:
+            return None, "boundary chain looped on itself"
+        seen.add((cur, nxt))
+        cur = nxt
+
+    # If we visited fewer edges than exist, the union has multiple
+    # disjoint pieces or a hole — flag for repair instead of guessing.
+    if len(seen) != len(edges):
+        return None, ("union forms multiple disjoint pieces or has a "
+                      "hole; rectangular bbox kept")
+
+    # Drop interior collinear vertices (e.g. axis-aligned 3-point runs).
+    n = len(chain)
+    cleaned: list[tuple[float, float]] = []
+    for i in range(n):
+        prev_pt = chain[(i - 1) % n]
+        p       = chain[i]
+        next_pt = chain[(i + 1) % n]
+        if ((prev_pt[0] == p[0] == next_pt[0]) or
+                (prev_pt[1] == p[1] == next_pt[1])):
+            continue
+        cleaned.append(p)
+    if len(cleaned) < 3:
+        return None, "collapsed polygon (fewer than 3 distinct corners)"
+
+    out = [[round(x, 2), round(y, 2)] for x, y in cleaned]
+    out.append([out[0][0], out[0][1]])
+    return out, None
+
+
 def _ordered_column_spans(items: list[Pass2Item]) -> list[dict]:
     """Concatenate source items' column_spans in reading order
     (left-to-right by col_idx via column_transcripts, then by
@@ -446,7 +555,32 @@ def _build_merge_plan(merge: dict,
 
     spans = _ordered_column_spans(sources)
     full_text = _concat_full_text(sources)
-    bbox = _bbox_union([s.bbox for s in sources])
+    source_rects = [s.bbox for s in sources]
+    bbox = _bbox_union(source_rects)
+
+    # Compute the visible polygon as the rectilinear union of source
+    # rectangles. If the union is just the bounding rectangle (e.g.
+    # all sources stack into a clean rect), leave polygon_vertices
+    # unset — consumers fall back to the bbox. A staircase / L / U
+    # union produces a real polygon that we store on the row.
+    union_poly, union_reason = _rectilinear_union_polygon(source_rects)
+    polygon_vertices: list[list[float]] | None = None
+    polygon_repair_reason: str | None = None
+    if union_poly is None:
+        polygon_repair_reason = union_reason
+    else:
+        # Strip the closing duplicate to compare against the rectangle.
+        without_close = union_poly[:-1] if (len(union_poly) > 1 and
+                                            union_poly[0] == union_poly[-1]
+                                            ) else union_poly
+        is_rect = (
+            len(without_close) == 4
+            and {tuple(p) for p in without_close} == {
+                (bbox[0], bbox[1]), (bbox[2], bbox[1]),
+                (bbox[2], bbox[3]), (bbox[0], bbox[3])
+            })
+        if not is_rect:
+            polygon_vertices = union_poly
 
     ad_uuids: list[str] = []
     seen_ads: set[str] = set()
@@ -483,6 +617,9 @@ def _build_merge_plan(merge: dict,
         column_spans=spans,
         ad_uuids=ad_uuids,
         full_text=full_text,
+        polygon_vertices=polygon_vertices,
+        repair_needed=polygon_repair_reason is not None,
+        repair_reason=polygon_repair_reason,
         reasoning=merge.get("reasoning"),
         uncertain=bool(merge.get("uncertain")),
     )
@@ -562,6 +699,105 @@ def _passthrough_plan(src: Pass2Item) -> Pass3Plan:
         full_text=src.full_text,
         reasoning=None,
     )
+
+
+def _bboxes_intersect(a: tuple[float, float, float, float],
+                      b: tuple[float, float, float, float],
+                      eps: float = 0.05) -> bool:
+    """Strict-interior overlap test. Returns False when the rects only
+    share an edge or a corner — those cases are normal layout, not
+    insets. ``eps`` absorbs round-to-2-decimals jitter (the pipeline's
+    canonical precision)."""
+    al, at, ar, ab = a
+    bl, bt, br, bb = b
+    return (al + eps < br and bl + eps < ar and
+            at + eps < bb and bt + eps < ab)
+
+
+def _detect_embedded_insets(
+        source_rects: list[tuple[float, float, float, float]],
+        *,
+        source_ids: set[str],
+        ad_uuids_in_plan: set[str],
+        already_explicit: set[tuple[str, str | None, str | None]],
+        ticket_items: list[dict],
+        ticket_ads: list[dict],
+        container_id_for_log: str,
+        ) -> list[dict]:
+    """Scan ticket items + ads for bboxes that intersect any **source
+    rectangle** (not the bounding rectangle) — i.e. items that are
+    truly embedded inside the merge's actual content area, rather than
+    incidentally falling inside the bounding rectangle.
+
+    Returns a list of dicts ``{kind, target_id, target_bbox}`` for
+    each true embedded inset. The caller files these as repairs;
+    polygon subtraction from the rectilinear union is not implemented
+    (it requires a real polygon library, and the cases we see in
+    practice are rare enough to surface for review rather than guess).
+
+    Filtering rules:
+
+    * Source items themselves (``source_ids``) — these *are* the
+      merge's content, not insets within it.
+    * Items / ads the agent already named in ``insets`` for this
+      container (``already_explicit``).
+    * Ads attached to the merge plan (``ad_uuids_in_plan``).
+    * Items/ads that only share an edge with a source rect, but don't
+      overlap its interior (filtered by ``_bboxes_intersect``).
+    """
+    found: list[dict] = []
+
+    def _intersects_any_source(bbox: tuple[float, float, float, float]
+                               ) -> bool:
+        return any(_bboxes_intersect(bbox, r) for r in source_rects)
+
+    for it in ticket_items:
+        target_id = it.get("item_id")
+        if not target_id or target_id in source_ids:
+            continue
+        if (container_id_for_log, target_id, None) in already_explicit:
+            continue
+        b = it.get("bbox_pct") or {}
+        # Items in the ticket use {left, top, right, bottom}; ads use
+        # the detected_ads four-key schema. Accept both.
+        try:
+            if "left" in b:
+                tbox = (float(b["left"]),  float(b["top"]),
+                        float(b["right"]), float(b["bottom"]))
+            else:
+                tbox = (float(b["x_pct"]),     float(b["y_pct"]),
+                        float(b["x_end_pct"]), float(b["y_end_pct"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not _intersects_any_source(tbox):
+            continue
+        found.append({
+            "kind": "item", "target_id": target_id, "target_bbox": tbox,
+        })
+
+    for ad in ticket_ads:
+        ad_uuid = ad.get("ad_uuid")
+        if not ad_uuid or ad_uuid in ad_uuids_in_plan:
+            continue
+        if (container_id_for_log, None, ad_uuid) in already_explicit:
+            continue
+        b = ad.get("bbox_pct") or {}
+        try:
+            if "left" in b:
+                abox = (float(b["left"]),  float(b["top"]),
+                        float(b["right"]), float(b["bottom"]))
+            else:
+                abox = (float(b["x_pct"]),     float(b["y_pct"]),
+                        float(b["x_end_pct"]), float(b["y_end_pct"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not _intersects_any_source(abox):
+            continue
+        found.append({
+            "kind": "ad", "target_id": ad_uuid, "target_bbox": abox,
+        })
+
+    return found
 
 
 def _resolve_inset_target_bbox(ins: dict,
@@ -903,6 +1139,7 @@ def ingest(page_id: str,
             edited_pass2.add(c["item_id"])
             plan_by_pass2[c["item_id"]] = plan
 
+        explicit_inset_keys: set[tuple[str, str | None, str | None]] = set()
         for ins in envelope["insets"]:
             container_id = ins["container_item_id"]
             if container_id in plan_by_pass2:
@@ -917,6 +1154,65 @@ def ingest(page_id: str,
                     f"inset.container_item_id not a pass-2 item or "
                     f"merge source: {container_id}")
             _attach_inset_to_plan(ins, plan, pass2, ticket["ads"])
+            explicit_inset_keys.add(
+                (container_id,
+                 ins.get("inset_item_id"),
+                 ins.get("ad_uuid")))
+
+        # ---------- auto-detect embedded insets on merge plans ------
+        #
+        # The merge's *visible* polygon is the rectilinear union of its
+        # source rectangles (computed in _build_merge_plan). Items or
+        # ads whose bbox intersects any source rect — but the agent
+        # didn't name as an inset and didn't include in the merge — are
+        # likely true embedded insets (e.g. a display ad sitting inside
+        # one of the columns the merge actually covers). Surface these
+        # as repairs for human review; we do not yet subtract polygons
+        # programmatically, so we don't fold them in as cuts.
+        #
+        # Items that incidentally fall inside the bounding rectangle
+        # but outside the union polygon are *not* flagged here — by
+        # construction the union excludes them, so the polygon already
+        # tells the truth.
+        for plan in list(plans):
+            if plan.edit_kind != "merge":
+                continue
+            container_proxy_id = plan.derived_from[0] if plan.derived_from \
+                else None
+            if container_proxy_id is None:
+                continue
+            source_rects = [pass2[sid].bbox for sid in plan.derived_from
+                            if sid in pass2]
+            embedded = _detect_embedded_insets(
+                source_rects,
+                source_ids=set(plan.derived_from),
+                ad_uuids_in_plan=set(plan.ad_uuids),
+                already_explicit=explicit_inset_keys,
+                ticket_items=ticket["pass2_items"],
+                ticket_ads=ticket["ads"],
+                container_id_for_log=container_proxy_id,
+            )
+            for m in embedded:
+                rid = _db.raise_repair(
+                    conn,
+                    target_kind="page",
+                    target_ref={"year": year, "month": month,
+                                "day": day, "page": page},
+                    repair_kind="polygon",
+                    description=(
+                        f"merge polygon (derived from "
+                        f"{plan.derived_from[0][:8]}…) overlaps "
+                        f"{m['kind']} {m['target_id'][:8]}… "
+                        f"(bbox {m['target_bbox']}) which is not in "
+                        f"the merge's source items or named insets. "
+                        f"Likely an embedded inset (e.g. a display ad "
+                        f"inside an article column); polygon "
+                        f"subtraction is not yet implemented — review "
+                        f"the merge or add an explicit inset."),
+                    raised_by=model,
+                    related_item_id=(
+                        m["target_id"] if m["kind"] == "item" else None))
+                repair_ids.append(rid)
 
         # ---------- apply ------------------------------------------
         all_col_ids = {s["column_transcript_id"]
