@@ -22,6 +22,11 @@ data/*.bak-*
 # Local trial/experiment dirs (one-off material; do not commit)
 display_trial/
 
+# cut_corpus.py supervisor runtime artefacts (log + state file).
+# State is rebuilt from mvtm.db on first run; log is append-only.
+cut_corpus.log
+data/cut_corpus_state.json
+
 # SQLite WAL sidecar files (created when journal_mode=WAL is enabled)
 *.db-wal
 *.db-shm

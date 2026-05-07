@@ -319,6 +319,19 @@ other.
 This file evolves issue-by-issue. When a new pattern, era boundary, or
 scan condition is observed, append it here.
 
+- **2026-05-06 — Started 71-year corpus-cutting campaign (1862–1979).**
+  Added `cut_corpus.py` supervisor — runs `archive.process_archive`
+  one year at a time in a deterministic non-sequential order
+  (seed=20260506), persisting state to
+  `data/cut_corpus_state.json` and tee-logging both supervisor and
+  worker output to `cut_corpus.log`. Year list = years ending in
+  1/3/4/6/8/9 with zero `page_layouts` rows (55 years) + years
+  with `0 < page_layouts < 20` (16 sample-experiment redos:
+  1878, 1898, 1899, 1901, 1905, 1911, 1919, 1923, 1924, 1929,
+  1941, 1943, 1945, 1959, 1965, 1974). Resume-safe: kill the
+  supervisor and restart with no args to pick up at the next
+  non-`done` year. When this campaign completes, the next big
+  block of `page_layouts` rows is from this run.
 - **2026-04-30 — Ingested 1946 (51 issues) and 1948 (52 issues).**
   Driven by the recurrence_lab spike (cross-year archetype testing
   needs adjacent years). All 103 issues processed cleanly via
