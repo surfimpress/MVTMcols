@@ -75,6 +75,10 @@
               onclick="switchPass('pass2')">
         Pass 2 — items &amp; entities <span id="count-pass2" class="count">…</span>
       </button>
+      <button class="tab" id="tab-pass3"
+              onclick="switchPass('pass3')">
+        Pass 3 — items tidied <span id="count-pass3" class="count">…</span>
+      </button>
     </div>
   </div>
   <div id="mirador"></div>
@@ -118,11 +122,12 @@
     const MANIFESTS = {
       pass1: `${ISSUE_BASE}/manifest_pass1.json`,
       pass2: `${ISSUE_BASE}/manifest_pass2.json`,
+      pass3: `${ISSUE_BASE}/manifest_pass3.json`,
     };
 
     // What's actually available for this issue. Populated by probe().
-    const available = { pass1: false, pass2: false };
-    const counts = { pass1: "", pass2: "" };
+    const available = { pass1: false, pass2: false, pass3: false };
+    const counts = { pass1: "", pass2: "", pass3: "" };
     let viewer = null;
 
     document.title = `MVTM IIIF preview — ${ISSUE}`;
@@ -197,7 +202,7 @@
 
     // Cache rewritten manifests by pass so bootViewer can hand
     // Mirador the patched JSON via a Blob URL. probe() populates this.
-    const patchedManifestUrls = { pass1: null, pass2: null };
+    const patchedManifestUrls = { pass1: null, pass2: null, pass3: null };
 
     function bootViewer(pass) {
       const manifestUrl = patchedManifestUrls[pass] || MANIFESTS[pass];
@@ -335,6 +340,7 @@
       if (!available[pass]) return;
       document.getElementById("tab-pass1").classList.toggle("active", pass === "pass1");
       document.getElementById("tab-pass2").classList.toggle("active", pass === "pass2");
+      document.getElementById("tab-pass3").classList.toggle("active", pass === "pass3");
       bootViewer(pass);
     }
 
@@ -355,20 +361,28 @@
         const ads  = meta["ads transcribed"]     || "?";
         return `(${cols} cols · ${ads} ads · ${nPages} pages)`;
       }
-      // pass2
-      const items = meta["items detected"] || "?";
-      const pgs   = meta["pages with items"] || "?";
-      return `(${items} items · pages ${pgs})`;
+      if (pass === "pass2") {
+        const items = meta["items detected"] || "?";
+        const pgs   = meta["pages with items"] || "?";
+        return `(${items} items · pages ${pgs})`;
+      }
+      // pass3
+      const deltas = meta["pass-3 deltas"]          || "?";
+      const carry  = meta["pass-2 carried through"] || "?";
+      const pgs    = meta["pages with items"]       || "?";
+      return `(${deltas} tidied · ${carry} carried · pages ${pgs})`;
     }
 
     async function probe() {
       const tries = await Promise.all([
         fetch(MANIFESTS.pass1).then(r => r.ok ? r.json() : null).catch(() => null),
         fetch(MANIFESTS.pass2).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(MANIFESTS.pass3).then(r => r.ok ? r.json() : null).catch(() => null),
       ]);
-      const [m1, m2] = tries;
+      const [m1, m2, m3] = tries;
       available.pass1 = !!m1;
       available.pass2 = !!m2;
+      available.pass3 = !!m3;
 
       // Patch hard-coded URLs to match this page's origin and stash a
       // Blob URL for each. Mirador will fetch the Blob (no auth, no
@@ -386,9 +400,17 @@
           new Blob([JSON.stringify(m2)], { type: "application/json" })
         );
       }
+      if (m3) {
+        rewriteOriginInManifest(m3);
+        patchedManifestUrls.pass3 = URL.createObjectURL(
+          new Blob([JSON.stringify(m3)], { type: "application/json" })
+        );
+      }
 
       const pageCount =
-        (m1 && m1.items?.length) || (m2 && m2.items?.length) || 0;
+        (m1 && m1.items?.length) ||
+        (m2 && m2.items?.length) ||
+        (m3 && m3.items?.length) || 0;
       // Wrap the meta in a link back to the issue's detail view in
       // the main MVTM viewer. Absolute /MVTM/ path works from either
       // origin (localhost:3000 dev or the public host).
@@ -398,8 +420,10 @@
 
       const t1 = document.getElementById("tab-pass1");
       const t2 = document.getElementById("tab-pass2");
+      const t3 = document.getElementById("tab-pass3");
       const c1 = document.getElementById("count-pass1");
       const c2 = document.getElementById("count-pass2");
+      const c3 = document.getElementById("count-pass3");
 
       if (m1) {
         c1.textContent = summariseManifest("pass1", m1);
@@ -413,15 +437,24 @@
         c2.textContent = "(not yet)";
         t2.disabled = true;
       }
+      if (m3) {
+        c3.textContent = summariseManifest("pass3", m3);
+      } else {
+        c3.textContent = "(not yet)";
+        t3.disabled = true;
+      }
 
-      // Boot pass-1 if available, else pass-2, else show an empty state.
+      // Boot pass-1 if available, else pass-2, else pass-3, else empty.
       if (available.pass1) {
         switchPass("pass1");
       } else if (available.pass2) {
-        // Pass-2 is the active tab now.
         t1.classList.remove("active");
         t2.classList.add("active");
         bootViewer("pass2");
+      } else if (available.pass3) {
+        t1.classList.remove("active");
+        t3.classList.add("active");
+        bootViewer("pass3");
       } else {
         showEmpty(
           `No transcription manifests found for ${ISSUE}. ` +

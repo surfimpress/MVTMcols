@@ -1,4 +1,4 @@
-"""Build a two-pass IIIF preview for one issue.
+"""Build a three-pass IIIF preview for one issue.
 
 Produces, under ``preview/iiif/<YYYY-MM-DD>/``:
 
@@ -9,7 +9,13 @@ Produces, under ``preview/iiif/<YYYY-MM-DD>/``:
     exist for the issue.
   * ``manifest_pass2.json`` — items (segmentation + classification +
     entity mentions). Annotations placed on stored item bboxes from
-    ``transcribe.items``. Skipped when no items exist for the issue.
+    ``transcribe.items`` for rows whose ``derived_from_item_ids`` is
+    NULL (i.e. the original pass-2 batch only — pass-3 deltas are
+    excluded). Skipped when no pass-2 items exist for the issue.
+  * ``manifest_pass3.json`` — items-tidier overlay: pass-3 delta rows
+    (merges/splits/corrections, with optional polygon geometry) plus
+    the pass-2 rows that the tidier left alone. Skipped when no pass-3
+    items exist for the issue.
 
 The viewer itself is the single central ``preview/iiif/mirador.html``;
 ``viewer.html`` links to it with ``?issue=YYYY-MM-DD`` so a config
@@ -109,6 +115,34 @@ def fragment_xywh_pct(x_pct, y_pct, x2_pct, y2_pct, W, H):
     w = round((x2_pct - x_pct) / 100 * W)
     h = round((y2_pct - y_pct) / 100 * H)
     return f"xywh={x},{y},{w},{h}"
+
+
+def svg_path_from_polygon(vertices_pct, W: int, H: int) -> str:
+    """Convert a closed polygon vertex list (page-pct, [[x_pct, y_pct],
+    ...]) into an SVG path string in canvas pixel coordinates.
+
+    Mirador 3.4.2's CanvasAnnotationDisplay reads only `<path>` elements
+    out of an SvgSelector — `<polygon>` is silently dropped. So we emit
+    a path like ``M 100 50 L 250 50 L 250 80 ... Z`` wrapped in a tiny
+    SVG document. The SvgSelector is rendered alongside a fragment
+    selector (the polygon's bounding rectangle) so older or stricter
+    consumers still get a usable region.
+    """
+    if not vertices_pct or len(vertices_pct) < 3:
+        return ""
+    pts = []
+    for v in vertices_pct:
+        x_px = round(float(v[0]) / 100 * W)
+        y_px = round(float(v[1]) / 100 * H)
+        pts.append((x_px, y_px))
+    # The vertex list is closed (first == last); SVG path 'Z' implies
+    # the close, so drop the trailing duplicate.
+    if len(pts) > 1 and pts[0] == pts[-1]:
+        pts = pts[:-1]
+    head = f"M {pts[0][0]} {pts[0][1]}"
+    tail = " ".join(f"L {x} {y}" for x, y in pts[1:])
+    return (f'<svg xmlns="http://www.w3.org/2000/svg">'
+            f'<path d="{head} {tail} Z"/></svg>')
 
 
 # ------------------------------------------------------------- discovery ---
@@ -452,6 +486,7 @@ def build_pass2(con_txc, issue: str, year: int, month: int, day: int,
             "       classification_confidence, crosses_columns, is_inset, "
             "       bbox_left_pct, bbox_top_pct, bbox_right_pct, bbox_bottom_pct "
             "FROM items WHERE year=? AND month=? AND day=? AND page=? "
+            "  AND derived_from_item_ids IS NULL "
             "ORDER BY bbox_top_pct",
             (year, month, day, page),
         ))
@@ -510,6 +545,166 @@ def build_pass2(con_txc, issue: str, year: int, month: int, day: int,
     return manifest, total_items, pages_with_items
 
 
+# --------------------------------------------------------------- pass-3 ---
+
+def _superseded_ids(con_txc, year: int, month: int, day: int,
+                    page: int) -> set[str]:
+    """Set of pass-2 item ids referenced by any pass-3 row on this page.
+
+    These items have been merged, split, or corrected away — the pass-3
+    manifest hides them so the overlay shows the post-tidy view.
+    """
+    superseded: set[str] = set()
+    rows = con_txc.execute(
+        "SELECT derived_from_item_ids FROM items "
+        "WHERE year=? AND month=? AND day=? AND page=? "
+        "  AND derived_from_item_ids IS NOT NULL",
+        (year, month, day, page),
+    ).fetchall()
+    for (raw,) in rows:
+        try:
+            ids = json.loads(raw) if raw else []
+        except Exception:
+            ids = []
+        for sid in ids:
+            if sid:
+                superseded.add(sid)
+    return superseded
+
+
+def build_pass3(con_txc, issue: str, year: int, month: int, day: int,
+                pages: list[int], dims: dict):
+    """Overlay manifest: pass-3 deltas + the pass-2 rows they didn't touch.
+
+    Pass-3 is a delta batch (only items the tidier merged/split/corrected
+    have new rows), so a useful viewer needs to combine the pass-3 rows
+    with the surviving pass-2 rows. Items whose id appears in any pass-3
+    row's ``derived_from_item_ids`` are hidden.
+
+    Pass-3 rows with a stored polygon (L/U-shape carved around an inset)
+    get both a FragmentSelector (bounding rect, fallback) and an
+    SvgSelector with an SVG path — Mirador 3.4.2 renders the path.
+    """
+    canvases = []
+    total_pass3 = 0
+    total_passthrough = 0
+    pages_with_items = []
+
+    col_names = ["id", "item_type", "headline", "byline", "full_text",
+                 "classification_confidence", "crosses_columns", "is_inset",
+                 "bbox_left_pct", "bbox_top_pct",
+                 "bbox_right_pct", "bbox_bottom_pct",
+                 "geometry_polygon_json", "derived_from_item_ids"]
+
+    for page in pages:
+        W, H = dims[page]
+        cid, canvas = make_canvas(issue, page, W, H)
+        anno_page_id = f"{cid}/anno-pass3"
+        anno_page = {
+            "id": anno_page_id, "type": "AnnotationPage", "items": []
+        }
+
+        superseded = _superseded_ids(con_txc, year, month, day, page)
+        rows = list(con_txc.execute(
+            "SELECT id, item_type, headline, byline, full_text, "
+            "       classification_confidence, crosses_columns, is_inset, "
+            "       bbox_left_pct, bbox_top_pct, bbox_right_pct, bbox_bottom_pct, "
+            "       geometry_polygon_json, derived_from_item_ids "
+            "FROM items WHERE year=? AND month=? AND day=? AND page=? "
+            "ORDER BY bbox_top_pct",
+            (year, month, day, page),
+        ))
+        page_count = 0
+        for idx, row in enumerate(rows, 1):
+            it = dict(zip(col_names, row))
+            if it["id"] in superseded:
+                continue
+            is_pass3 = bool(it["derived_from_item_ids"])
+            body_html = item_body_html(idx, it, con_txc)
+            if is_pass3:
+                badge = "<p><small><b>pass-3 · tidied</b></small></p>"
+                body_html = badge + body_html
+            else:
+                badge = "<p><small>pass-2 · unchanged by tidier</small></p>"
+                body_html = badge + body_html
+
+            target_value = fragment_xywh_pct(
+                it["bbox_left_pct"], it["bbox_top_pct"],
+                it["bbox_right_pct"], it["bbox_bottom_pct"], W, H)
+
+            selector = {
+                "type": "FragmentSelector",
+                "conformsTo": "http://www.w3.org/TR/media-frags/",
+                "value": target_value,
+            }
+
+            polygon_raw = it.get("geometry_polygon_json")
+            if is_pass3 and polygon_raw:
+                try:
+                    vertices = json.loads(polygon_raw)
+                except Exception:
+                    vertices = None
+                if vertices and len(vertices) >= 4:
+                    svg = svg_path_from_polygon(vertices, W, H)
+                    if svg:
+                        # Mirador respects whichever selector it can render;
+                        # passing a list lets us provide both rectangle and
+                        # path, and Mirador prefers the SvgSelector.
+                        selector = [
+                            selector,
+                            {"type": "SvgSelector", "value": svg},
+                        ]
+
+            anno_page["items"].append({
+                "id": f"{anno_page_id}/item-{it['id']}",
+                "type": "Annotation", "motivation": "commenting",
+                "body": [
+                    {"type": "TextualBody", "format": "text/html",
+                     "value": body_html},
+                    {"type": "TextualBody", "format": "text/plain",
+                     "purpose": "tagging",
+                     "value": "tidied" if is_pass3 else it["item_type"]},
+                ],
+                "target": {
+                    "type": "SpecificResource", "source": cid,
+                    "selector": selector,
+                },
+            })
+            if is_pass3:
+                total_pass3 += 1
+            else:
+                total_passthrough += 1
+            page_count += 1
+
+        if page_count:
+            pages_with_items.append(page)
+        canvas["annotations"] = [anno_page]
+        canvases.append(canvas)
+
+    base = f"{PUBLIC_BASE}/preview/iiif/{issue}"
+    manifest = {
+        "@context": "http://iiif.io/api/presentation/3/context.json",
+        "id": f"{base}/manifest_pass3.json", "type": "Manifest",
+        "label": {"en": [f"Almonte Gazette — {issue} (pass-3: items tidied)"]},
+        "metadata": [
+            {"label": {"en": ["Issue date"]}, "value": {"en": [issue]}},
+            {"label": {"en": ["Pass"]},
+             "value": {"en": ["3 — tidier deltas overlaid on pass-2"]}},
+            {"label": {"en": ["Pages with items"]},
+             "value": {"en": [", ".join(f"p{p}" for p in pages_with_items) or "(none yet)"]}},
+            {"label": {"en": ["Pass-3 deltas"]},
+             "value": {"en": [str(total_pass3)]}},
+            {"label": {"en": ["Pass-2 carried through"]},
+             "value": {"en": [str(total_passthrough)]}},
+            {"label": {"en": ["Source"]},
+             "value": {"en": ["Mississippi Valley Textile Museum / Almonte Gazette archive"]}},
+        ],
+        "rights": "http://rightsstatements.org/vocab/UND/1.0/",
+        "items": canvases,
+    }
+    return manifest, total_pass3, total_passthrough, pages_with_items
+
+
 # --------------------------------------------------------------- footprints ---
 
 def has_pass1_data(con_txc, year: int, month: int, day: int) -> bool:
@@ -531,7 +726,18 @@ def has_pass1_data(con_txc, year: int, month: int, day: int) -> bool:
 def has_pass2_data(con_txc, year: int, month: int, day: int) -> bool:
     n = con_txc.execute(
         "SELECT COUNT(*) FROM items "
-        "WHERE year=? AND month=? AND day=?",
+        "WHERE year=? AND month=? AND day=? "
+        "  AND derived_from_item_ids IS NULL",
+        (year, month, day),
+    ).fetchone()[0]
+    return bool(n)
+
+
+def has_pass3_data(con_txc, year: int, month: int, day: int) -> bool:
+    n = con_txc.execute(
+        "SELECT COUNT(*) FROM items "
+        "WHERE year=? AND month=? AND day=? "
+        "  AND derived_from_item_ids IS NOT NULL",
         (year, month, day),
     ).fetchone()[0]
     return bool(n)
@@ -565,7 +771,8 @@ def build_one(issue: str) -> dict:
 
         do_pass1 = has_pass1_data(ct, year, month, day)
         do_pass2 = has_pass2_data(ct, year, month, day)
-        if not do_pass1 and not do_pass2:
+        do_pass3 = has_pass3_data(ct, year, month, day)
+        if not do_pass1 and not do_pass2 and not do_pass3:
             return {"issue": issue, "skipped": True,
                     "reason": "no transcribe data yet"}
 
@@ -575,7 +782,7 @@ def build_one(issue: str) -> dict:
         out_dir.mkdir(parents=True, exist_ok=True)
 
         report = {"issue": issue, "pages": len(pages),
-                  "pass1": None, "pass2": None}
+                  "pass1": None, "pass2": None, "pass3": None}
 
         if do_pass1:
             manifest, ncols, nads = build_pass1(
@@ -589,6 +796,14 @@ def build_one(issue: str) -> dict:
             (out_dir / "manifest_pass2.json").write_text(
                 json.dumps(manifest, ensure_ascii=False, indent=2))
             report["pass2"] = {"items": nitems,
+                               "pages_with_items": ppages}
+        if do_pass3:
+            manifest, n_delta, n_through, ppages = build_pass3(
+                ct, issue, year, month, day, pages, dims)
+            (out_dir / "manifest_pass3.json").write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2))
+            report["pass3"] = {"deltas": n_delta,
+                               "carried_through": n_through,
                                "pages_with_items": ppages}
 
     return report
@@ -619,6 +834,10 @@ def main(argv=None) -> int:
         if r["pass2"]:
             bits.append(f"pass-2 ({r['pass2']['items']} items on "
                         f"{len(r['pass2']['pages_with_items'])} pages)")
+        if r["pass3"]:
+            bits.append(f"pass-3 ({r['pass3']['deltas']} deltas + "
+                        f"{r['pass3']['carried_through']} carried "
+                        f"on {len(r['pass3']['pages_with_items'])} pages)")
         print(f"=== {d}: " + ", ".join(bits))
     return rc
 

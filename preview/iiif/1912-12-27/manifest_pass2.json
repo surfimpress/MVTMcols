@@ -52,7 +52,7 @@
       },
       "value": {
         "en": [
-          "160"
+          "159"
         ]
       }
     },
@@ -1376,14 +1376,14 @@
           "type": "AnnotationPage",
           "items": [
             {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-14b96793-aa8e-4ac3-a233-d9c26ee85c1a",
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-b2510db9-1a8f-495f-97ce-5e983e4c9b1a",
               "type": "Annotation",
               "motivation": "commenting",
               "body": [
                 {
                   "type": "TextualBody",
                   "format": "text/html",
-                  "value": "<p><small>#1 · display_ad · conf 0.90</small></p><p><b>Store News — W. J. McDOWALL</b></p><hr><p><b>Transcript</b></p><p>Store News</p><p>I WANT</p><p>CASH</p><p>To keep going,</p><hr><p>BEANS</p><p>I got Beans to-day. They are good and clean.</p><hr><p>Everybody has been saying why don’t you keep<br>Yeast Cakes and Baking Powder<br>to match your Flour? The people have to be satisfied and I have the</p><p>White Swan Kind,</p><p>the best made.</p><hr><p><b>People:</b> W. J. McDowall</p><p><b>Products:</b> Food and Grocery</p>"
+                  "value": "<p><small>#1 · display_ad · conf 0.95</small></p><p><b>Store News — W. J. McDowall</b></p><hr><p><b>Transcript</b></p><p>Store News</p><p>I WANT</p><p>CASH</p><p>To keep going,</p><hr><p>BEANS</p><p>I got Beans to-day. They are good and clean.</p><hr><p>Everybody has been saying why don’t you keep<br>Yeast Cakes and Baking Powder<br>to match your Flour? The people have to be satisfied and I have the</p><p>White Swan Kind,</p><p>the best made.</p><hr><p>Molasses Meal</p><p>is selling well. Have you tried it yet? Horses and Cattle do well on it.<br>Flour and Feed as usual, and Breakfast Foods without end.</p><p>W. J. McDOWALL</p><p>Phone 79.</p><hr><p><b>People:</b> W. J. McDowall</p><p><b>Products:</b> Food and Grocery, Grocery Provisions</p>"
                 },
                 {
                   "type": "TextualBody",
@@ -1398,19 +1398,19 @@
                 "selector": {
                   "type": "FragmentSelector",
                   "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=145,0,148,364"
+                  "value": "xywh=145,59,148,428"
                 }
               }
             },
             {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-3c392b9c-0bac-4a0d-aa5d-b3b8fb4c2df0",
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-4742fd8c-85e8-4c28-a75c-b2708198c653",
               "type": "Annotation",
               "motivation": "commenting",
               "body": [
                 {
                   "type": "TextualBody",
                   "format": "text/html",
-                  "value": "<p><small>#2 · masthead · cross-col · inset · conf 0.85</small></p><p><b>The Almonte Gazette — masthead</b></p><hr><p><b>Transcript</b></p><p>The Al[monte]</p><hr><p>ALMONTE; ONT.<br>Almonte</p><hr><p>ONT., FRIDAY, DECEMBER 20,<br>Gazette.</p><p>27</p><hr><p>a 27, 1912                    TERM</p><hr><hr><p>TERMS: $1.00 A YEAR IN ADVANCE<br>$2.00 IF NOT SO PAID</p><hr><p>The Al[…]</p><p>46 YEAR.–NO 16          ALMONTE; ONT[…]</p><hr><p><b>Orgs:</b> The Almonte Gazette</p><p><b>Places:</b> Almonte</p>"
+                  "value": "<p><small>#2 · masthead · conf 0.85</small></p><p><b>The Almonte Gazette — 46th Year, No. 16</b></p><hr><p><b>Transcript</b></p><p>The Al[…]</p><p>46 YEAR.–NO 16          ALMONTE; ONT[…]</p><hr><p><b>Orgs:</b> The Almonte Gazette</p><p><b>Places:</b> Almonte</p>"
                 },
                 {
                   "type": "TextualBody",
@@ -1425,19 +1425,19 @@
                 "selector": {
                   "type": "FragmentSelector",
                   "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=285,0,749,295"
+                  "value": "xywh=285,124,305,162"
                 }
               }
             },
             {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-74fbba19-cd87-4f8b-bba9-11d3c66be6f5",
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-61142a2e-8f7e-4146-9ba5-18e5ebffbcad",
               "type": "Annotation",
               "motivation": "commenting",
               "body": [
                 {
                   "type": "TextualBody",
                   "format": "text/html",
-                  "value": "<p><small>#3 · display_ad · conf 0.95</small></p><p><b>SUFFERED AGONY FROM DYSPEPSIA — Fruit-a-tives</b></p><hr><p><b>Transcript</b></p><p>SUFFERED AGONY<br>FROM DYSPEPSIA</p><hr><p>“Fruit-a-tives” Makes Wonderful Cure</p><p>N. C. STIRLING, Esq.</p><p>GLENCOE, ONT., Aug. 15th, 1911.</p><p>“So much has been said and written about “Fruit-a-tives” that it might seem unnecessary for me to add my experience.</p><p>But “Fruit-a-tives” were so beneficial to me when I suffered with distressing Dyspepsia, that I feel called upon to inform you of the remarkable and satisfactory results I have had from using them.</p><p>Dyspepsia and Indigestion as everyone knows, can give you more uncomfortable hours and days than most common complaints.</p><p>“I am glad to be able to say to you that although in the past I suffered excruciating agony with Dyspepsia, I am now in perfect health.</p><p>“Fruit-a-tives” accomplished the desired result and I have to thank them for my very favorable and satisfactory state of health” N. C. STIRLING.</p><p>Why don’t you try “Fruit-a-tives”? 50c a box, 6 for $2.50, trial size, 25c. At all dealers or sent on receipt of price by Fruit-a-tives Limited, Ottawa.</p><p>—Arnprior council have made a grant of $250 in aid of the new mica factory there.</p><p>—Mr. Dean Dewey of Kingston has accepted a position in Mr. T. A. Low’s office at Renfrew.</p><p>—Last Wednesday night burglars broke into a jewelery store at Deseronto and secured about $700 worth of goods.</p><p>—A black fox was recently shot in the Northcote neighborhood in Renfrew county, the skin of which is said to be worth $1,500.</p><hr><p><b>People:</b> N. C. Stirling</p><p><b>Orgs:</b> Fruit-a-tives Limited</p><p><b>Places:</b> Glenco, Ottawa</p><p><b>Products:</b> Medicines and Remedies</p>"
+                  "value": "<p><small>#3 · display_ad · conf 0.97</small></p><p><b>SUFFERED AGONY FROM DYSPEPSIA — Fruit-a-tives</b></p><hr><p><b>Transcript</b></p><p>SUFFERED AGONY<br>FROM DYSPEPSIA</p><hr><p>“Fruit-a-tives” Makes Wonderful Cure</p><p>N. C. STIRLING, Esq.</p><p>GLENCOE, ONT., Aug. 15th, 1911.</p><p>“So much has been said and written about “Fruit-a-tives” that it might seem unnecessary for me to add my experience.</p><p>But “Fruit-a-tives” were so beneficial to me when I suffered with distressing Dyspepsia, that I feel called upon to inform you of the remarkable and satisfactory results I have had from using them.</p><p>Dyspepsia and Indigestion as everyone knows, can give you more uncomfortable hours and days than most common complaints.</p><p>“I am glad to be able to say to you that although in the past I suffered excruciating agony with Dyspepsia, I am now in perfect health.</p><p>“Fruit-a-tives” accomplished the desired result and I have to thank them for my very favorable and satisfactory state of health” N. C. STIRLING.</p><p>Why don’t you try “Fruit-a-tives”? 50c a box, 6 for $2.50, trial size, 25c. At all dealers or sent on receipt of price by Fruit-a-tives Limited, Ottawa.</p><hr><p><b>People:</b> N. C. Stirling</p><p><b>Orgs:</b> Fruit-a-tives Limited</p><p><b>Places:</b> Glencoe, Ottawa</p><p><b>Products:</b> Medicines and Remedies</p>"
                 },
                 {
                   "type": "TextualBody",
@@ -1452,19 +1452,19 @@
                 "selector": {
                   "type": "FragmentSelector",
                   "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=1034,121,148,635"
+                  "value": "xywh=1034,126,148,523"
                 }
               }
             },
             {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-20e9d2d9-3c2c-43cc-b2a0-12d84c1eebfe",
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-f7b07f6e-724a-4f2c-8b02-544375ded3f9",
               "type": "Annotation",
               "motivation": "commenting",
               "body": [
                 {
                   "type": "TextualBody",
                   "format": "text/html",
-                  "value": "<p><small>#4 · article · conf 0.90</small></p><hr><p><b>Transcript</b></p><p>TERMS: $1.00 A YEAR IN ADVANCE<br>$2.00 IF NOT SO PAID<br>—Mr. T. A. Scott is the new postmaster at Winchester.</p><p>—Mr. Norman Leach has opened a boot and shoe store at Smiths Falls.</p><p>—Tweed Rifle and Gun Club has been organized. Mr. S. Grant, M.L.A., is president.</p><p>—Perth&#x27;s public school is to be thoroughly renovated during the Christmas holidays.</p><p>—The schools at Sault Ste. Marie, Ont., were closed for a few days owing to a diphtheria epidemic.</p><p>—The Grand Central hotel at Brockville has again changed hands, the new proprietor being Mr. Harry Garbutt of Peterboro.</p><p>—Arnprior curling rink opened for the season last Wednesday evening, and the skating rink on Thursday night. Renfrew skating rink is also open.</p><p>—Mrs. A. E. Gorman of Merrickville passed away at Brockville general hospital on Monday morning. She had recently underwent a serious operation in that institution.</p><p>—Mr. Byron Lane, late of the Winchester Press, has gone west and before leaving was presented with a fitted travelling bag and an address by the congregation of St. Matthias church at Winchester.</p><p>—Mr. D. W. McCreary, while employed in the Frost &amp; Woods shops at Smiths Falls, was struck in the eye by a piece of steel from a machine he was operating. It is feared he may lose the sight of it.</p><p>—Miss Mildred MacMorine of Kingston will shortly join the staff of the Canadian and British News, Toronto, as an assistant to the Canadian Woman, to whose care several pages of the paper are assigned.</p><p>—Mr. F. W. Merkley of Chesterville, agent for the Frost &amp; Wood Company, was the successful competitor in the Eastern Ontario contest, leading all the agents in sales for the past year. He received the prize of $75.</p><p>—A serious explosion occurred at the McCoy House, Cobden, last week, caused by an escape of acetylene gas. Mr. J. Hart, the manager, came into the house with a lighted lantern and instantly there was a terrific explosion. Practically every window in the house was blown out, the plaster<br>and instantly there was a terrific explosion. Practically every window in the house was blown out, the plaster on the walls and ceilings was wrecked and it was only by the very prompt assistance of some passersby that</p><hr><p><b>People:</b> A. E. Gorman, Byron Lane, D. W. McCreary, F. W. Merkley, Harry Garbutt, J. Hart, James Neil, Mildred MacMorine, Norman Leach, S. Grant, T. A. Scott</p><p><b>Orgs:</b> Frost &amp; Woods, Tweed Rifle and Gun Club</p><p><b>Places:</b> Brockville, Cobden, Sault Ste. Marie, Smith&#x27;s Falls, Winchester</p><p><b>Events:</b> Death of Mrs. A. E. Gorman</p>"
+                  "value": "<p><small>#4 · article · conf 0.90</small></p><p><b>A Condensation of Happenings throughout the Ottawa Valley (continued)</b></p><hr><p><b>Transcript</b></p><p>—Mr. T. A. Scott is the new postmaster at Winchester.</p><p>—Mr. Norman Leach has opened a boot and shoe store at Smiths Falls.</p><p>—Tweed Rifle and Gun Club has been organized. Mr. S. Grant, M.L.A., is president.</p><p>—Perth&#x27;s public school is to be thoroughly renovated during the Christmas holidays.</p><p>—The schools at Sault Ste. Marie, Ont., were closed for a few days owing to a diphtheria epidemic.</p><p>—The Grand Central hotel at Brockville has again changed hands, the new proprietor being Mr. Harry Garbutt of Peterboro.</p><p>—Arnprior curling rink opened for the season last Wednesday evening, and the skating rink on Thursday night. Renfrew skating rink is also open.</p><p>—Mrs. A. E. Gorman of Merrickville passed away at Brockville general hospital on Monday morning. She had recently underwent a serious operation in that institution.</p><p>—Mr. Byron Lane, late of the Winchester Press, has gone west and before leaving was presented with a fitted travelling bag and an address by the congregation of St. Matthias church at Winchester.</p><p>—Mr. D. W. McCreary, while employed in the Frost &amp; Woods shops at Smiths Falls, was struck in the eye by a piece of steel from a machine he was operating. It is feared he may lose the sight of it.</p><p>—Miss Mildred MacMorine of Kingston will shortly join the staff of the Canadian and British News, Toronto, as an assistant to the Canadian Woman, to whose care several pages of the paper are assigned.</p><p>—Mr. F. W. Merkley of Chesterville, agent for the Frost &amp; Wood Company, was the successful competitor in the Eastern Ontario contest, leading all the agents in sales for the past year. He received the prize of $75.</p><p>—A serious explosion occurred at the McCoy House, Cobden, last week, caused by an escape of acetylene gas. Mr. J. Hart, the manager, came into the house with a lighted lantern and instantly there was a terrific explosion. Practically every window in the house was blown out, the plaster<br>and instantly there was a terrific explosion. Practically every window in the house was blown out, the plaster on the walls and ceilings was wrecked and it was only by the very prompt assistance of some passersby that the hotel was prevented from being burned down. Apart from Mr. Hart and Mr. James Neil, who was working in the house, no one was injured. Mr. Neil was taken to Pembroke hospital suffering from severe shock and some bad burns, while Mr. Hart, who was terribly burned, is being treated at home.</p><hr><p><b>People:</b> Byron Lane, D. W. McCreary, F. W. Merkley, J. Hart, James Neil, Mildred MacMorine, Mrs. A. E. Gorman, Norman Leach, T. A. Scott</p><p><b>Orgs:</b> Frost &amp; Woods</p><p><b>Places:</b> Cobden, Smith&#x27;s Falls, Winchester</p><p><b>Events:</b> Death of Mrs. A. E. Gorman, McCoy House Explosion, Cobden</p>"
                 },
                 {
                   "type": "TextualBody",
@@ -1479,19 +1479,19 @@
                 "selector": {
                   "type": "FragmentSelector",
                   "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=886,241,148,629"
+                  "value": "xywh=886,289,148,590"
                 }
               }
             },
             {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-9fc4c306-55a5-4196-8851-9302d76b52a2",
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-ad48bf0e-9a4c-44ae-953a-e2af9464ef9c",
               "type": "Annotation",
               "motivation": "commenting",
               "body": [
                 {
                   "type": "TextualBody",
                   "format": "text/html",
-                  "value": "<p><small>#5 · article · conf 0.92</small></p><p><b>A Condensation of Happenings throughout the Ottawa Valley and District</b></p><hr><p><b>Transcript</b></p><p>A Condensation of Happenings throughout the Ottawa Valley and District</p><p>—A farmer&#x27;s club has been organized at Aultsville.</p><p>—Mr. Edward Sutton, a resident of Micksburg for nearly sixty years, died very suddenly last week from heart weakness.</p><hr><p>—Mr. Cecil Robert Johnston, of Smiths Falls was united in marriage last week to Mrs. Ellen Bell Young of Brockville.</p><p>—Mr. D. McGarry, a C.P.R. brakeman, was instantly killed in the North Bay yards on Friday. He slipped on some ice and fell under the cars.</p><p>—Mr. and Mrs. James Murphy of Bedford were recently bereaved by the death of their son, Mr. William Murphy, after an illness of several months.</p><p>—Samuel Boyd died last week very suddenly at the Queen&#x27;s hotel, Cornwall, where he had been residing. Mrs. Boyd had only left a few hours previous for British Columbia, where she had intended to spend the winter.</p><p>—Last Saturday Rt. Rev. P. T. Ryan, auxiliary bishop of Pembroke diocese, celebrated the 25th anniversary of his ordination to the priesthood. He was the recipient of a number of presentations and addresses.</p><p>—For the third time in its ninety years&#x27; existence the Roman Catholic parish at Richmond has had its church bell blessed. Mgr. Ryan, the auxiliary bishop of Pembroke, and at the same time parish priest of Renfrew, performed the ceremony, last Thursday morning.</p><p>—While playing football on Wolfe Island near Kingston, Earl Payne, a young lad, accidentally fell and then rolled down a hill, at the bottom of which he collided with a large stone and suffered a fracture of his hip. He was brought to the Kingston General Hospital.</p><p>—On Saturday a deputation of twenty-five of the public school teachers of Dundas county called at the residence of Mr. Arthur Brown in Morrisburg, and presented him with an address and a purse of gold. At the same time there was a Morris chair for Mrs. Brown. Mr. Brown is to retire at the end of the year after having been for thirty-four years Inspector of public schools for Dundas.</p><p>—Mr. R. Cox, of the C.N.R. stores department, Smiths Falls, had a narrow escape from death a few nights ago. He was riding on an engine to a construction camp about</p><hr><p><b>People:</b> Arthur Brown, Cecil Robert Johnston, D. McGarry, Earl Payne, Edward Sutton, Ellen Bell Young, Joseph D. Holley, P. T. Ryan, R. Cox, Samuel Boyd, William Murphy</p><p><b>Orgs:</b> Kingston General Hospital, Roman Catholic Parish, Richmond</p><p><b>Places:</b> Micksburg, Morrisburg, North Bay, Smith&#x27;s Falls</p><p><b>Events:</b> Death of Edward Sutton, Death of Samuel Boyd, Death of William Murphy, Johnston-Young marriage</p>"
+                  "value": "<p><small>#5 · article · cross-col · conf 0.93</small></p><p><b>OUR NEIGHBORS IN THE COUNTIES / A Condensation of Happenings throughout the Ottawa Valley and District</b></p><hr><p><b>Transcript</b></p><p>OUR NEIGHBORS IN THE COUNTIES</p><p>—A branch of the Y.W.C.T.U. was organized in Smiths Falls last week.</p><p>—A beef, weighing 1,400 pounds, was recently brought to Perth by Mr. Jas. Couch.</p><p>—The marriage of Miss Marion Isabell Spalding of Lanark and Mr. G. H. Butler of Munster takes place on Dec. 31st.</p><p>—Miss Margaret Ellen Horne and Mr. Robt. J. McInnes were united in marriage last week. They will reside in Lavant.</p><p>—A charter is being applied for the Gananoque, Perth and Lanark railway, the road to be built from Gananoque to Lanark and Portland.</p><p>—Mr. R. R. Drysdale has sold his lumbering business in Lavant township to Reid Bros., of Hapworth, Bruce county, who will conduct operations on a larger scale.</p><p>—Mr. Isaac Wilson, for several years a clerk in the Perth post office, but who went west some time ago, has been appointed postmaster of the town of Frank, Alta.</p><p>—The death of Mrs. Walter McCaw occurred at Easton&#x27;s Corners last week. She was a daughter of Mr. Wm. Brocklebank, formerly of Montague, but now of Smiths Falls.</p><p>—The official board of the Central Methodist church of Sarnia has extended an invitation to Rev. W. H. Graham, B.A., of Strathroy, to become the pastor of the church in June next.</p><p>—In a head-on collision at Ivanboe last week Fireman M. Richardson of Havelock was crushed to death between the engine and tender, while trying to make his escape by jumping.</p><p>—The other day, while hunting for a stray rabbit, Bobbie, the young son of W. W. Geddes, of Dalhousie Lake, found an Indian clay dish that had lain there for probably two hundred years.<br>Ten thousand of the three hundred thousand dollars stolen from the Bank of Montreal, at New Westminster, B.C., was recovered by Chicago police and turned over to Bank of Montreal in Chicago last week.</p><p>—Matthew Keon, a Sheenboro merchant, dropped dead on December 7th, at his home on Allumette Island. The news of this sad event had only just been circulated, when it was learned that his brother, Mr. Andrew Keon, of Point Alexander, was the victim of what proved to be a fatal accident on the same day.</p><p>—Last week&#x27;s “Canada Gazette” has the following military announcements in connection with the 42nd Lanark and Renfrew Regiment: “The period of tenure of command of Lieutenant-Colonel J. M. Balderson is extended to the 1st February, 1914. Provisional Lieutenant (supernumerary) G. W. Dittrick is permitted to retire.”</p><p>—A railway accident which took place near Byng Inlet about eight o’clock last Wednesday morning, resulted in the death of Brakeman Xavier Pacaud, of North Bay, while Engineer Thomas, also of North Bay, had his leg broken and received internal injuries. Conductor McLean, who was in charge, escaped injury, and the fireman succeeded in jumping from the cab. The train consisted of an engine, tender and van, the trestle collapsing under them. The brakeman was killed instantly.</p><p>—Rev. E. P. Crawford, Dean of All Saints’ Cathedral, Halifax, died very suddenly in the cathedral of that city while in the act of administering baptism to a child. The parents were standing at the font ready for the ceremony when Rev. Mr. Crawford vested with his surplice, approached, and was asking for the name of the child when he collapsed and died before medical assistance could be summoned. Death was due to heart failure. The late Dean Crawford was a native of Brockville, having been born there in 1846, and was the third son of the late Hon. Senator George Crawford.</p><p>—An action against the Mutual Life Insurance Company was brought at<br>—An action against the Mutual Life Insurance Company was brought at the non-jury high court sittings at Ottawa before Justice Kelly by Mr. George Rivington, a farmer living near Carp, the action being based on the amount that the plaintiff should have received from the company on an insurance policy, that had run out at the end of a stated term of twenty years. According to the testimony of Rivington he was to have received $651 over and above the policy but when the term was up the company only offered him $354. The defence stated in their testimony that the reason they had refused to pay the plaintiff any more money was that the premiums did not earn any more. Justice Kelly reserved judgment.<br>A Condensation of Happenings throughout the Ottawa Valley and District</p><p>—A farmer&#x27;s club has been organized at Aultsville.</p><p>—Mr. Edward Sutton, a resident of Micksburg for nearly sixty years, died very suddenly last week from heart weakness.</p><hr><p>—Mr. Cecil Robert Johnston, of Smiths Falls was united in marriage last week to Mrs. Ellen Bell Young of Brockville.</p><p>—Mr. D. McGarry, a C.P.R. brakeman, was instantly killed in the North Bay yards on Friday. He slipped on some ice and fell under the cars.</p><p>—Mr. and Mrs. James Murphy of Bedford were recently bereaved by the death of their son, Mr. William Murphy, after an illness of several months.</p><p>—Samuel Boyd died last week very suddenly at the Queen&#x27;s hotel, Cornwall, where he had been residing. Mrs. Boyd had only left a few hours previous for British Columbia, where she had intended to spend the winter.</p><p>—Last Saturday Rt. Rev. P. T. Ryan, auxiliary bishop of Pembroke diocese, celebrated the 25th anniversary of his ordination to the priesthood. He was the recipient of a number of presentations and addresses.</p><p>—For the third time in its ninety years&#x27; existence the Roman Catholic parish at Richmond has had its church bell blessed. Mgr. Ryan, the auxiliary bishop of Pembroke, and at the same time parish priest of Renfrew, performed the ceremony, last Thursday morning.</p><p>—While playing football on Wolfe Island near Kingston, Earl Payne, a young lad, accidentally fell and then rolled down a hill, at the bottom of which he collided with a large stone and suffered a fracture of his hip. He was brought to the Kingston General Hospital.</p><p>—On Saturday a deputation of twenty-five of the public school teachers of Dundas county called at the residence of Mr. Arthur Brown in Morrisburg, and presented him with an address and a purse of gold. At the same time there was a Morris chair for Mrs. Brown. Mr. Brown is to retire at the end of the year after having been for thirty-four years Inspector of public schools for Dundas.</p><p>—Mr. R. Cox, of the C.N.R. stores department, Smiths Falls, had a narrow escape from death a few nights ago. He was riding on an engine to a construction camp about<br>ten miles from there and in getting off before it had come to a stop he fell on the track. Before he could get clear of it one wheel passed over his foot. He was taken to the public hospital, where it was found necessary to amputate the ends of all the toes on the injured foot.</p><p>—Joseph D. Holley, aged 95, a survivor of the famous “battle of the Windmill,” fought near Prescott, Ont. in Nov. 1838, died recently at the home of his daughter in Syracuse. Mr. Holley was born, October 7th, 1817 near the town of Adams, where he spent most of his life. When he had just passed his 21st birthday, he joined the “Patriot Army” of 200 young men whose purpose was the invasion and liberation of Canada. Mr. Holley was among the 22 who were subsequently pardoned by Queen Victoria who had then been on the throne only about a year.</p><hr><p><b>People:</b> Andrew Keon, E. P. Crawford, G. H. Butler, George Rivington, Isaac Wilson, J. M. Balderson, Margaret Ellen Horne, Marion Isabell Spalding, Matthew Keon, Mrs. Walter McCaw, R. R. Drysdale, Robt. J. McInnes</p><p><b>Orgs:</b> 42nd Lanark and Renfrew Regiment, Mutual Life Insurance Company, Y.W.C.T.U.</p><p><b>Places:</b> Carp, Halifax, Lanark, Lavant, Smith&#x27;s Falls</p><p><b>Events:</b> Death of Matthew Keon, Death of Rev. E. P. Crawford, Horne-McInnes marriage, Spalding-Butler marriage</p>"
                 },
                 {
                   "type": "TextualBody",
@@ -1506,19 +1506,100 @@
                 "selector": {
                   "type": "FragmentSelector",
                   "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=738,285,148,703"
+                  "value": "xywh=589,290,297,1464"
                 }
               }
             },
             {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-f07a4264-431c-4e4c-b8eb-e95fefd050a2",
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-c6da532e-9c3d-4de8-a562-10aad46b3a66",
               "type": "Annotation",
               "motivation": "commenting",
               "body": [
                 {
                   "type": "TextualBody",
                   "format": "text/html",
-                  "value": "<p><small>#6 · notice · conf 0.95</small></p><p><b>CONCRETE TILING — John Fulton</b></p><hr><p><b>Transcript</b></p><p>CONCRETE TILING.</p><hr><p>THE UNDERSIGNED IS PREPARED TO SUPply all sorts of drain and culvert tiling at reasonable prices. 3 and 4 inch tile for underdraining a specialty.</p><p>JOHN FULTON,<br>    Blakeney, Ont.</p><hr><p><b>People:</b> John Fulton</p><p><b>Places:</b> Blakeney</p><p><b>Products:</b> Building Materials</p>"
+                  "value": "<p><small>#6 · classified_ad · conf 0.97</small></p><p><b>CONCRETE TILING — John Fulton</b></p><hr><p><b>Transcript</b></p><p>CONCRETE TILING.</p><hr><p>THE UNDERSIGNED IS PREPARED TO SUPply all sorts of drain and culvert tiling at reasonable prices. 3 and 4 inch tile for underdraining a specialty.</p><p>JOHN FULTON,<br>    Blakeney, Ont.</p><hr><p><b>People:</b> John Fulton</p><p><b>Places:</b> Blakeney</p><p><b>Products:</b> Building Materials</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=293,290,148,1464"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-ff37ceac-d295-4dba-8177-ce03c6968fea",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#7 · classified_ad · conf 0.95</small></p><p><b>J. McClelland — Teacher of Organ, Piano and Voice</b></p><hr><p><b>Transcript</b></p><p>J. McCLELLAND.</p><hr><p>TEACHER OF ORGAN, PIANO AND VOICE.<br>Church Street,<br>Almonte.</p><hr><hr><p><b>People:</b> J. McClelland</p><p><b>Places:</b> Almonte</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=441,290,148,1464"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-9166ced8-f23d-4f11-8b48-2575fd383816",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#8 · classified_ad · conf 0.95</small></p><p><b>TEACHER WANTED — S.S. No. 9, Ramsay</b></p><hr><p><b>Transcript</b></p><p>TEACHER WANTED</p><hr><p>QUALIFIED TEACHER FOR S.S. NO. 9, RAMSAY, for 1913. Apply, stating salary to<br>W. C. GILMOUR,<br>Box 38, Almonte.</p><hr><hr><p><b>People:</b> W. C. Gilmour</p><p><b>Places:</b> Almonte, Ramsay</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=441,340,148,1414"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-ae4b2c2c-3073-499c-8090-7ea92cd30635",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#9 · notice · conf 0.97</small></p><p><b>PAKENHAM MUNICIPAL NOMINATION</b></p><hr><p><b>Transcript</b></p><p>PAKENHAM MUNICIPAL NOMINATION.</p><hr><p>A MEETING OF THE MUNICIPAL ELECTORS of the Township of Pakenham will be held in the Agricultural Hall, Pakenham Village, on</p><p>MONDAY, 30th, inst.,</p><p>at One o&#x27;clock, p.m., for the purpose of nominating persons to serve as Reeve and Councillors for the ensuing year.<br>In case a Poll be required said Poll will be opened in the several Polling subdivisions on Monday, the 6th day of January, 1913, at 9 o&#x27;clock, a.m.</p><p>JAMES CONNERY,<br>    Township Clerk.<br>Pakenham, December 16th, 1912.</p><hr><hr><p><b>People:</b> James Connery</p><p><b>Places:</b> Pakenham</p><p><b>Events:</b> Pakenham Municipal Nomination Meeting</p>"
                 },
                 {
                   "type": "TextualBody",
@@ -1533,19 +1614,343 @@
                 "selector": {
                   "type": "FragmentSelector",
                   "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=293,286,148,71"
+                  "value": "xywh=293,353,148,1401"
                 }
               }
             },
             {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-328dc713-2769-414f-ba1f-7f3a51fbba6c",
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-11b86ca7-b935-4f2e-9c51-0268a3d80af8",
               "type": "Annotation",
               "motivation": "commenting",
               "body": [
                 {
                   "type": "TextualBody",
                   "format": "text/html",
-                  "value": "<p><small>#7 · article · conf 0.92</small></p><p><b>OUR NEIGHBORS IN THE COUNTIES</b></p><hr><p><b>Transcript</b></p><p>OUR NEIGHBORS IN THE COUNTIES</p><p>—A branch of the Y.W.C.T.U. was organized in Smiths Falls last week.</p><p>—A beef, weighing 1,400 pounds, was recently brought to Perth by Mr. Jas. Couch.</p><p>—The marriage of Miss Marion Isabell Spalding of Lanark and Mr. G. H. Butler of Munster takes place on Dec. 31st.</p><p>—Miss Margaret Ellen Horne and Mr. Robt. J. McInnes were united in marriage last week. They will reside in Lavant.</p><p>—A charter is being applied for the Gananoque, Perth and Lanark railway, the road to be built from Gananoque to Lanark and Portland.</p><p>—Mr. R. R. Drysdale has sold his lumbering business in Lavant township to Reid Bros., of Hapworth, Bruce county, who will conduct operations on a larger scale.</p><p>—Mr. Isaac Wilson, for several years a clerk in the Perth post office, but who went west some time ago, has been appointed postmaster of the town of Frank, Alta.</p><p>—The death of Mrs. Walter McCaw occurred at Easton&#x27;s Corners last week. She was a daughter of Mr. Wm. Brocklebank, formerly of Montague, but now of Smiths Falls.</p><p>—The official board of the Central Methodist church of Sarnia has extended an invitation to Rev. W. H. Graham, B.A., of Strathroy, to become the pastor of the church in June next.</p><p>—In a head-on collision at Ivanboe last week Fireman M. Richardson of Havelock was crushed to death between the engine and tender, while trying to make his escape by jumping.</p><p>—The other day, while hunting for a stray rabbit, Bobbie, the young son of W. W. Geddes, of Dalhousie Lake, found an Indian clay dish that had lain there for probably two hundred years.<br>Ten thousand of the three hundred thousand dollars stolen from the Bank of Montreal, at New Westminster, B.C., was recovered by Chicago police and turned over to Bank of Montreal in Chicago last week.</p><p>—Matthew Keon, a Sheenboro merchant, dropped dead on December 7th, at his home on Allumette Island. The news of this sad event had only just been circulated, when it was learned that his brother, Mr. Andrew Keon, of Point Alexander, was the victim of what proved to be a fatal accident on the same day.</p><p>—Last week&#x27;s “Canada Gazette” has the following military announcements in connection with the 42nd Lanark and Renfrew Regiment: “The period of tenure of command of Lieutenant-Colonel J. M. Balderson is extended to the 1st February, 1914. Provisional Lieutenant (supernumerary) G. W. Dittrick is permitted to retire.”</p><p>—A railway accident which took place near Byng Inlet about eight o’clock last Wednesday morning, resulted in the death of Brakeman Xavier Pacaud, of North Bay, while Engineer Thomas, also of North Bay, had his leg broken and received internal injuries. Conductor McLean, who was in charge, escaped injury, and the fireman succeeded in jumping from the cab. The train consisted of an engine, tender and van, the trestle collapsing under them. The brakeman was killed instantly.</p><p>—Rev. E. P. Crawford, Dean of All Saints’ Cathedral, Halifax, died very suddenly in the cathedral of that city while in the act of administering baptism to a child. The parents were standing at the font ready for the ceremony when Rev. Mr. Crawford vested with his surplice, approached, and was asking for the name of the child when he collapsed and died before medical assistance could be summoned. Death was due to heart failure. The late Dean Crawford was a native of Brockville, having been born there in 1846, and was the third son of the late Hon. Senator George Crawford.</p><p>—An action against the Mutual Life Insurance Company was brought at<br>—An action against the Mutual Life Insurance Company was brought at the non-jury high court sittings at Ottawa before Justice Kelly by Mr. George Rivington, a farmer living near Carp, the action being based on the amount that the plaintiff should have received from the company on an insurance policy, that had run out at the end of a stated term of twenty years. According to the testimony of Rivington he was to have received $651 over and above the policy but when the term was up the company only offered him $354. The defence stated in their testimony that the reason they had refused to pay the plaintiff any more money was that the premiums did not earn any more. Justice Kelly reserved judgment.</p><hr><p><b>People:</b> Andrew Keon, E. P. Crawford, G. H. Butler, G. W. Dittrick, George Crawford, George Rivington, Isaac Wilson, J. M. Balderson, M. Richardson, Margaret Ellen Horne, Marion Isabell Spalding, Matthew Keon, Mrs. Walter McCaw, R. R. Drysdale, Robt. J. McInnes, W. H. Graham, Wm. Brocklebank, Xavier Pacaud</p><p><b>Orgs:</b> 42nd Lanark and Renfrew Regiment, Bank of Montreal, Central Methodist Church, Sarnia, Mutual Life Insurance Company, Y.W.C.T.U.</p><p><b>Places:</b> Lanark, Lavant, Perth, Smith&#x27;s Falls</p><p><b>Events:</b> Death of Matthew Keon, Death of Mrs. Walter McCaw, Death of Rev. E. P. Crawford, Death of Xavier Pacaud, Horne-McInnes marriage, Spalding-Butler marriage</p>"
+                  "value": "<p><small>#10 · classified_ad · conf 0.95</small></p><p><b>TEACHER WANTED — S.S. No. 12, Lanark</b></p><hr><p><b>Transcript</b></p><p>TEACHER WANTED,</p><hr><p>FOR SCHOOL SECTION, NO. 12, LANARK. A second or third class qualified certificate. State salary and experience. Apply to<br>ALF. JAMES, Sec.-Treas.,<br>Clayton.</p><hr><hr><p><b>People:</b> Alf. James</p><p><b>Places:</b> Clayton, Lanark</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=441,381,148,1373"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-71ef5d08-1916-4612-94e7-db9fb945cb7b",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#11 · classified_ad · conf 0.95</small></p><p><b>WANTED — Protestant Teacher, S.S. No. 10, Lanark</b></p><hr><p><b>Transcript</b></p><p>WANTED.</p><p>A PROTESTANT TEACHER FOR S.S. NO. 10, Lanark, for 1913, holding a second or third-class certificate. State salary. Apply to<br>JOHN RINTOUL, Sec.-treas.,<br>Galbraith, Ont.</p><hr><hr><p><b>People:</b> John Rintoul</p><p><b>Places:</b> Galbraith</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=441,441,148,1313"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-78f68c66-528c-4cc1-8dfe-47bdcee89b9b",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#12 · classified_ad · conf 0.97</small></p><p><b>J. K. Kelly, M.D. — Physician and Surgeon</b></p><hr><p><b>Transcript</b></p><p>PROFESSIONAL CARDS.</p><p>J. K. Kelly, M.D.</p><p>PHYSICIAN, SURGEON AND ACCOUCHEUR.<br>In Office of the late Dr. Burns.</p><hr><hr><p><b>People:</b> J. K. Kelly</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=145,487,148,1267"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-5c32518e-065c-496a-96dc-d3063dc2327a",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#13 · classified_ad · conf 0.95</small></p><p><b>FARM PROPERTY FOR SALE — Township of Huntley</b></p><hr><p><b>Transcript</b></p><p>FARM PROPERTY FOR SALE.</p><hr><p>THE WEST HALF OF LOT NO. EIGHT IN the Eighth Concession of the Township of Huntley and the rear or west halves of lots numbers Six and Seven in the Eighth Concession of the Township of Huntley, containing 250 acres more or less. There are erected upon the property a good stone house and outbuildings.<br>The North-west Half of Lot No. 15, in the 7th Concession of the Township of Huntley A fine grazing farm.<br>The above properties will be sold cheap and on easy terms. Full particulars given upon application to</p><p>W. H. STAFFORD,<br>    Almonte.</p><hr><hr><p><b>People:</b> W. H. Stafford</p><p><b>Places:</b> Almonte, Huntley</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=293,487,148,1267"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-7fe3de9e-79a0-4810-b996-de4ffda70046",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#14 · classified_ad · conf 0.95</small></p><p><b>CONCRETE PIPE — D. Moir</b></p><hr><p><b>Transcript</b></p><p>CONCRETE PIPE.</p><p>CONCRETE DRAIN AND CULVERT PIPES made by the undersigned can be had from Mr. Carnahan at his former residence, 9th line Ramsay. In Almonte inquire of Mr. Thos. James<br>D. MOIR.</p><hr><hr><p><b>People:</b> D. Moir</p><p><b>Places:</b> Almonte</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=441,487,148,1267"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-5b9befc0-0901-4344-a8d2-24175b0f9a7c",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#15 · classified_ad · conf 0.97</small></p><p><b>STRAY CALF — Geo. Story, Kinburn</b></p><hr><p><b>Transcript</b></p><p>STRAY CALF.</p><p>STRAYED FROM THE PREMISES ABOUT 8th of October, one Steer Calf. Any information will be thankfully received.<br>GEO. STORY,<br>Kinburn,<br>R.M.D. No. 1.</p><hr><hr><p><b>People:</b> Geo. Story</p><p><b>Places:</b> Kinburn</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=441,547,148,1207"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-e8bbed56-92d6-4b97-9dbc-2fcbf029d624",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#16 · classified_ad · conf 0.97</small></p><p><b>G. S. Sadler, M.D. — Physician and Surgeon</b></p><hr><p><b>Transcript</b></p><p>G. S. SADLER, M.D.</p><p>PHYSICIAN, SURGEON AND ACCOUCHEOR.<br>Office—Clayton, Ont.</p><hr><hr><p><b>People:</b> G. S. Sadler</p><p><b>Places:</b> Clayton</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=145,553,148,1201"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-1e0ab891-420a-4ccd-afca-6ff054c2654f",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#17 · classified_ad · conf 0.97</small></p><p><b>Dr. Metcalfe, M.D. — Physician and Surgeon</b></p><hr><p><b>Transcript</b></p><p>Dr. Metcalfe, M.D., C.M., M.C.P.S.</p><p>PHYSICIAN, SURGEON AND ACCOUCHEUR.<br>Ex-House Surgeon of the Kingston General and Maternity hospitals. Diseases of women and children and surgery a specialty.</p><hr><hr><p><b>People:</b> Dr. Metcalfe</p><p><b>Orgs:</b> Kingston General Hospital</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=145,585,148,1169"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-96844fb8-d84e-4100-88fc-3d51c00e08e5",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#18 · notice · conf 0.97</small></p><p><b>BY-LAW — Repeal of Local Option By-Law, Town of Almonte</b></p><hr><p><b>Transcript</b></p><p>BY-LAW.</p><hr><p>A By-law to repeal By-law Number 514 of the Corporation of the Town of Almonte passed the 3rd day of February, 1910, being a By-law to prohibit the sale of liquor by retail within the said town and commonly known as the Local Option By-Law.</p><hr><p>The Municipal Council of the Corporation of the Town of Almonte enacts as follows:<br>1.  By-law Number 514 of the said corporation passed the third day of February, 1910, entitled “A By-law to prohibit the sale by retail of spirituous, fermented or other manufactured liquor in the municipality of the town of Almonte” and commonly known as The Local Option By-law, shall be and the same is hereby repealed.<br>2.  This by-law shall come into force and take effect as from the first day of May next after the final passing thereof.<br>3.  The votes of the electors of the said municipality entitled to vote on this by-law shall be taken at the same hours on the same day and at the same places and by the same Deputy Returning Officers as for the annual election for the municipal council of the said municipality for the year 1913, namely, on Monday, the sixth day of January, A.D. 1913, commencing at the hour of nine o’clock in the forenoon and continuing until five o’clock in the afternoon.<br>In Polling Sub-division Number One of Ward One, at or near Peter Young’s planing mill on Union street with Robert W. Haydon as Deputy Returning Officer and Charles C. Combs as Poll Clerk;<br>In Polling Sub-division Number Two of Ward One, at or near William McCaughan’s blacksmith shop on Main street on Coleman’s Island, with John K. Darling as Deputy Returning Officer and A. W. Horton as Poll Clerk;<br>In Ward Number Two, at or near Robert Needham’s carriage shop on Martin street, with William S. Boyd as Deputy Returning Officer and James Moreau as Poll Clerk.<br>In Polling Sub-division Number One of Ward Three, at or near the Council Chamber in the town hall of said town with Francis Coulter as Deputy Returning Officer and John B. Illingworth as Poll Clerk;<br>In Polling Sub-division Number Two of Ward Three, at or near S. Jackson Lowe’s livery stable on Bridge street, with John Slattery as Deputy Returning Officer and Wm. McMunn as Poll Clerk.<br>4.  That on Thursday, the second day of January, 1913, at the hour of eleven o’clock in the forenoon, the Mayor of the said Corporation of the Town of Almonte will attend at the office of the Town Clerk of the said corporation in the said town hall for the purpose of appointing, in writing signed by himself, two persons to attend at the final summing up by the town clerk of the votes on this by-law, and one person to attend at each polling place on behalf of persons interested in and desirous of promoting the passing of this by-law and a like number on behalf of those interested in and desirous of opposing the passing of this By-law.<br>5.  That on the seventh day of January, A.D. 1913, at the hour of eleven o’clock in the forenoon at the said office of the Town Clerk of the Corporation of the Town of Almonte, the Clerk of the said Corporation will proceed to sum up the number of votes given for and against the By-law respectively.</p><p>Council Chamber, Almonte.</p><hr><p>NOTICE.<br>• Take notice that the above is a true copy of a proposed By-law which has been taken into consideration by the Municipal Council of the Corporation of the Town of Almonte, and which will be finally passed by the said Municipal Council (in the event of the assent of the electors being obtained thereto as provided by law) after one month from the first publication thereof in the Almonte Gazette, the date of such first publication being the 13th day of December, 1912; and that at the hour, day, and places therein fixed for taking the votes of the electors the polls will be held.</p><p>J. T. KIRKLAND,<br>• Clerk of the Town of Almonte.</p><hr><p><b>People:</b> Francis Coulter, J. T. Kirkland, John K. Darling, John Slattery, Robert W. Haydon, William S. Boyd</p><p><b>Orgs:</b> Corporation of the Town of Almonte</p><p><b>Places:</b> Almonte</p><p><b>Events:</b> Almonte Local Option By-Law Vote</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "notice"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=293,604,148,1103"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-5a93648c-6cd9-4b85-88e7-6b73dc9dd1d9",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#19 · classified_ad · conf 0.95</small></p><p><b>WANTED — Normal Trained Protestant Teacher, S.S. No. 4, Ramsay</b></p><hr><p><b>Transcript</b></p><p>WANTED.</p><hr><p>NORMAL TRAINED PROTESTANT TEACHER for S.S. No. 4, Ramsay, for 1913. Apply, stating salary and experience, to<br>W.J. DRYNAN, Sec.,<br>Clayton, Ont.</p><hr><hr><p><b>People:</b> W. J. Drynan</p><p><b>Places:</b> Clayton, Ramsay</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=441,604,148,1150"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-993bef2b-9947-4778-8ad5-7eb17277f2fa",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#20 · classified_ad · conf 0.97</small></p><p><b>J. F. Dunn, M.D. — Physician and Surgeon</b></p><hr><p><b>Transcript</b></p><p>J. F. DUNN, M.D.</p><p>PHYSICIAN AND SURGEON. OFFICE AND Residence in Dr. Lynch’s old stand—Corner Queen and Clyde Sts.</p><hr><hr><p><b>People:</b> J. F. Dunn</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=145,624,148,1130"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-7f01a7c6-ae7f-48e0-a5bd-a301dd6ee9eb",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#21 · notice · conf 0.92</small></p><p><b>WOOD WANTED — Town Hall Tender</b></p><hr><p><b>Transcript</b></p><p>WOOD WANTED.</p><p>TENDERS WILL BE RECEIVED UP TO DEC. 31st, 1912, for delivery at the Town Hall, Almonte, of 50 cords of Body Hard Wood, 4 feet long, and 10 cords of Soft Wood. Address tenders to<br>W. E. SCOTT.<br>Chr. Fire and Town Property Com.,<br>Box 316, Almonte.</p><hr><hr><p><b>People:</b> W. E. Scott</p><p><b>Places:</b> Almonte</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "notice"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=441,658,148,1096"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-578bb0c4-7fe0-4ad5-b63c-200ab116167b",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#22 · article · conf 0.88</small></p><p><b>A Condensation of Happenings — Ottawa Valley (col. 6 brief items)</b></p><hr><p><b>Transcript</b></p><p>Arnprior council have made a grant of $250 in aid of the new mica factory there.</p><p>—Mr. Dean Dewey of Kingston has accepted a position in Mr. T. A. Low’s office at Renfrew.</p><p>—Last Wednesday night burglars broke into a jewelery store at Deseronto and secured about $700 worth of goods.</p><p>—A black fox was recently shot in the Northcote neighborhood in Renfrew county, the skin of which is said to be worth $1,500.<br>—Mrs. Patrick Kearney, a former Pembroke resident, passed away at Ottawa last week, interment taking place at the former place.</p><p>—Mrs. Clark and Miss Heron of Haley’s Station have gone to Berlin, Ont., where they will engage in Children’s Home and rescue work for girls.</p><hr><p><b>People:</b> Dean Dewey, Mrs. Patrick Kearney</p><p><b>Places:</b> Arnprior, Deseronto</p><p><b>Events:</b> Death of Mrs. Patrick Kearney</p>"
                 },
                 {
                   "type": "TextualBody",
@@ -1560,19 +1965,181 @@
                 "selector": {
                   "type": "FragmentSelector",
                   "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=589,286,148,1468"
+                  "value": "xywh=1034,659,148,169"
                 }
               }
             },
             {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-cf19daa7-6377-4ebd-8f08-35073fc1bdf2",
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-f7d33cdf-c2f3-496b-a50b-bf1c3ae770b0",
               "type": "Annotation",
               "motivation": "commenting",
               "body": [
                 {
                   "type": "TextualBody",
                   "format": "text/html",
-                  "value": "<p><small>#8 · notice · conf 0.93</small></p><p><b>J. McCLELLAND — Teacher of Organ, Piano and Voice</b></p><hr><p><b>Transcript</b></p><p>J. McCLELLAND.</p><hr><p>TEACHER OF ORGAN, PIANO AND VOICE.<br>Church Street,<br>Almonte.</p><hr><p><b>People:</b> J. McClelland</p><p><b>Places:</b> Almonte</p>"
+                  "value": "<p><small>#23 · classified_ad · conf 0.97</small></p><p><b>Dr. E. W. Oliver — Dentist</b></p><hr><p><b>Transcript</b></p><p>Dr. E. W. Oliver, Dentist.</p><p>GRADUATE ROYAL COLLEGE OF DENTAL Surgeons and Honor Graduate of Toronto University. Office—Two doors east of P.O</p><hr><hr><p><b>People:</b> E. W. Oliver</p><p><b>Orgs:</b> Royal College of Dental Surgeons, University of Toronto</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=145,662,148,1092"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-94b4c42b-4cae-4a8f-a77c-e1681c0527a7",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#24 · classified_ad · conf 0.97</small></p><p><b>Dr. T. R. Paterson — Dentist</b></p><hr><p><b>Transcript</b></p><p>Dr. T. R. Paterson.</p><p>DENTIST, GRADUATE OF TORONTO UNIVERSITY and Royal College of Dental Surgeons of Ontario. Office—Opposite Post Office, Mill Street Almonte. Gas administered.</p><hr><hr><p><b>People:</b> T. R. Paterson</p><p><b>Places:</b> Almonte</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=145,696,148,1058"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-8aff2202-6477-45cc-ad75-76a661f343dc",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#25 · classified_ad · conf 0.97</small></p><p><b>HOUND LOST — J. Dulmage</b></p><hr><p><b>Transcript</b></p><p>HOUND LOST.</p><hr><p>STRAYED FROM THE PREMISES OF THE Undersigned on Dec. 4th, a Black and Tan Hound. Answers to name of “Happy”. Any information of his whereabouts will be thankfully received. Any person found harboring him after this date will be liable to prosecution.<br>J. DULMAGE.</p><p>Almonte, Dec. 9th, 1912.</p><hr><hr><p><b>People:</b> J. Dulmage</p><p><b>Places:</b> Almonte</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=441,729,148,1025"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-51c53eb9-abc6-4575-9c3b-fdd8cedd40d5",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#26 · classified_ad · conf 0.97</small></p><p><b>W. C. Young, V.S. — Veterinary Surgeon</b></p><hr><p><b>Transcript</b></p><p>W. C. YOUNG, V.S.</p><p>OFFICE OPPOSITE C. P. R. STATION.</p><hr><hr><p><b>People:</b> W. C. Young</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=145,735,148,1019"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-8bfcfce3-ec2d-452e-b7f2-947e933f064b",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#27 · classified_ad · conf 0.97</small></p><p><b>J. Lawson — Veterinary Surgeon</b></p><hr><p><b>Transcript</b></p><p>J. Lawson, Veterinary Surgeon,</p><p>has opened an office in Mr. S. J. Lowe’s Livery next to Davis House. All diseases of horses and cattle treated.</p><hr><hr><p><b>People:</b> J. Lawson</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=145,765,148,989"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-d00a9d89-a048-428d-99c9-4c00db91300e",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#28 · classified_ad · conf 0.97</small></p><p><b>W. H. Stafford — Barrister and Solicitor</b></p><hr><p><b>Transcript</b></p><p>W. H. Stafford,</p><p>BARRISTER, SOLICITOR, NOTARY PUBLIC and Conveyancer, &amp;c. Solicitor for the Bank of Montreal, Money to Loan at lowest rates of interest. Office—Bruce Block, Mill Street, Almonte, Ontario.</p><hr><hr><p><b>People:</b> W. H. Stafford</p><p><b>Orgs:</b> Bank of Montreal</p><p><b>Places:</b> Almonte</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=145,802,148,952"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-df934bad-4194-475a-a68a-c81eebab998c",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#29 · notice · conf 0.93</small></p><p><b>NORTH LANARK RAILWAY CO&#x27;Y. — Annual General Meeting</b></p><hr><p><b>Transcript</b></p><p>NORTH LANARK RAILWAY CO’Y.</p><hr><p>THE ANNUAL GENERAL MEETING OF Shareholders of the North Lanark Railway Co. will be held in the Town Hall, Arnprior, Ont. at one o’clock p.m., on Monday, the 30th of December, 1912, for election of Directors and the transaction of any other business that may come before the meeting.<br>J. A. McQUADE,<br>Secretary.</p><hr><hr><p><b>People:</b> J. A. McQuade</p><p><b>Orgs:</b> North Lanark Railway Co.</p><p><b>Places:</b> Arnprior</p><p><b>Events:</b> North Lanark Railway Annual General Meeting</p>"
                 },
                 {
                   "type": "TextualBody",
@@ -1587,478 +2154,19 @@
                 "selector": {
                   "type": "FragmentSelector",
                   "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=441,287,148,57"
+                  "value": "xywh=441,802,148,952"
                 }
               }
             },
             {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-aa8a9ef0-ca2a-4134-9b68-55a7e2a39683",
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-024b96e4-7eb2-45da-ab70-e0da102fff73",
               "type": "Annotation",
               "motivation": "commenting",
               "body": [
                 {
                   "type": "TextualBody",
                   "format": "text/html",
-                  "value": "<p><small>#9 · notice · conf 0.97</small></p><p><b>TEACHER WANTED — S.S. No. 9, Ramsay</b></p><hr><p><b>Transcript</b></p><p>TEACHER WANTED</p><hr><p>QUALIFIED TEACHER FOR S.S. NO. 9, RAMSAY, for 1913. Apply, stating salary to<br>W. C. GILMOUR,<br>Box 38, Almonte.</p><hr><p><b>People:</b> W. C. Gilmour</p><p><b>Places:</b> Almonte, Ramsay</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=441,335,148,57"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-f8c6cee5-f549-4be5-ae1f-063b552022aa",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#10 · notice · conf 0.97</small></p><p><b>PAKENHAM MUNICIPAL NOMINATION</b></p><hr><p><b>Transcript</b></p><p>PAKENHAM MUNICIPAL NOMINATION.</p><hr><p>A MEETING OF THE MUNICIPAL ELECTORS of the Township of Pakenham will be held in the Agricultural Hall, Pakenham Village, on</p><p>MONDAY, 30th, inst.,</p><p>at One o&#x27;clock, p.m., for the purpose of nominating persons to serve as Reeve and Councillors for the ensuing year.<br>In case a Poll be required said Poll will be opened in the several Polling subdivisions on Monday, the 6th day of January, 1913, at 9 o&#x27;clock, a.m.</p><p>JAMES CONNERY,<br>    Township Clerk.<br>Pakenham, December 16th, 1912.</p><hr><p><b>People:</b> James Connery</p><p><b>Places:</b> Pakenham</p><p><b>Events:</b> Pakenham Municipal Nomination Meeting 1912</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=293,348,148,143"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-45dc67b0-a348-48e2-9237-38279038de9f",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#11 · notice · conf 0.95</small></p><p><b>PROFESSIONAL CARDS — J. K. Kelly, M.D.</b></p><hr><p><b>Transcript</b></p><p>Molasses Meal</p><p>is selling well. Have you tried it yet? Horses and Cattle do well on it.<br>Flour and Feed as usual, and Breakfast Foods without end.</p><p>W. J. McDOWALL</p><p>Phone 79.</p><p>PROFESSIONAL CARDS.</p><p>J. K. Kelly, M.D.</p><p>PHYSICIAN, SURGEON AND ACCOUCHEUR.<br>In Office of the late Dr. Burns.</p><hr><p><b>People:</b> Dr. Burns, J. K. Kelly</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=145,356,148,201"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-649e4f46-4e5b-4678-bd00-5863d65977be",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#12 · notice · conf 0.97</small></p><p><b>TEACHER WANTED — School Section No. 12, Lanark</b></p><hr><p><b>Transcript</b></p><p>TEACHER WANTED,</p><hr><p>FOR SCHOOL SECTION, NO. 12, LANARK. A second or third class qualified certificate. State salary and experience. Apply to<br>ALF. JAMES, Sec.-Treas.,<br>Clayton.</p><hr><p><b>People:</b> Alf. James</p><p><b>Places:</b> Clayton, Lanark</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=441,384,148,62"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-70c8c186-abfa-4ed5-8890-1c329d260c62",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#13 · notice · conf 0.97</small></p><p><b>WANTED — Protestant Teacher, S.S. No. 10, Lanark</b></p><hr><p><b>Transcript</b></p><p>WANTED.</p><p>A PROTESTANT TEACHER FOR S.S. NO. 10, Lanark, for 1913, holding a second or third-class certificate. State salary. Apply to<br>JOHN RINTOUL, Sec.-treas.,<br>Galbraith, Ont.</p><hr><p><b>People:</b> John Rintoul</p><p><b>Places:</b> Galbraith, Lanark</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=441,437,148,62"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-6c557a45-692c-4763-b97f-f7b68f2d825c",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#14 · notice · conf 0.95</small></p><p><b>FARM PROPERTY FOR SALE</b></p><hr><p><b>Transcript</b></p><p>FARM PROPERTY FOR SALE.</p><hr><p>THE WEST HALF OF LOT NO. EIGHT IN the Eighth Concession of the Township of Huntley and the rear or west halves of lots numbers Six and Seven in the Eighth Concession of the Township of Huntley, containing 250 acres more or less. There are erected upon the property a good stone house and outbuildings.<br>The North-west Half of Lot No. 15, in the 7th Concession of the Township of Huntley A fine grazing farm.<br>The above properties will be sold cheap and on easy terms. Full particulars given upon application to</p><p>W. H. STAFFORD,<br>    Almonte.</p><hr><p><b>People:</b> W. H. Stafford</p><p><b>Places:</b> Almonte, Huntley</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=293,483,148,126"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-54ce61aa-600c-4159-a179-b398d2296b14",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#15 · notice · conf 0.93</small></p><p><b>CONCRETE PIPE — D. Moir</b></p><hr><p><b>Transcript</b></p><p>CONCRETE PIPE.</p><p>CONCRETE DRAIN AND CULVERT PIPES made by the undersigned can be had from Mr. Carnahan at his former residence, 9th line Ramsay. In Almonte inquire of Mr. Thos. James<br>D. MOIR.</p><hr><p><b>People:</b> D. Moir, Thos. James</p><p><b>Places:</b> Almonte</p><p><b>Products:</b> Building Materials</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=441,490,148,62"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-ed9beb12-5db7-4110-8aa1-6c2ce5082079",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#16 · notice · conf 0.97</small></p><p><b>STRAY CALF — Geo. Story</b></p><hr><p><b>Transcript</b></p><p>STRAY CALF.</p><p>STRAYED FROM THE PREMISES ABOUT 8th of October, one Steer Calf. Any information will be thankfully received.<br>GEO. STORY,<br>Kinburn,<br>R.M.D. No. 1.</p><hr><p><b>People:</b> Geo. Story</p><p><b>Places:</b> Kinburn</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=441,543,148,68"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-73a2c582-0ded-41b2-a6a8-8a3274be1ac8",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#17 · notice · conf 0.95</small></p><p><b>G. S. SADLER, M.D.</b></p><hr><p><b>Transcript</b></p><p>G. S. SADLER, M.D.</p><p>PHYSICIAN, SURGEON AND ACCOUCHEOR.<br>Office—Clayton, Ont.</p><hr><p><b>People:</b> G. S. Sadler</p><p><b>Places:</b> Clayton</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=145,548,148,42"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-f0695ba1-70d3-4c56-9027-c13ca2ef940c",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#18 · notice · conf 0.95</small></p><p><b>Dr. Metcalfe, M.D., C.M., M.C.P.S.</b></p><hr><p><b>Transcript</b></p><p>Dr. Metcalfe, M.D., C.M., M.C.P.S.</p><p>PHYSICIAN, SURGEON AND ACCOUCHEUR.<br>Ex-House Surgeon of the Kingston General and Maternity hospitals. Diseases of women and children and surgery a specialty.</p><hr><p><b>People:</b> Dr. Metcalfe</p><p><b>Orgs:</b> Kingston General Hospital</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=145,581,148,48"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-27448184-e602-4be7-963f-55a5c51d1b72",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#19 · notice · conf 0.97</small></p><p><b>BY-LAW — Repeal of Local Option By-Law, Almonte</b></p><hr><p><b>Transcript</b></p><p>BY-LAW.</p><hr><p>A By-law to repeal By-law Number 514 of the Corporation of the Town of Almonte passed the 3rd day of February, 1910, being a By-law to prohibit the sale of liquor by retail within the said town and commonly known as the Local Option By-Law.</p><hr><p>The Municipal Council of the Corporation of the Town of Almonte enacts as follows:<br>1.  By-law Number 514 of the said corporation passed the third day of February, 1910, entitled “A By-law to prohibit the sale by retail of spirituous, fermented or other manufactured liquor in the municipality of the town of Almonte” and commonly known as The Local Option By-law, shall be and the same is hereby repealed.<br>2.  This by-law shall come into force and take effect as from the first day of May next after the final passing thereof.<br>3.  The votes of the electors of the said municipality entitled to vote on this by-law shall be taken at the same hours on the same day and at the same places and by the same Deputy Returning Officers as for the annual election for the municipal council of the said municipality for the year 1913, namely, on Monday, the sixth day of January, A.D. 1913, commencing at the hour of nine o’clock in the forenoon and continuing until five o’clock in the afternoon.<br>In Polling Sub-division Number One of Ward One, at or near Peter Young’s planing mill on Union street with Robert W. Haydon as Deputy Returning Officer and Charles C. Combs as Poll Clerk;<br>In Polling Sub-division Number Two of Ward One, at or near William McCaughan’s blacksmith shop on Main street on Coleman’s Island, with John K. Darling as Deputy Returning Officer and A. W. Horton as Poll Clerk;<br>In Ward Number Two, at or near Robert Needham’s carriage shop on Martin street, with William S. Boyd as Deputy Returning Officer and James Moreau as Poll Clerk.<br>In Polling Sub-division Number One of Ward Three, at or near the Council Chamber in the town hall of said town with Francis Coulter as Deputy Returning Officer and John B. Illingworth as Poll Clerk;<br>In Polling Sub-division Number Two of Ward Three, at or near S. Jackson Lowe’s livery stable on Bridge street, with John Slattery as Deputy Returning Officer and Wm. McMunn as Poll Clerk.<br>4.  That on Thursday, the second day of January, 1913, at the hour of eleven o’clock in the forenoon, the Mayor of the said Corporation of the Town of Almonte will attend at the office of the Town Clerk of the said corporation in the said town hall for the purpose of appointing, in writing signed by himself, two persons to attend at the final summing up by the town clerk of the votes on this by-law, and one person to attend at each polling place on behalf of persons interested in and desirous of promoting the passing of this by-law and a like number on behalf of those interested in and desirous of opposing the passing of this By-law.<br>5.  That on the seventh day of January, A.D. 1913, at the hour of eleven o’clock in the forenoon at the said office of the Town Clerk of the Corporation of the Town of Almonte, the Clerk of the said Corporation will proceed to sum up the number of votes given for and against the By-law respectively.</p><p>Council Chamber, Almonte.</p><hr><p>NOTICE.<br>• Take notice that the above is a true copy of a proposed By-law which has been taken into consideration by the Municipal Council of the Corporation of the Town of Almonte, and which will be finally passed by the said Municipal Council (in the event of the assent of the electors being obtained thereto as provided by law) after one month from the first publication thereof in the Almonte Gazette, the date of such first publication being the 13th day of December, 1912; and that at the hour, day, and places therein fixed for taking the votes of the electors the polls will be held.</p><p>J. T. KIRKLAND,<br>• Clerk of the Town of Almonte.</p><hr><p><b>People:</b> Francis Coulter, J. T. Kirkland, James Moreau, John B. Illingworth, John K. Darling, John Slattery, Peter Young, Robert W. Haydon, William McCaughan, William S. Boyd, Wm. McMunn</p><p><b>Orgs:</b> Corporation of the Town of Almonte</p><p><b>Places:</b> Almonte</p><p><b>Events:</b> Almonte Local Option By-Law Vote 1913</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=293,600,148,1107"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-125a695c-a281-4cf7-b5ea-ac7be12d5352",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#20 · notice · conf 0.97</small></p><p><b>WANTED — Normal Trained Protestant Teacher, S.S. No. 4, Ramsay</b></p><hr><p><b>Transcript</b></p><p>NORMAL TRAINED PROTESTANT TEACHER for S.S. No. 4, Ramsay, for 1913. Apply, stating salary and experience, to<br>W.J. DRYNAN, Sec.,<br>Clayton, Ont.</p><hr><p><b>People:</b> W. J. Drynan</p><p><b>Places:</b> Clayton, Ramsay</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=441,618,148,45"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-4c1fcfa8-702a-44d7-b0cc-1d556889e94a",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#21 · notice · conf 0.95</small></p><p><b>J. F. DUNN, M.D.</b></p><hr><p><b>Transcript</b></p><p>J. F. DUNN, M.D.</p><p>PHYSICIAN AND SURGEON. OFFICE AND Residence in Dr. Lynch’s old stand—Corner Queen and Clyde Sts.</p><hr><p><b>People:</b> Dr. Lynch, J. F. Dunn</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=145,620,148,46"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-2580edd7-ca31-4e51-bae6-b64ec4ba4f2f",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#22 · notice · conf 0.97</small></p><p><b>WOOD WANTED — Town Hall, Almonte</b></p><hr><p><b>Transcript</b></p><p>WOOD WANTED.</p><p>TENDERS WILL BE RECEIVED UP TO DEC. 31st, 1912, for delivery at the Town Hall, Almonte, of 50 cords of Body Hard Wood, 4 feet long, and 10 cords of Soft Wood. Address tenders to<br>W. E. SCOTT.<br>Chr. Fire and Town Property Com.,<br>Box 316, Almonte.</p><hr><p><b>People:</b> W. E. Scott</p><p><b>Places:</b> Almonte</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=441,654,148,79"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-6b447923-0cf5-4b82-aa0f-9d7f442d1d01",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#23 · notice · conf 0.95</small></p><p><b>Dr. E. W. Oliver, Dentist</b></p><hr><p><b>Transcript</b></p><p>Dr. E. W. Oliver, Dentist.</p><p>GRADUATE ROYAL COLLEGE OF DENTAL Surgeons and Honor Graduate of Toronto University. Office—Two doors east of P.O</p><hr><p><b>People:</b> E. W. Oliver</p><p><b>Orgs:</b> Royal College of Dental Surgeons, Toronto University</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=145,658,148,43"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-60ab6321-0f56-453c-983d-3280dea292b2",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#24 · notice · conf 0.95</small></p><p><b>Dr. T. R. Paterson, Dentist</b></p><hr><p><b>Transcript</b></p><p>Dr. T. R. Paterson.</p><p>DENTIST, GRADUATE OF TORONTO UNIVERSITY and Royal College of Dental Surgeons of Ontario. Office—Opposite Post Office, Mill Street Almonte. Gas administered.</p><hr><p><b>People:</b> T. R. Paterson</p><p><b>Orgs:</b> Royal College of Dental Surgeons of Ontario</p><p><b>Places:</b> Almonte</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=145,692,148,48"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-5022231d-71d6-4551-a5c2-b0ef3fb6a8aa",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#25 · notice · conf 0.95</small></p><p><b>W. C. YOUNG, V.S.</b></p><hr><p><b>Transcript</b></p><p>W. C. YOUNG, V.S.</p><p>OFFICE OPPOSITE C. P. R. STATION.</p><hr><p><b>People:</b> W. C. Young</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=145,731,148,38"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-b3fdb718-91c7-41b7-a132-74d9a5c45c29",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#26 · article · conf 0.88</small></p><hr><p><b>Transcript</b></p><p>—Mrs. Patrick Kearney, a former Pembroke resident, passed away at Ottawa last week, interment taking place at the former place.</p><p>—Mrs. Clark and Miss Heron of Haley’s Station have gone to Berlin, Ont., where they will engage in Children’s Home and rescue work for girls.</p><p>Successful Teachers.</p><p>The following are the names of model students in the vicinity who were successful in qualifying for limited third class certificates at the Provincial Model Schoo</p><hr><p><b>People:</b> Dean Dewey, Miss Heron, Mrs. Clark, Mrs. Patrick Kearney, T. A. Low</p><p><b>Places:</b> Arnprior, Deseronto, Renfrew</p><p><b>Events:</b> Death of Mrs. Patrick Kearney</p>"
+                  "value": "<p><small>#30 · article · conf 0.97</small></p><p><b>Successful Teachers</b></p><hr><p><b>Transcript</b></p><p>Successful Teachers.</p><p>The following are the names of model students in the vicinity who were successful in qualifying for limited third class certificates at the Provincial Model School examinations: Sadie M. Chamney, Carleton Place; Irene Cardiff, Renfrew; Margaret Carmody, Pembroke; Edna E. Case, Pakenham; Katie B. Cole, Renfrew; Margaret A. Dowdall, Carleton Place; Margaret M. Devine, Cobden; Lottie M. Early, Castleford Stn.; Dorothy Gall, Algonquin Park; Mayme E. Grant, Beachburg; Lennox Gunter, Pembroke; Bertha L. Hodgins, Stittsville; John Houston, Fitzroy Harbour; Marguerite McKay, Carleton Place; Nellie Murphy, Renfrew; Robert M. McCormack, Arnprior; Adahlaide McCreary, Arnprior; Flora I. McGillivray, Arnprior; Edna Neil, Renfrew; Julia A. O’Neill, Kinburn; Barbara Piernuck, Northcote; Margaret Quigley, McDougall; Margaret I. Reeves, Eganville; Ella C. Robertson, White Lake; Jessie H. Ross, Beachburg; Mary Ryan, Killaloe; Maria Smith, Snake River; Jessie L. Smith, Kinburn; Clement B. Stevens, Arnprior; Annie V. Stewart, Renfrew; Catherine I. Stewart, Pakenham; Aurelia Tuffy, Cobden.</p><hr><p><b>People:</b> Catherine I. Stewart, Edna E. Case, Sadie M. Chamney</p><p><b>Places:</b> Arnprior, Carleton Place, Renfrew</p>"
                 },
                 {
                   "type": "TextualBody",
@@ -2073,19 +2181,46 @@
                 "selector": {
                   "type": "FragmentSelector",
                   "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=1034,734,148,183"
+                  "value": "xywh=1034,839,148,390"
                 }
               }
             },
             {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-c4b31547-1fb8-4506-873b-8c850f619bac",
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-0d52cf75-b383-4957-8290-edda7328012f",
               "type": "Annotation",
               "motivation": "commenting",
               "body": [
                 {
                   "type": "TextualBody",
                   "format": "text/html",
-                  "value": "<p><small>#27 · notice · conf 0.97</small></p><p><b>HOUND LOST — J. Dulmage</b></p><hr><p><b>Transcript</b></p><p>STRAYED FROM THE PREMISES OF THE Undersigned on Dec. 4th, a Black and Tan Hound. Answers to name of “Happy”. Any information of his whereabouts will be thankfully received. Any person found harboring him after this date will be liable to prosecution.<br>J. DULMAGE.</p><p>Almonte, Dec. 9th, 1912.</p><hr><p><b>People:</b> J. Dulmage</p><p><b>Places:</b> Almonte</p>"
+                  "value": "<p><small>#31 · classified_ad · conf 0.97</small></p><p><b>Harold Jamieson — Barrister and Solicitor</b></p><hr><p><b>Transcript</b></p><p>Harold Jamieson,</p><p>BARRISTER, SOLICITOR, NOTARY PUBLIC, etc., Almonte, Ontario. Office—Rooms for formerly occupied by A. Bell, C.E., opposite Post Office. Money to loan.</p><hr><hr><p><b>People:</b> Harold Jamieson</p><p><b>Places:</b> Almonte</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=145,847,148,907"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-7e954489-c98f-4019-a9d1-b31e60bd7380",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#32 · notice · conf 0.97</small></p><p><b>Nomination Meeting — Township of Ramsay</b></p><hr><p><b>Transcript</b></p><p>Nomination Meeting</p><hr><p>A MEETING OF THE MUNICIPAL ELECTORS of the<br>TOWNSHIP OF RAMSAY<br>will be held in the<br>Council Chamber, Almonte,<br>on<br>MONDAY, December 30th, 1912,<br>from 1 to 2 o’clock, p.m., for the purpose of nominating candidates for offices of Reeve and Councillors for the year 1913.<br>If more than the required number should be nominated, then Polls will be opened in each of the Polling sub-divisions, on<br>MONDAY, January 6th, 1913,<br>at nine o’clock in the forenoon and remain open until five o’clock in the afternoon and no longer.<br>T. A. THOMPSON,<br>Returning Officer.</p><hr><hr><p><b>People:</b> T. A. Thompson</p><p><b>Places:</b> Almonte, Ramsay</p><p><b>Events:</b> Ramsay Township Municipal Nomination Meeting</p>"
                 },
                 {
                   "type": "TextualBody",
@@ -2100,25 +2235,25 @@
                 "selector": {
                   "type": "FragmentSelector",
                   "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=441,742,148,64"
+                  "value": "xywh=441,881,148,873"
                 }
               }
             },
             {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-c7b5697c-e1c4-4cdb-861f-1e7697858aa9",
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-c5d8cbd6-42df-4020-847d-9c9584486a19",
               "type": "Annotation",
               "motivation": "commenting",
               "body": [
                 {
                   "type": "TextualBody",
                   "format": "text/html",
-                  "value": "<p><small>#28 · notice · conf 0.95</small></p><p><b>J. Lawson, Veterinary Surgeon</b></p><hr><p><b>Transcript</b></p><p>J. Lawson, Veterinary Surgeon,</p><p>has opened an office in Mr. S. J. Lowe’s Livery next to Davis House. All diseases of horses and cattle treated.</p><hr><p><b>People:</b> J. Lawson, S. J. Lowe</p>"
+                  "value": "<p><small>#33 · classified_ad · conf 0.97</small></p><p><b>Greig &amp; Greig — Barristers and Solicitors</b></p><hr><p><b>Transcript</b></p><p>Greig &amp; Greig.</p><p>BARRISTERS, SOLICITORS, CONVEYANCERS, &amp;c.,—TIMES Block, Almonte, Ontario. Money to loan.<br>Branch Office, Halliday Building, Pakenham. One of the firm will attend at the Pakenham Office every Wednesday.<br>Solicitors for the Union Bank of Canada, Pakenham.<br>Solicitors for Sterling Bank of Canada, Almonte.<br>A. M. GREIG. P. A. GREIG, B.A., LL.B.</p><hr><hr><p><b>People:</b> A. M. Greig, P. A. Greig</p><p><b>Orgs:</b> Sterling Bank of Canada, Union Bank of Canada</p><p><b>Places:</b> Almonte, Pakenham</p>"
                 },
                 {
                   "type": "TextualBody",
                   "format": "text/plain",
                   "purpose": "tagging",
-                  "value": "notice"
+                  "value": "classified_ad"
                 }
               ],
               "target": {
@@ -2127,100 +2262,19 @@
                 "selector": {
                   "type": "FragmentSelector",
                   "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=145,760,148,46"
+                  "value": "xywh=145,888,148,866"
                 }
               }
             },
             {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-8f58fb78-c189-4e0f-a7ee-7d15b2623f12",
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-282c2f63-2f18-4602-ae19-9fdb770100b6",
               "type": "Annotation",
               "motivation": "commenting",
               "body": [
                 {
                   "type": "TextualBody",
                   "format": "text/html",
-                  "value": "<p><small>#29 · notice · conf 0.95</small></p><p><b>W. H. Stafford, Barrister</b></p><hr><p><b>Transcript</b></p><p>W. H. Stafford,</p><p>BARRISTER, SOLICITOR, NOTARY PUBLIC and Conveyancer, &amp;c. Solicitor for the Bank of Montreal, Money to Loan at lowest rates of interest. Office—Bruce Block, Mill Street, Almonte, Ontario.</p><hr><p><b>People:</b> W. H. Stafford</p><p><b>Orgs:</b> Bank of Montreal</p><p><b>Places:</b> Almonte</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=145,798,148,54"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-77cd67b7-e620-4f94-be8c-e4bc85f66e5b",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#30 · notice · conf 0.97</small></p><p><b>NORTH LANARK RAILWAY CO&#x27;Y — Annual General Meeting</b></p><hr><p><b>Transcript</b></p><p>THE ANNUAL GENERAL MEETING OF Shareholders of the North Lanark Railway Co. will be held in the Town Hall, Arnprior, Ont. at one o’clock p.m., on Monday, the 30th of December, 1912, for election of Directors and the transaction of any other business that may come before the meeting.<br>J. A. McQUADE,<br>Secretary.</p><hr><p><b>People:</b> J. A. McQuade</p><p><b>Orgs:</b> North Lanark Railway Co.</p><p><b>Places:</b> Arnprior</p><p><b>Events:</b> North Lanark Railway Annual General Meeting 1912</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=441,815,148,71"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-35b5eadf-0066-41eb-b65e-89e622489eab",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#31 · notice · conf 0.95</small></p><p><b>Harold Jamieson, Barrister</b></p><hr><p><b>Transcript</b></p><p>Harold Jamieson,</p><p>BARRISTER, SOLICITOR, NOTARY PUBLIC, etc., Almonte, Ontario. Office—Rooms for formerly occupied by A. Bell, C.E., opposite Post Office. Money to loan.</p><hr><p><b>People:</b> A. Bell, Harold Jamieson</p><p><b>Places:</b> Almonte</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=145,843,148,50"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-17969799-2b8c-4c1d-96e0-4af90070cad4",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#32 · article · conf 0.95</small></p><p><b>STONE ROLLED ON HIM</b></p><hr><p><b>Transcript</b></p><p>the hotel was prevented from being burned down. Apart from Mr. Hart and Mr. James Neil, who was working in the house, no one was injured. Mr. Neil was taken to Pembroke hospital suffering from severe shock and some bad burns, while Mr. Hart, who was terribly burned, is being treated at home.</p><p>STONE ROLLED ON HIM.</p><p>At Huff &amp; Shae&#x27;s camp, at Christie&#x27;s Lake, one of the most miraculous accidents of the year happened and the mysterious John King was the principal actor in the stone rolling accident. John, one of the typical old railroad men who has had more miraculous escapes than any man in the district, and who appears to have a charmed life, was at work on the side of the big hill, when he noticed an immense rock, about seven feet in diameter, come tearing down directly in his path. John did not stand upon the ceremony of his going but he just went, and he hiked it as fast as his legs could carry him, hoping to gain a place of safety before the boulder could overtake him. He escaped it and he didn&#x27;t. He fell doubled up like a jack-knife and tumbled in between some rocks, and the immense stone came right on top of him wedging him in so tightly that it was thought at first every bone in his body would be broken. A gang of men were quickly on the scene, and with crow bars moved the stone, and John was taken out more dead than alive from all appearances. Mr. Huff examined him and determined he had at least a broken leg and most likely other injuries, and Dr. Dwyre, the company&#x27;s physician, was summoned. When the doctor got there he at first thought the leg was broken, but on closer examination found that it was an old break that deceived both the contractor and himself, one which had been badly set years ago, and more careful examination disclosed the fact that Mr. King only sustained a broken rib, although otherwise badly shaken up. It appears King has had hundreds of close calls, and has had<br>broken rib, although otherwise badly shaken up. It appears King has had hundreds of close calls, and has had his legs broken in many places and on many occasions, while he came through some very tight places, but he says this was about the closest call of all. On one occasion, which he tells in his own way, he had the quarter of forty tons run over his foot, and the only inconvenience he suffered was to have the big toe and the second one separated by a deep canal. The wheel of a car, weighing forty tons, run over his foot. King has worked in railroad construction work in almost every country in North America, and is a great railroad man. He is improving as nicely as could be expected.—Expositor.</p><hr><p><b>People:</b> Huff, John King</p><p><b>Places:</b> Christie&#x27;s Lake</p>"
+                  "value": "<p><small>#34 · article · conf 0.97</small></p><p><b>STONE ROLLED ON HIM</b></p><hr><p><b>Transcript</b></p><p>STONE ROLLED ON HIM.</p><p>At Huff &amp; Shae&#x27;s camp, at Christie&#x27;s Lake, one of the most miraculous accidents of the year happened and the mysterious John King was the principal actor in the stone rolling accident. John, one of the typical old railroad men who has had more miraculous escapes than any man in the district, and who appears to have a charmed life, was at work on the side of the big hill, when he noticed an immense rock, about seven feet in diameter, come tearing down directly in his path. John did not stand upon the ceremony of his going but he just went, and he hiked it as fast as his legs could carry him, hoping to gain a place of safety before the boulder could overtake him. He escaped it and he didn&#x27;t. He fell doubled up like a jack-knife and tumbled in between some rocks, and the immense stone came right on top of him wedging him in so tightly that it was thought at first every bone in his body would be broken. A gang of men were quickly on the scene, and with crow bars moved the stone, and John was taken out more dead than alive from all appearances. Mr. Huff examined him and determined he had at least a broken leg and most likely other injuries, and Dr. Dwyre, the company&#x27;s physician, was summoned. When the doctor got there he at first thought the leg was broken, but on closer examination found that it was an old break that deceived both the contractor and himself, one which had been badly set years ago, and more careful examination disclosed the fact that Mr. King only sustained a broken rib, although otherwise badly shaken up. It appears King has had hundreds of close calls, and has had<br>broken rib, although otherwise badly shaken up. It appears King has had hundreds of close calls, and has had his legs broken in many places and on many occasions, while he came through some very tight places, but he says this was about the closest call of all. On one occasion, which he tells in his own way, he had the quarter of forty tons run over his foot, and the only inconvenience he suffered was to have the big toe and the second one separated by a deep canal. The wheel of a car, weighing forty tons, run over his foot. King has worked in railroad construction work in almost every country in North America, and is a great railroad man. He is improving as nicely as could be expected.—Expositor.</p><hr><p><b>People:</b> Dr. Dwyre, John King, Mr. Huff</p><p><b>Places:</b> Christie&#x27;s Lake</p>"
                 },
                 {
                   "type": "TextualBody",
@@ -2235,19 +2289,73 @@
                 "selector": {
                   "type": "FragmentSelector",
                   "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=886,871,148,883"
+                  "value": "xywh=886,889,148,865"
                 }
               }
             },
             {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-e6b5a4be-55b5-4cec-9c79-5b4e8aafe503",
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-14712727-6d0d-4a51-b102-79d7a9bea8b4",
               "type": "Annotation",
               "motivation": "commenting",
               "body": [
                 {
                   "type": "TextualBody",
                   "format": "text/html",
-                  "value": "<p><small>#33 · notice · conf 0.95</small></p><p><b>Greig &amp; Greig, Barristers</b></p><hr><p><b>Transcript</b></p><p>Greig &amp; Greig.</p><p>BARRISTERS, SOLICITORS, CONVEYANCERS, &amp;c.,—TIMES Block, Almonte, Ontario. Money to loan.<br>Branch Office, Halliday Building, Pakenham. One of the firm will attend at the Pakenham Office every Wednesday.<br>Solicitors for the Union Bank of Canada, Pakenham.<br>Solicitors for Sterling Bank of Canada, Almonte.<br>A. M. GREIG. P. A. GREIG, B.A., LL.B.</p><hr><p><b>People:</b> A. M. Greig, P. A. Greig</p><p><b>Orgs:</b> Sterling Bank of Canada, Union Bank of Canada</p><p><b>Places:</b> Almonte, Pakenham</p>"
+                  "value": "<p><small>#35 · classified_ad · conf 0.97</small></p><p><b>J. H. Moore — Land Surveyor and Civil Engineer</b></p><hr><p><b>Transcript</b></p><p>J. H. Moore, A. M. Can. Soc. C. E.</p><p>ONTARIO AND DOMINION LAND SURVEYOR and Civil Engineer. Office—Shield’s Block, Smiths Falls, Ontario.</p><hr><hr><p><b>People:</b> J. H. Moore</p><p><b>Places:</b> Smith&#x27;s Falls</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=145,970,148,784"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-c4b55eee-1c0c-4926-bbdc-51225565f6ef",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#36 · classified_ad · conf 0.95</small></p><p><b>PATENTS — Ben. B. Pannett</b></p><hr><p><b>Transcript</b></p><p>PATENTS.</p><hr><p>FOR PARTICULARS ABOUT PATENTS write for booklet.</p><p>BEN. B. PANNETT,<br>Ottawa, Ont.,</p><hr><p><b>People:</b> Ben. B. Pannett</p><p><b>Places:</b> Ottawa</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=145,1006,148,67"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-524d44c4-c330-45cf-a71c-19f591959442",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#37 · notice · conf 0.97</small></p><p><b>Town of Almonte Municipal Election — Nominations Dec. 30</b></p><hr><p><b>Transcript</b></p><p>Town of Almonte<br>Municipal Election</p><hr><p>PUBLIC NOTICE IS HEREBY GIVEN THAT the nomination of candidates for the offices of<br>Mayor, Reeve and Councillors,<br>for the Town of Almonte, and of a<br>Public School Trustee<br>for each of the said Wards of the Town, and of<br>Electric Light Commissioners,<br>will be held in the<br>TOWN HALL<br>—ON—<br>Monday, Dec. 30th, ’12,<br>at the hour of<br>Half-past Seven o’clock in the Evening.<br>Should more than the required number of candidates be nominated for any or all of the aforementioned offices, polls will be opened in the necessary Polling subdivisions in said Town on<br>Monday, 6th day Jan.<br>1913,<br>at the usual places.<br>J. T. KIRKLAND,<br>Returning Officer.<br>Dated this 18th day of December, 1912.</p><hr><hr><p><b>People:</b> J. T. Kirkland</p><p><b>Places:</b> Almonte</p><p><b>Events:</b> Town of Almonte Municipal Nomination Meeting</p>"
                 },
                 {
                   "type": "TextualBody",
@@ -2262,19 +2370,19 @@
                 "selector": {
                   "type": "FragmentSelector",
                   "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=145,884,148,91"
+                  "value": "xywh=441,1054,148,700"
                 }
               }
             },
             {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-6ebb741f-a7e3-4ee8-a0ed-637f074b091e",
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-b8083ae7-a786-40e3-878e-d7b3ef1b8bfc",
               "type": "Annotation",
               "motivation": "commenting",
               "body": [
                 {
                   "type": "TextualBody",
                   "format": "text/html",
-                  "value": "<p><small>#34 · notice · conf 0.97</small></p><p><b>Nomination Meeting — Township of Ramsay</b></p><hr><p><b>Transcript</b></p><p>A MEETING OF THE MUNICIPAL ELECTORS of the<br>TOWNSHIP OF RAMSAY<br>will be held in the<br>Council Chamber, Almonte,<br>on<br>MONDAY, December 30th, 1912,<br>from 1 to 2 o’clock, p.m., for the purpose of nominating candidates for offices of Reeve and Councillors for the year 1913.<br>If more than the required number should be nominated, then Polls will be opened in each of the Polling sub-divisions, on<br>MONDAY, January 6th, 1913,<br>at nine o’clock in the forenoon and remain open until five o’clock in the afternoon and no longer.<br>T. A. THOMPSON,<br>Returning Officer.</p><hr><p><b>People:</b> T. A. Thompson</p><p><b>Places:</b> Almonte, Ramsay</p><p><b>Events:</b> Ramsay Township Nomination Meeting 1912</p>"
+                  "value": "<p><small>#38 · notice · conf 0.92</small></p><p><b>WOOD WANTED — Martin Street School Tender</b></p><hr><p><b>Transcript</b></p><p>WOOD WANTED.</p><hr><p>TENDERS WILL BE RECEIVED UP TO DEC. 30th for Fifty Cords of Hard Maple, four feet long, to be delivered at the Martin street school.<br>Also Ten Cords of Soft Wood, five cords to be delivered at Martin street and five at Church street school.<br>Must be good, sound, body wood. Address tenders to</p><p>JAMES McLEOD,<br>Sec.-Treas.,<br>Almonte.</p><hr><hr><p><b>People:</b> James McLeod</p><p><b>Places:</b> Almonte</p>"
                 },
                 {
                   "type": "TextualBody",
@@ -2289,19 +2397,46 @@
                 "selector": {
                   "type": "FragmentSelector",
                   "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=441,905,148,154"
+                  "value": "xywh=145,1073,148,681"
                 }
               }
             },
             {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-e20e7542-3438-49bc-aeca-db883fbd3896",
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-b9db2968-5320-4ed4-bbc8-90d32da042d6",
               "type": "Annotation",
               "motivation": "commenting",
               "body": [
                 {
                   "type": "TextualBody",
                   "format": "text/html",
-                  "value": "<p><small>#35 · article · conf 0.95</small></p><p><b>Successful Teachers</b></p><hr><p><b>Transcript</b></p><p>l examinations: Sadie M. Chamney, Carleton Place; Irene Cardiff, Renfrew; Margaret Carmody, Pembroke; Edna E. Case, Pakenham; Katie B. Cole, Renfrew; Margaret A. Dowdall, Carleton Place; Margaret M. Devine, Cobden; Lottie M. Early, Castleford Stn.; Dorothy Gall, Algonquin Park; Mayme E. Grant, Beachburg; Lennox Gunter, Pembroke; Bertha L. Hodgins, Stittsville; John Houston, Fitzroy Harbour; Marguerite McKay, Carleton Place; Nellie Murphy, Renfrew; Robert M. McCormack, Arnprior; Adahlaide McCreary, Arnprior; Flora I. McGillivray, Arnprior; Edna Neil, Renfrew; Julia A. O’Neill, Kinburn; Barbara Piernuck, Northcote; Margaret Quigley, McDougall; Margaret I. Reeves, Eganville; Ella C. Robertson, White Lake; Jessie H. Ross, Beachburg; Mary Ryan, Killaloe; Maria Smith, Snake River; Jessie L. Smith, Kinburn; Clement B. Stevens, Arnprior; Annie V. Stewart, Renfrew; Catherine I. Stewart, Pakenham; Aurelia Tuffy, Cobden.</p><hr><p><b>People:</b> Adahlaide McCreary, Annie V. Stewart, Aurelia Tuffy, Barbara Piernuck, Bertha L. Hodgins, Catherine I. Stewart, Clement B. Stevens, Dorothy Gall, Edna E. Case, Edna Neil, Ella C. Robertson, Flora I. McGillivray, Irene Cardiff, Jessie H. Ross, Jessie L. Smith, John Houston, Julia A. O&#x27;Neill, Katie B. Cole, Lennox Gunter, Lottie M. Early, Margaret A. Dowdall, Margaret Carmody, Margaret I. Reeves, Margaret M. Devine, Margaret Quigley, Marguerite McKay, Maria Smith, Mary Ryan, Mayme E. Grant, Nellie Murphy, Robert M. McCormack, Sadie M. Chamney</p><p><b>Places:</b> Arnprior, Carleton Place, Eganville, Kinburn, Pakenham, Pembroke, Renfrew</p>"
+                  "value": "<p><small>#39 · classified_ad · conf 0.95</small></p><p><b>A. F. Campbell, Arnprior — Shingles and Lumber</b></p><hr><p><b>Transcript</b></p><p>When you want the best value for your money, in</p><p>Shingles</p><p>or any kind of Dry Lumber, Rough or Dressed, Lath, End-Matched Hardwood Flooring, Doors, Mouldings, etc. etc.<br>TRY<br>A. F. CAMPBELL, ARNPRIOR<br>Box 455.<br>Highest Cash Price Paid for all Kinds of Lumber.</p><hr><p><b>People:</b> A. F. Campbell</p><p><b>Places:</b> Arnprior</p><p><b>Products:</b> Building Materials</p>"
+                },
+                {
+                  "type": "TextualBody",
+                  "format": "text/plain",
+                  "purpose": "tagging",
+                  "value": "classified_ad"
+                }
+              ],
+              "target": {
+                "type": "SpecificResource",
+                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
+                "selector": {
+                  "type": "FragmentSelector",
+                  "conformsTo": "http://www.w3.org/TR/media-frags/",
+                  "value": "xywh=145,1145,148,132"
+                }
+              }
+            },
+            {
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-c8a6fbb0-331a-40e9-9e4b-cdc9695e2f8a",
+              "type": "Annotation",
+              "motivation": "commenting",
+              "body": [
+                {
+                  "type": "TextualBody",
+                  "format": "text/html",
+                  "value": "<p><small>#40 · article · conf 0.95</small></p><p><b>Selling Shoddy</b></p><hr><p><b>Transcript</b></p><p>Selling Shoddy.</p><p>Four young men have been doing quite a business in the vicinity of Perth of late selling cloth which they guaranteed that a local tailor would make into suits after the new year at $6 per suit. Quite a quantity of goods was sold, the cloth proving to be nothing more than shoddy and their guarantee a fraud, the result being that a complaint was lodged with the chief of police. The quartette was rounded up and were told they would have to pay a license of $50 and appear before the magistrate the following day. They paid the money and left for parts unknown during the night.</p><hr><p><b>Places:</b> Perth</p>"
                 },
                 {
                   "type": "TextualBody",
@@ -2316,154 +2451,19 @@
                 "selector": {
                   "type": "FragmentSelector",
                   "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=1034,917,148,369"
+                  "value": "xywh=738,1163,148,142"
                 }
               }
             },
             {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-1e29545e-83bc-458d-9142-ed36c531bbe6",
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-eef031c7-3109-4e4e-aefd-95b0bd1e4abe",
               "type": "Annotation",
               "motivation": "commenting",
               "body": [
                 {
                   "type": "TextualBody",
                   "format": "text/html",
-                  "value": "<p><small>#36 · notice · conf 0.95</small></p><p><b>J. H. Moore, Ontario and Dominion Land Surveyor</b></p><hr><p><b>Transcript</b></p><p>J. H. Moore, A. M. Can. Soc. C. E.</p><p>ONTARIO AND DOMINION LAND SURVEYOR and Civil Engineer. Office—Shield’s Block, Smiths Falls, Ontario.</p><hr><p><b>People:</b> J. H. Moore</p><p><b>Places:</b> Smith&#x27;s Falls</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=145,966,148,45"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-d5b6d21b-cd02-4738-ae66-297f230947e9",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#37 · article · conf 0.95</small></p><p><b>Selling Shoddy</b></p><hr><p><b>Transcript</b></p><p>ten miles from there and in getting off before it had come to a stop he fell on the track. Before he could get clear of it one wheel passed over his foot. He was taken to the public hospital, where it was found necessary to amputate the ends of all the toes on the injured foot.</p><p>—Joseph D. Holley, aged 95, a survivor of the famous “battle of the Windmill,” fought near Prescott, Ont. in Nov. 1838, died recently at the home of his daughter in Syracuse. Mr. Holley was born, October 7th, 1817 near the town of Adams, where he spent most of his life. When he had just passed his 21st birthday, he joined the “Patriot Army” of 200 young men whose purpose was the invasion and liberation of Canada. Mr. Holley was among the 22 who were subsequently pardoned by Queen Victoria who had then been on</p><hr><p><b>Places:</b> Perth</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "article"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=738,966,148,190"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-6d3ca271-9ffd-458e-8b87-3179208dfef3",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#38 · notice · conf 0.90</small></p><p><b>PATENTS — Ben. B. Pannett</b></p><hr><p><b>Transcript</b></p><p>PATENTS.</p><hr><p>FOR PARTICULARS ABOUT PATENTS write for booklet.</p><p>BEN. B. PANNETT,<br>Ottawa, Ont.,</p><p>WOOD WANTED.</p><hr><p><b>People:</b> Ben. B. Pannett</p><p><b>Places:</b> Ottawa</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=145,1002,148,76"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-eeeaf05d-99a7-43f0-9394-945d7d473602",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#39 · notice · conf 0.95</small></p><p><b>WOOD WANTED — Martin Street School</b></p><hr><p><b>Transcript</b></p><p>TENDERS WILL BE RECEIVED UP TO DEC. 30th for Fifty Cords of Hard Maple, four feet long, to be delivered at the Martin street school.<br>Also Ten Cords of Soft Wood, five cords to be delivered at Martin street and five at Church street school.<br>Must be good, sound, body wood. Address tenders to</p><p>JAMES McLEOD,<br>Sec.-Treas.,<br>Almonte.</p><hr><p><b>People:</b> James McLeod</p><p><b>Places:</b> Almonte</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=145,1068,148,81"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-01944d27-d979-4354-b94d-eb1f450a3182",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#40 · notice · conf 0.97</small></p><p><b>Town of Almonte Municipal Election</b></p><hr><p><b>Transcript</b></p><p>PUBLIC NOTICE IS HEREBY GIVEN THAT the nomination of candidates for the offices of<br>Mayor, Reeve and Councillors,<br>for the Town of Almonte, and of a<br>Public School Trustee<br>for each of the said Wards of the Town, and of<br>Electric Light Commissioners,<br>will be held in the<br>TOWN HALL<br>—ON—<br>Monday, Dec. 30th, ’12,<br>at the hour of<br>Half-past Seven o’clock in the Evening.<br>Should more than the required number of candidates be nominated for any or all of the aforementioned offices, polls will be opened in the necessary Polling subdivisions in said Town on<br>Monday, 6th day Jan.<br>1913,<br>at the usual places.<br>J. T. KIRKLAND,<br>Returning Officer.<br>Dated this 18th day of December, 1912.</p><hr><p><b>People:</b> J. T. Kirkland</p><p><b>Places:</b> Almonte</p><p><b>Events:</b> Almonte Municipal Election 1913</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "notice"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=441,1114,148,263"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-8ebb9a2e-1532-401e-981b-f546a33c0023",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#41 · display_ad · conf 0.90</small></p><p><b>Shingles and Dry Lumber — A. F. Campbell, Arnprior</b></p><hr><p><b>Transcript</b></p><p>When you want the best value for your money, in</p><p>Shingles</p><p>or any kind of Dry Lumber, Rough or Dressed, Lath, End-Matched Hardwood Flooring, Doors, Mouldings, etc. etc.<br>TRY<br>A. F. CAMPBELL, ARNPRIOR<br>Box 4</p><hr><p><b>People:</b> A. F. Campbell</p><p><b>Places:</b> Arnprior</p><p><b>Products:</b> Building Materials</p>"
+                  "value": "<p><small>#41 · display_ad · conf 0.95</small></p><p><b>Scott&#x27;s Emulsion — For Boys and Girls</b></p><hr><p><b>Transcript</b></p><p>BOYS GIRLS</p><p>are under double strain—strength to live and learn and strength to grow—they must have nourishment—not overloaded stomachs, but concentrated nutriment to aid nature during the growing period.</p><p>The wonderful record of Scott’s Emulsion as a bodybuilder has been proved for three generations. It strengthens the bones, muscles and sinews; builds the body, creates energy and vigor; prevents and relieves colds and fortifies the lungs.</p><p>Millions of delicate and undeveloped children have been made strong, sturdy and hearty with Scott’s Emulsion.</p><p>Insist on [illegible]</p><p>Scott &amp; Bowne, Toronto, Ontario 12-[illegible]</p><hr><p><b>Orgs:</b> Scott &amp; Bowne</p><p><b>Places:</b> Toronto</p><p><b>Products:</b> Medicines and Remedies</p>"
                 },
                 {
                   "type": "TextualBody",
@@ -2478,19 +2478,19 @@
                 "selector": {
                   "type": "FragmentSelector",
                   "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=145,1141,148,108"
+                  "value": "xywh=1034,1239,148,515"
                 }
               }
             },
             {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-dc74677b-9198-4367-8785-ff7543f5065d",
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-bc7d6721-44c3-4175-a499-8333afbad912",
               "type": "Annotation",
               "motivation": "commenting",
               "body": [
                 {
                   "type": "TextualBody",
                   "format": "text/html",
-                  "value": "<p><small>#42 · display_ad · conf 0.88</small></p><p><b>Deafness Cannot be Cured — Hall&#x27;s Catarrh Cure</b></p><hr><p><b>Transcript</b></p><p>he throne only about a year.</p><p>Selling Shoddy.</p><p>Four young men have been doing quite a business in the vicinity of Perth of late selling cloth which they guaranteed that a local tailor would make into suits after the new year at $6 per suit. Quite a quantity of goods was sold, the cloth proving to be nothing more than shoddy and their guarantee a fraud, the result being that a complaint was lodged with the chief of police. The quartette was rounded up and were told they would have to pay a license of $50 and appear before the magistrate the following day. They paid the money and left for parts unknown during the night.</p><p>Deafness Cannot be Cured</p><p>by local applications, as they cannot reach the diseased portion of the ear. There is only one way to cure deafness, and that is by constitutional remedies. Deafness is caused by an inflamed condition of the mucous lining of the Eustachian Tube. When this tube is inflamed you have a rumbling sound or imperfect hearing, and when it is entirely closed, Deafness is the result; and unless the inflammation can be taken out and this tube restored to its normal condition, hearing will be destroyed forever; nine cases out of ten are caused by Catarrh, which is nothing but an inflamed condition of the mucous surfaces.</p><p>We will give One Hundred Dollars for any case of Deafness (caused by catarrh) that cannot be cured by Hall’s Catarrh Cure. Send for circulars, free.</p><p>F.J. CHENEY &amp; CO, Toledo, O.<br>Sold by Druggists. 75c.<br>Take Hall’s Family Pills for constipation.<br>F. J. CHENEY &amp; CO, Toledo, O.<br>Sold By Druggists. 75c.<br>Take Hall’s Family Pills for constipation.</p><hr><p><b>Orgs:</b> F. J. Cheney &amp; Co.</p><p><b>Places:</b> Toledo</p><p><b>Products:</b> Medicines and Remedies</p>"
+                  "value": "<p><small>#42 · display_ad · inset · conf 0.88</small></p><p><b>MOLESOFF — Mole and Wart Remover</b></p><hr><p><b>Transcript</b></p><p>MOLES AND WARTS</p><p>Removed with MOLESOFF, without pain or danger, no matter how large or how far raised above the surface of the skin. And they will never return and no trace or scar will be left. MOLESOFF is applied directly to the MOLE or WART, which entirely disappears in about six days, killing the germ and leaving the skin smooth and natural.</p><p>MOLESOFF is put up only in One Dollar bottles.</p><p>Each bottle is forwarded postpaid on receipt of price, is neatly packed in a plain case, accompanied by full directions, and contains enough remedy to remove eight or ten ordinary MOLES or WARTS. We sell MOLESOFF under a positive GUARANTEE if it fails to remove your MOLE or WART, we will [illegible — lines cut off at bottom]</p><hr><p><b>Products:</b> Medicines and Remedies</p>"
                 },
                 {
                   "type": "TextualBody",
@@ -2505,19 +2505,19 @@
                 "selector": {
                   "type": "FragmentSelector",
                   "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=738,1156,148,598"
+                  "value": "xywh=126,1278,314,393"
                 }
               }
             },
             {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-b2c78d1d-4fa4-4aa2-98bb-784861a99f8d",
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-9c9b9057-073d-4de2-9d71-e3be74de9d7a",
               "type": "Annotation",
               "motivation": "commenting",
               "body": [
                 {
                   "type": "TextualBody",
                   "format": "text/html",
-                  "value": "<p><small>#43 · display_ad · inset · conf 0.88</small></p><p><b>MOLES AND WARTS — MOLESOFF</b></p><hr><p><b>Transcript</b></p><p>MOLES AND WARTS</p><p>Removed with MOLESOFF, without pain or danger, no matter how large or how far raised above the surface of the skin. And they will never return and no trace or scar will be left. MOLESOFF is applied directly to the MOLE or WART, which entirely disappears in about six days, killing the germ and leaving the skin smooth and natural.</p><p>MOLESOFF is put up only in One Dollar bottles.</p><p>Each bottle is forwarded postpaid on receipt of price, is neatly packed in a plain case, accompanied by full directions, and contains enough remedy to remove eight or ten ordinary MOLES or WARTS. We sell MOLESOFF under a positive GUARANTEE if it fails to remove your MOLE or WART, we will [illegible — lines cut off at bottom]</p><hr><p><b>Products:</b> Medicines and Remedies</p>"
+                  "value": "<p><small>#43 · display_ad · conf 0.92</small></p><p><b>Deafness Cannot be Cured — Hall&#x27;s Catarrh Cure</b></p><hr><p><b>Transcript</b></p><p>Deafness Cannot be Cured</p><p>by local applications, as they cannot reach the diseased portion of the ear. There is only one way to cure deafness, and that is by constitutional remedies. Deafness is caused by an inflamed condition of the mucous lining of the Eustachian Tube. When this tube is inflamed you have a rumbling sound or imperfect hearing, and when it is entirely closed, Deafness is the result; and unless the inflammation can be taken out and this tube restored to its normal condition, hearing will be destroyed forever; nine cases out of ten are caused by Catarrh, which is nothing but an inflamed condition of the mucous surfaces.</p><p>We will give One Hundred Dollars for any case of Deafness (caused by catarrh) that cannot be cured by Hall’s Catarrh Cure. Send for circulars, free.</p><p>F.J. CHENEY &amp; CO, Toledo, O.<br>Sold by Druggists. 75c.<br>Take Hall’s Family Pills for constipation.<br>F. J. CHENEY &amp; CO, Toledo, O.<br>Sold By Druggists. 75c.<br>Take Hall’s Family Pills for constipation.</p><hr><p><b>Orgs:</b> F. J. Cheney &amp; Co.</p><p><b>Places:</b> Toledo</p><p><b>Products:</b> Medicines and Remedies</p>"
                 },
                 {
                   "type": "TextualBody",
@@ -2532,19 +2532,19 @@
                 "selector": {
                   "type": "FragmentSelector",
                   "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=126,1249,314,421"
+                  "value": "xywh=738,1306,148,448"
                 }
               }
             },
             {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-fca3c57d-46f2-45ed-ae05-d20b9804032b",
+              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-a44e77ae-603b-4dc3-9d3a-0a03ec6ef8cf",
               "type": "Annotation",
               "motivation": "commenting",
               "body": [
                 {
                   "type": "TextualBody",
                   "format": "text/html",
-                  "value": "<p><small>#44 · display_ad · conf 0.95</small></p><p><b>Scott&#x27;s Emulsion — BOYS GIRLS</b></p><hr><p><b>Transcript</b></p><p>BOYS GIRLS</p><p>are under double strain—strength to live and learn and strength to grow—they must have nourishment—not overloaded stomachs, but concentrated nutriment to aid nature during the growing period.</p><p>The wonderful record of Scott’s Emulsion as a bodybuilder has been proved for three generations. It strengthens the bones, muscles and sinews; builds the body, creates energy and vigor; prevents and relieves colds and fortifies the lungs.</p><p>Millions of delicate and undeveloped children have been made strong, sturdy and hearty with Scott’s Emulsion.</p><p>Insist on [illegible]</p><p>Scott &amp; Bowne, Toronto, Ontario 12-[illegible]</p><hr><p><b>Orgs:</b> Scott &amp; Bowne</p><p><b>Places:</b> Toronto</p><p><b>Products:</b> Medicines and Remedies</p>"
+                  "value": "<p><small>#44 · display_ad · conf 0.95</small></p><p><b>BEECHAM&#x27;S PILLS</b></p><hr><p><b>Transcript</b></p><p>Take in Time<br>the proper help to rid your system of the poisonous bile which causes headaches, flatulence and discomfort. By common consent the proper—and the best—help is<br>BEECHAM’S<br>PILLS<br>Sold everywhere. In boxes, 25c.</p><hr><p><b>Products:</b> Medicines and Remedies</p>"
                 },
                 {
                   "type": "TextualBody",
@@ -2559,34 +2559,7 @@
                 "selector": {
                   "type": "FragmentSelector",
                   "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=1034,1264,148,490"
-                }
-              }
-            },
-            {
-              "id": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3/anno-pass2/item-392fee70-9f3c-490c-b69b-312602b424e6",
-              "type": "Annotation",
-              "motivation": "commenting",
-              "body": [
-                {
-                  "type": "TextualBody",
-                  "format": "text/html",
-                  "value": "<p><small>#45 · display_ad · conf 0.95</small></p><p><b>BEECHAM&#x27;S PILLS</b></p><hr><p><b>Transcript</b></p><p>Take in Time<br>the proper help to rid your system of the poisonous bile which causes headaches, flatulence and discomfort. By common consent the proper—and the best—help is<br>BEECHAM’S<br>PILLS<br>Sold everywhere. In boxes, 25c.</p><hr><p><b>Products:</b> Medicines and Remedies</p>"
-                },
-                {
-                  "type": "TextualBody",
-                  "format": "text/plain",
-                  "purpose": "tagging",
-                  "value": "display_ad"
-                }
-              ],
-              "target": {
-                "type": "SpecificResource",
-                "source": "https://mcmniintstdio.surfaceimpression.com/MVTM/preview/iiif/1912-12-27/manifest.json/canvas/p3",
-                "selector": {
-                  "type": "FragmentSelector",
-                  "conformsTo": "http://www.w3.org/TR/media-frags/",
-                  "value": "xywh=441,1368,148,386"
+                  "value": "xywh=441,1373,148,381"
                 }
               }
             }
