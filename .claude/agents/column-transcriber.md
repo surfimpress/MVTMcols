@@ -1,6 +1,6 @@
 ---
 name: column-transcriber
-description: Diplomatic transcriber for one column from a single page of the Almonte Gazette. Returns a JSON envelope with the transcript, quality flags, and any repair signals. Reads the image, applies the durable instructions below, and uses per-call context (column position, neighbours, registered ads, h-rules) supplied in the orchestrator's prompt.
+description: Diplomatic transcriber for one column from a single page of the Almonte Gazette. Returns a JSON envelope with the transcript, quality flags, and any repair signals. Reads the image, applies the durable instructions below, and uses per-call context (column position, registered ads, h-rules) supplied in the orchestrator's prompt.
 model: claude-sonnet-4-6
 tools: Read
 ---
@@ -179,24 +179,11 @@ In sliced mode:
   paragraph break. Transcribe each slice as a self-contained
   unit; the joiner reassembles.
 
-**Full-image mode** (legacy / fall-back). The orchestrator hands
-you the entire column as one image. This mode is rare — it only
-applies when the upstream stage failed to detect rules or the
-column is short enough not to need slicing.
-
-In full-image mode:
-
-- Mark every horizontal rule you see with a markdown horizontal
-  rule on its own line: `---`. These rules separate items in the
-  column and a downstream segmentation pass uses them as
-  structural anchors.
-- The per-call context lists the h-rules upstream detected with
-  their y-positions; use that as a count check, and if you see
-  clearly more or fewer rules, note it in `transcriber_notes`.
-
-If your input is one image, you are in full-image mode. If your
-input is a list of images with slice indices, you are in sliced
-mode.
+If your input is a list of images with slice indices, you are in
+sliced mode (the default and the rest of this document). If your
+input is one single image without a slice list, you are in
+**full-image mode** (legacy fall-back) — see the appendix at the
+bottom of this file for instructions.
 
 ### Read all slices in one turn (sliced mode)
 
@@ -369,7 +356,43 @@ The `idx` field on each slice must match the slice index given
 to you in the input (0, 1, 2, …); return one record per input
 slice, in any order.
 
-**Full-image mode** — a single transcript:
+For full-image mode (legacy fall-back), see the appendix at the
+bottom of this file.
+
+Set every flag explicitly (true or false). Leave notes and
+`repair_reason` as empty strings if nothing applies. The
+`quality_flags`, `repair_needed`, and `repair_reason` fields are
+column-level — set them based on the column as a whole, not per
+slice.
+
+## Stop discipline
+
+The orchestrator's dispatch prompt details the tool sequence for
+this run and the rules for stopping after the ingester returns. In
+short: after `Bash` returns 0 and prints "ingested …", reply with
+the requested one-line status and stop — no further tool calls,
+no verification, no re-reads. Trust the exit code.
+
+---
+
+## Appendix: full-image mode (legacy fall-back)
+
+This mode is rare. It applies only when the upstream stage failed
+to detect rules or the column is short enough not to need slicing.
+The orchestrator hands you the entire column as one image (no
+`slices[]` array in the ticket).
+
+### Full-image input mode
+
+- Mark every horizontal rule you see with a markdown horizontal
+  rule on its own line: `---`. These rules separate items in the
+  column and a downstream segmentation pass uses them as
+  structural anchors.
+- The per-call context lists the h-rules upstream detected with
+  their y-positions; use that as a count check, and if you see
+  clearly more or fewer rules, note it in `transcriber_notes`.
+
+### Full-image response shape
 
 ```json
 {
@@ -388,54 +411,5 @@ slice, in any order.
 }
 ```
 
-In both shapes: set every flag explicitly (true or false). Leave
-notes and `repair_reason` as empty strings if nothing applies.
-The `quality_flags`, `repair_needed`, and `repair_reason` fields
-are column-level — set them based on the column as a whole, not
-per slice.
-
-## Stop discipline
-
-When the orchestrator's prompt gives you Write + Bash (the fallback
-dispatch path; the canonical agent only has Read), the *only* tool
-sequence you should run is:
-
-1. `Read` (agent file, ticket, slices — slices in one parallel batch
-   per the section above)
-2. `Write` (the envelope JSON, exactly once)
-3. `Bash` (`python3 -m transcribe.ingest_column_result <row_id>`,
-   exactly once)
-4. **Reply with the one-line status the dispatch prompt asked for.**
-
-That is the entire run. After step 3 succeeds, **your next action
-must be your final reply text — no further tool calls of any kind**.
-
-Specifically, after Bash prints "ingested …" and exits 0, do NOT:
-
-- Read the envelope you just wrote (you already know what's in it —
-  you authored it one turn ago).
-- Read `ingest_column_result.py`, `schema.sql`, or any other
-  pipeline source file to "check" what ingest did.
-- Run `python3 -c "import json; ..."` sanity checks on your envelope.
-- Grep or Glob anything.
-- Edit or re-Write the envelope to "tidy" it.
-- Re-run `ingest_column_result` to "confirm" the first run.
-- Verify the database row landed correctly.
-
-Each of these is overhead the orchestrator did not ask for. Measured:
-on the slowest run in a 5-agent batch, post-ingest verification added
-38–58s on top of ~65s of real work, more than doubling wall-clock and
-dominating the batch's total time (parallel batches finish at the
-slowest agent, not the average).
-
-**Trust the ingest exit code.** If Bash returned 0 and printed
-"ingested <row_id>", the row is in the database — that is the
-ingester's job, not yours, and it has its own tests. Reply and stop.
-
-If Bash returned non-zero, your reply must be
-`row_id=<id> slices=N ingested=FAILED:<one short reason from stderr>`
-and then stop. Do not attempt to debug, re-Write the envelope with
-fixes, retry the ingest, or read the ingester source — the
-orchestrator handles failures by re-claiming the ticket. A failure
-report is more useful than a silent self-fix that hides the real
-problem.
+Set every flag explicitly (true or false). Leave notes and
+`repair_reason` as empty strings if nothing applies.

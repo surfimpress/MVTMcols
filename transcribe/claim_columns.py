@@ -134,21 +134,6 @@ def build_ticket(*,
     col_left = boundary_positions[col_idx]
     col_right = boundary_positions[col_idx + 1]
 
-    # Neighbours: small slivers from these may bleed into the image.
-    neighbours = {"left": None, "right": None}
-    if col_idx > 0:
-        neighbours["left"] = {
-            "idx": col_idx - 1,
-            "left_pct": boundary_positions[col_idx - 1],
-            "right_pct": boundary_positions[col_idx],
-        }
-    if col_idx < num_columns - 1:
-        neighbours["right"] = {
-            "idx": col_idx + 1,
-            "left_pct": boundary_positions[col_idx + 1],
-            "right_pct": boundary_positions[col_idx + 2],
-        }
-
     # H-rules in this column. The detector tags each rule with col_idx
     # already, but we also clip any that nominally span this column.
     h_in_col = []
@@ -193,7 +178,6 @@ def build_ticket(*,
             "right_pct": col_right,
             "width_pct": round(col_right - col_left, 2),
         },
-        "neighbours": neighbours,
         "h_rules_in_column": h_in_col,
         "ads_in_column": ads_in_col,
     }
@@ -218,7 +202,6 @@ def build_ticket(*,
         "row_id": row_id,
         "image_path": image_path_rel,
         "image_sha256": image_sha256,
-        "agent_file_path": AGENT_FILE_REL,
         "prompt_hash": _db.prompt_hash(prompt_template_text, context),
         "slices": slices,
     })

@@ -79,6 +79,29 @@ The orchestrator's job is to glue them together.
           `row_id=<row_id> slices=<N> ingested=<ok|FAILED>`
         If ingest failed, include the ingester's error message
         on a second line so the orchestrator can act on it.
+
+     That is the entire run. After step 6 succeeds (Bash returns 0
+     and prints "ingested …"), your next action MUST be your final
+     reply text — no further tool calls of any kind. Specifically,
+     do NOT: re-Read the envelope you just wrote; Read
+     `ingest_column_result.py`, `schema.sql`, or any pipeline source
+     file to "check" what ingest did; run `python3 -c "..."` sanity
+     checks; Grep or Glob anything; Edit or re-Write the envelope to
+     "tidy" it; re-run the ingester to "confirm"; verify the DB row.
+
+     Trust the ingest exit code. If Bash returned 0 and printed
+     "ingested <row_id>", the row is in the database — that is the
+     ingester's job, not yours, and it has its own tests. Reply and
+     stop. Measured: post-ingest verification has added 38–58s on
+     top of ~65s of real work in past batches, more than doubling
+     wall-clock and dominating the batch's total time (parallel
+     batches finish at the slowest agent, not the average).
+
+     If Bash returned non-zero, your reply must be
+     `row_id=<id> slices=N ingested=FAILED:<one short reason from stderr>`
+     and then stop. Do not attempt to debug, re-Write the envelope
+     with fixes, retry the ingest, or read the ingester source — the
+     orchestrator handles failures by re-claiming the ticket.
      ```
    - Send batches of around 4–8 columns in parallel; the slowest
      column dominates wall-clock, so larger fan-out is mostly
