@@ -90,14 +90,27 @@ def _build_page_shaped_bitmap(doc, page):
     matching the legacy fitz render's clipping behaviour.
     """
     imgs = page.get_images(full=True)
-    if len(imgs) != 1:
+    # Some source PDFs bundle the 1-bit JBIG2 scan alongside derived
+    # raster previews (low-res JPEG thumb + mid-res JPEG) — observed in
+    # 1860s, 1870s, 1969, 1970 issues. Empirically these are 3-image
+    # pages where exactly one image is bpc=1; the others are 8-bit
+    # JPEGs at coarser resolutions. The fast path can still use the
+    # 1-bit one. Earlier-era PDFs that contain a single 1-bit image
+    # remain handled by the same branch (len(bilevel) == 1).
+    bilevel = []
+    for img in imgs:
+        xref = img[0]
+        try:
+            info = doc.extract_image(xref)
+        except Exception:
+            continue
+        if info.get("bpc") == 1:
+            bilevel.append((img, info))
+    if len(bilevel) != 1:
         return None
-    xref = imgs[0][0]
-    info = doc.extract_image(xref)
-    if info.get("bpc") != 1:
-        return None
+    img_entry, info = bilevel[0]
     try:
-        bbox = page.get_image_bbox(imgs[0])
+        bbox = page.get_image_bbox(img_entry)
     except Exception:
         return None
     if bbox.width <= 0 or bbox.height <= 0:

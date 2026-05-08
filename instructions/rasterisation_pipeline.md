@@ -12,19 +12,31 @@ does. This document is the *where* and *how*.
 
 ## Source format
 
-Empirically observed in the corpus:
+Empirically observed in the corpus (2026-05-08 sweep across all
+on-disk issues + per-decade PDF probe):
 
-- 1946 / 1948 / 1902: single 1-bit JBIG2-encoded page image, ~510 PPI
-  native (e.g. 1902-01-17: 4290×5979).
-- 1923-06-22: single 1-bit JBIG2, 4287×5996 native (~520 PPI).
-- 1922-06-30: same shape (single 1-bit image).
-- Later eras (post-1948): unverified; the auto-gate falls back to the
-  legacy fitz path automatically when the page isn't single-image
-  bilevel.
+**One-image PDFs** — single 1-bit PNG scan, ~510 PPI native.
+Examples: 1880-01-02, 1890-01-03, 1900-01-05, 1902-01-17 (4290×5979),
+1910-01-07, 1920-01-02, 1922-06-30, 1923-06-22 (4287×5996), 1930-01-03,
+1940-01-04, 1946-01-03, 1947-10-02, 1948-01-01, 1950-01-05, 1960-01-07,
+1980-01-03. Gate-compatible.
 
-The fast path's gate condition is therefore: `len(page.get_images(full=True)) == 1`
-AND `doc.extract_image(xref)['bpc'] == 1`. JBIG2-specifically isn't
-required — any 1-bit single-image page qualifies.
+**Three-image PDFs** — bundle a low-res JPEG preview + 1-bit PNG scan
++ mid-res JPEG derivative. The 1-bit image is in the PDF's resource
+dictionary but the content stream draws only the JPEGs. Observed in
+1861-06-28, 1870-01-08, 1969-05-29, 1970-01-08. Without a fast-path
+extension, MuPDF renders the JPEG → RGB output.
+
+There is **no era boundary**. Whether a given page is one-image or
+three-image varies issue-by-issue across the whole corpus.
+
+The fast path's gate condition is: among `page.get_images(full=True)`,
+**exactly one image** has `bpc == 1`, and that image has a placement
+rect. JBIG2-specifically isn't required — any 1-bit image qualifies.
+For three-image PDFs the 1-bit is unplaced (no rect) and the gate
+declines, falling back to the legacy fitz path. Extending to the
+unplaced-1-bit case (using a co-bundled JPEG's bbox as a proxy) is a
+follow-up; cropping/aspect must be verified to line up.
 
 ## Producers — what gets written to disk
 
@@ -190,6 +202,17 @@ batch processing.
 
 ## Update history
 
+- **2026-05-08 — Gate widened to "one bpc=1 image among any number".**
+  Earlier doc claimed 1948 was on the bilevel fast path; sweep across
+  on-disk artefacts found half the corpus on the legacy RGB path
+  including 1947, 1948, 1969, 1970 etc. Probe revealed two source
+  formats: 1-image (gate-compatible) and 3-image (1-bit unplaced).
+  `_build_page_shaped_bitmap` now scans all images for bpc=1 instead
+  of requiring `len(imgs) == 1`. Net-zero for 1-image PDFs (still
+  pass), net-zero for 3-image PDFs (1-bit is unplaced → `get_image_bbox`
+  raises → falls back to legacy as before). Backlog of 1-image issues
+  processed before the original fast path landed (~early May 2026)
+  remains on disk in RGB form — to be re-cut, not auto-fixed.
 - **2026-05-02 — `page_display.avif` artefact added.** Resolves the
   open browser-memory issue. Writer in `process_issue.py` produces a
   150-DPI mode='L' AVIF q=70 alongside `page_raw.png`. Viewers
