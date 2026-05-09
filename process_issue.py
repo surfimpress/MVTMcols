@@ -1116,6 +1116,85 @@ def _atomic_write_json(path, data):
     os.replace(tmp, path)
 
 
+def _refresh_disk_stats_if_stale(columns_dir, max_age_s=300):
+    """Write columns/disk_stats.json with the current columns/ tree size
+    and the host disk free/total — but only if the cached file is older
+    than `max_age_s` seconds.
+
+    `du -sk columns/` takes ~17s on a ~95 GB tree, so we don't want to
+    pay it on every per-issue write. The 5-minute TTL gives the viewer
+    near-real-time numbers without flooding the batch loop.
+
+    Tolerant of missing/corrupt cache and `du` failures — disk stats
+    are a nice-to-have, never worth aborting the index rebuild for.
+    """
+    import shutil as _sh
+    import subprocess as _sp
+    import datetime as _dt
+    stats_path = os.path.join(columns_dir, "disk_stats.json")
+    try:
+        age = time.time() - os.path.getmtime(stats_path)
+        if age < max_age_s:
+            return
+    except FileNotFoundError:
+        pass
+    # `du` walks the tree; if a recut worker renames an issue dir mid-walk,
+    # `du` exits non-zero. It still prints a cumulative size on stdout for
+    # what it did stat — accept that as a slight underestimate rather than
+    # treating the whole call as a failure.
+    columns_size_bytes = None
+    try:
+        proc = _sp.run(
+            ["du", "-sk", columns_dir],
+            capture_output=True, text=True, timeout=120,
+        )
+        first = (proc.stdout or "").split(None, 1)
+        if first:
+            kb = int(first[0])
+            columns_size_bytes = kb * 1024
+    except Exception:
+        columns_size_bytes = None
+
+    # If the new measurement failed entirely, preserve the previous value
+    # so a transient race doesn't render the viewer's stats as "?". Stamp
+    # the value as stale so we still know it's not fresh.
+    prev_columns_size = None
+    prev_columns_stale_since = None
+    if columns_size_bytes is None:
+        try:
+            with open(stats_path) as f:
+                prev = json.load(f)
+            prev_columns_size = prev.get("columns_size_bytes")
+            prev_columns_stale_since = (
+                prev.get("columns_size_stale_since")
+                or prev.get("updated_at")
+            )
+        except Exception:
+            pass
+
+    try:
+        usage = _sh.disk_usage(columns_dir)
+        disk_total = usage.total
+        disk_free = usage.free
+    except Exception:
+        disk_total = None
+        disk_free = None
+    payload = {
+        "columns_size_bytes": (
+            columns_size_bytes if columns_size_bytes is not None else prev_columns_size
+        ),
+        "disk_total_bytes": disk_total,
+        "disk_free_bytes": disk_free,
+        "updated_at": _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+    }
+    if columns_size_bytes is None and prev_columns_stale_since:
+        payload["columns_size_stale_since"] = prev_columns_stale_since
+    try:
+        _atomic_write_json(stats_path, payload)
+    except Exception:
+        pass
+
+
 def _build_issue_payload(conn, year, month, day, columns_dir):
     """One issue's full payload — pages + ads + summary fields.
 
@@ -1315,6 +1394,7 @@ def _rebuild_index_and_ads(db_path, columns_dir, write_legacy=False):
 
     _atomic_write_json(os.path.join(columns_dir, "index.json"), index_payload)
     _atomic_write_json(os.path.join(columns_dir, "ads.json"), ads_payload)
+    _refresh_disk_stats_if_stale(columns_dir)
 
     if write_legacy:
         _atomic_write_json(

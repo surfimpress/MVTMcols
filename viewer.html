@@ -26,16 +26,18 @@ body { font-family: -apple-system, system-ui, sans-serif; background: #f5f5f0; c
 }
 .decade-header { font-size: 1.1em; color: #555; margin-top: 6px; padding-top: 12px; border-top: 1px solid #ddd; }
 .decade-header:first-child { border-top: none; padding-top: 0; margin-top: 0; }
-.decade-controls { margin: 2px 0 10px 0; font-size: 0.85em; }
+.decade-controls { margin: 2px 0 10px 0; font-size: 0.85em; display: flex; align-items: baseline; gap: 12px; }
+.decade-progress { color: #555; font-variant-numeric: tabular-nums; }
 .global-expand { margin-top: 6px; font-size: 0.85em; }
 .year-block { margin-bottom: 8px; }
 .year-block > summary { background: #efece5; font-size: 1em; }
 .year-block > summary:hover { background: #e5e2db; }
-/* Years with >40 processed issues get a slightly darker summary so
-   progress is visible at a glance from the decade view. Threshold is
-   nominal — a "handful" sample run is <10, a full year is 50-300+. */
-.year-block.well-progressed > summary { background: #d8d2c0; }
-.year-block.well-progressed > summary:hover { background: #cec7b3; }
+/* Year-summary background is shaded continuously by completion
+   fraction (white → #d8d2c0). The actual colour is set inline as a
+   CSS variable on each summary; the rule below just consumes it.
+   Border on the surrounding <details> stays visible because we shade
+   only the inner summary, not the rounded-rect frame. */
+.year-block.shaded > summary { background: var(--year-bg); }
 /* Empty placeholder years (no issues processed yet) — light grey,
    close to white, dim text so they recede visually but stay
    navigable as a complete year list. */
@@ -150,14 +152,28 @@ const indexByDir = new Map();
 // Issues with no transcribe footprint are simply absent.
 let transcribeStatus = {};
 
+// Bytes → "94.7 GB" / "812 MB" / "5.3 KB". Single decimal at GB/MB scale,
+// no decimals for KB/B. Returns '?' for null/undefined so the stats
+// line stays well-formed when disk_stats.json is missing or partial.
+function fmtBytes(n) {
+    if (n == null || !isFinite(n)) return '?';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0;
+    let v = n;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    const dp = (i >= 2) ? 1 : 0;
+    return `${v.toFixed(dp)} ${units[i]}`;
+}
+
 async function init() {
     try {
-        // index.json is required; transcribe_status.json is optional —
-        // a fresh checkout that hasn't run the transcribe pipeline yet
-        // simply shows no badges. Run them in parallel.
-        const [resp, statusResp] = await Promise.all([
+        // index.json is required; transcribe_status.json + disk_stats.json
+        // are optional — a fresh checkout / pre-stats batch simply omits
+        // the corresponding fields. Run them in parallel.
+        const [resp, statusResp, diskResp] = await Promise.all([
             fetch(BASE + '/index.json'),
             fetch(BASE + '/transcribe_status.json').catch(() => null),
+            fetch(BASE + '/disk_stats.json').catch(() => null),
         ]);
         const data = await resp.json();
         indexIssues = data.issues || [];
@@ -167,6 +183,10 @@ async function init() {
                 const sd = await statusResp.json();
                 transcribeStatus = sd.issues || {};
             } catch (_) { transcribeStatus = {}; }
+        }
+        let diskStats = null;
+        if (diskResp && diskResp.ok) {
+            try { diskStats = await diskResp.json(); } catch (_) {}
         }
 
         document.getElementById('loading').style.display = 'none';
@@ -179,9 +199,14 @@ async function init() {
         const totalPages = data.total_gazette_pages || 0;
         const processed = data.total_processed || 0;
         const pct = data.pct_done || 0;
-        const statsLine = totalPages > 0
-            ? `${processed} of ${totalPages.toLocaleString()} pages processed (${pct}%) \u2022 ${indexIssues.length} issues \u2022 ${totalCols} columns \u2022 ${totalAds} ads`
-            : `${indexIssues.length} issues \u2022 ${totalCols} columns \u2022 ${totalAds} ads`;
+        let statsLine = totalPages > 0
+            ? `${processed.toLocaleString()} of ${totalPages.toLocaleString()} pages processed (${pct}%) \u2022 ${indexIssues.length.toLocaleString()} issues \u2022 ${totalCols.toLocaleString()} columns \u2022 ${totalAds.toLocaleString()} ads`
+            : `${indexIssues.length.toLocaleString()} issues \u2022 ${totalCols.toLocaleString()} columns \u2022 ${totalAds.toLocaleString()} ads`;
+        if (diskStats) {
+            statsLine += ` \u2022 columns ${fmtBytes(diskStats.columns_size_bytes)}`
+                + ` \u2022 disk ${fmtBytes(diskStats.disk_free_bytes)} free`
+                + (diskStats.disk_total_bytes ? ` of ${fmtBytes(diskStats.disk_total_bytes)}` : '');
+        }
         document.getElementById('totals').textContent = statsLine;
     } catch (e) {
         document.getElementById('loading').textContent = 'Failed to load data: ' + e.message;
@@ -231,20 +256,47 @@ const CORPUS_END_YEAR = 2007;
 // once cutting quality for the 1980s+ is addressed.)
 const PUBLICATION_GAP_YEARS = new Set([1864]);
 
-// Per-year override of the "well-progressed" issue threshold (default 40).
-// In the 1860s the paper itself often published far fewer than 40
-// issues per year, so the at-a-glance dark-bar should kick in once
-// the year's actually-published total is reached. Counts verified
-// 2026-05-07 against distinct issue-dates in `files`. Add entries as
-// other sparse years surface; the default of 40 handles full years.
-const YEAR_PROGRESS_THRESHOLDS = {
-    1861: 24,
-    1862: 20,
-    1863: 3,
-    1865: 5,
-    1866: 2,
-    1867: 14,
+// Total registered issues per year, from `data/mvtm.db` (file_type='pdf'
+// distinct month/day per year). The corpus is fixed — these counts are
+// baked in rather than fetched. Generated 2026-05-09; total = 7087
+// across 145 years. Years missing from this map are either publication
+// gaps (1864) or have no PDFs registered (1987 — modern scans were
+// deleted; expected to repopulate). For unmapped years the viewer
+// falls back to the "not yet processed" placeholder, no progress text.
+const YEAR_TOTALS = {
+    1861: 24, 1862: 20, 1863: 3, 1865: 5, 1866: 2, 1867: 14, 1868: 50, 1869: 51,
+    1870: 49, 1871: 50, 1872: 53, 1873: 52, 1874: 51, 1875: 52, 1876: 52,
+    1877: 52, 1878: 52, 1879: 51, 1880: 52, 1881: 49, 1882: 52, 1883: 52,
+    1884: 51, 1885: 50, 1886: 53, 1887: 49, 1888: 52, 1889: 53, 1890: 46,
+    1891: 51, 1892: 52, 1893: 51, 1894: 51, 1895: 51, 1896: 49, 1897: 52,
+    1898: 50, 1899: 50, 1900: 50, 1901: 51, 1902: 51, 1903: 52, 1904: 53,
+    1905: 52, 1906: 51, 1907: 51, 1908: 53, 1909: 52, 1910: 50, 1911: 51,
+    1912: 50, 1913: 51, 1914: 51, 1915: 52, 1916: 48, 1917: 50, 1918: 52,
+    1919: 52, 1920: 53, 1921: 49, 1922: 51, 1923: 50, 1924: 52, 1925: 54,
+    1926: 48, 1927: 51, 1928: 49, 1929: 50, 1930: 46, 1931: 49, 1932: 39,
+    1933: 50, 1934: 52, 1935: 49, 1936: 49, 1937: 51, 1938: 47, 1939: 45,
+    1940: 54, 1941: 49, 1942: 51, 1943: 51, 1944: 50, 1945: 45, 1946: 51,
+    1947: 45, 1948: 52, 1949: 50, 1950: 52, 1951: 50, 1952: 51, 1953: 49,
+    1954: 51, 1955: 51, 1956: 51, 1957: 48, 1958: 49, 1959: 51, 1960: 50,
+    1961: 48, 1962: 49, 1963: 51, 1964: 50, 1965: 50, 1966: 50, 1967: 49,
+    1968: 54, 1969: 50, 1970: 50, 1971: 47, 1972: 49, 1973: 49, 1974: 50,
+    1975: 51, 1976: 50, 1977: 50, 1978: 49, 1979: 49, 1980: 54, 1981: 51,
+    1982: 51, 1983: 52, 1984: 51, 1985: 52, 1986: 48, 1988: 50, 1989: 51,
+    1990: 51, 1991: 52, 1992: 51, 1993: 52, 1994: 51, 1995: 51, 1996: 51,
+    1997: 52, 1998: 50, 1999: 51, 2000: 51, 2001: 51, 2002: 52, 2003: 52,
+    2004: 51, 2005: 52, 2006: 52, 2007: 52,
 };
+
+// Linear interpolation from white (#ffffff) to the existing
+// "well-progressed" tone (#d8d2c0 = rgb(216,210,192)). Returns an
+// `rgb(...)` string suitable for inline-style background. pct in [0,1].
+function shadeForFraction(pct) {
+    const p = Math.max(0, Math.min(1, pct));
+    const r = Math.round(255 - 39 * p);
+    const g = Math.round(255 - 45 * p);
+    const b = Math.round(255 - 63 * p);
+    return `rgb(${r},${g},${b})`;
+}
 
 function renderList(issues) {
     const el = document.getElementById('issue-list');
@@ -254,6 +306,20 @@ function renderList(issues) {
     for (const issue of issues) {
         if (!byYear.has(issue.year)) byYear.set(issue.year, []);
         byYear.get(issue.year).push(issue);
+    }
+
+    // Pre-compute per-decade rollups so the decade-controls row can show
+    // an at-a-glance "<processed>/<total> issues" indicator. Only counts
+    // years that exist in YEAR_TOTALS — gap years and unmapped years
+    // contribute nothing on either side.
+    const decadeProgress = new Map();
+    for (const [yStr, total] of Object.entries(YEAR_TOTALS)) {
+        const y = +yStr;
+        const dec = Math.floor(y / 10) * 10;
+        const cur = decadeProgress.get(dec) || { processed: 0, total: 0 };
+        cur.total += total;
+        cur.processed += (byYear.get(y) || []).length;
+        decadeProgress.set(dec, cur);
     }
 
     // Walk the full corpus span. Each year emits a <details> block —
@@ -266,10 +332,15 @@ function renderList(issues) {
         if (decade !== lastDecade) {
             lastDecade = decade;
             parts.push(`<h3 class="decade-header" id="decade-${decade}">${decade}</h3>`);
+            const dp = decadeProgress.get(decade);
+            const decadeStat = dp && dp.total > 0
+                ? `<span class="decade-progress">${dp.processed} / ${dp.total} issues</span>`
+                : '';
             parts.push(`<div class="decade-controls expand-ctrl">
-                <a onclick="setDecadeYearsOpen(${decade}, true)">expand all</a>
+                ${decadeStat}
+                <span><a onclick="setDecadeYearsOpen(${decade}, true)">expand all</a>
                 |
-                <a onclick="setDecadeYearsOpen(${decade}, false)">close all</a>
+                <a onclick="setDecadeYearsOpen(${decade}, false)">close all</a></span>
             </div>`);
         }
 
@@ -281,8 +352,14 @@ function renderList(issues) {
             continue;
         }
 
-        const yearIssues = byYear.get(year);
-        if (!yearIssues || yearIssues.length === 0) {
+        const yearIssues = byYear.get(year) || [];
+        const nIssues = yearIssues.length;
+        const total = YEAR_TOTALS[year];
+
+        // Years not in YEAR_TOTALS (e.g. 1987 — modern scans deleted)
+        // fall back to the legacy "not yet processed" placeholder so we
+        // don't display "0/0" or invent a denominator.
+        if (total === undefined && nIssues === 0) {
             parts.push(`<details class="year-block empty" data-decade="${decade}" data-year="${year}">
                 <summary>${year} \u2014 not yet processed</summary>
                 <div class="year-content"></div>
@@ -290,10 +367,8 @@ function renderList(issues) {
             continue;
         }
 
-        const nIssues = yearIssues.length;
         const nCols = yearIssues.reduce((s, i) => s + (i.n_cols || 0), 0);
         const nAds = yearIssues.reduce((s, i) => s + (i.n_ads || 0), 0);
-        const issueWord = nIssues === 1 ? 'issue' : 'issues';
         const cards = yearIssues.map(issue => {
             const date = `${issue.year}-${String(issue.month).padStart(2,'0')}-${String(issue.day).padStart(2,'0')}`;
             const lastRan = issue.last_ran ? new Date(issue.last_ran + 'Z').toLocaleString() : '';
@@ -308,10 +383,16 @@ function renderList(issues) {
                 </div>
             </div>`;
         }).join('');
-        const threshold = YEAR_PROGRESS_THRESHOLDS[year] ?? 40;
-        const wellProgressed = nIssues >= threshold ? ' well-progressed' : '';
-        parts.push(`<details class="year-block${wellProgressed}" data-decade="${decade}" data-year="${year}">
-            <summary>${year} \u2014 ${nIssues} ${issueWord}, ${nCols} columns, ${nAds} ads</summary>
+
+        // Continuous shading: white at 0/total → #d8d2c0 at total/total.
+        // Inline style so the gradient overrides the default summary
+        // background. Border on the rounded-rect <details> stays
+        // visible because we shade only the inner summary.
+        const pct = total > 0 ? nIssues / total : 0;
+        const bg = shadeForFraction(pct);
+        const denom = total !== undefined ? total : nIssues;
+        parts.push(`<details class="year-block shaded" data-decade="${decade}" data-year="${year}" style="--year-bg: ${bg};">
+            <summary>${year} \u2014 ${nIssues}/${denom} issues, ${nCols} columns, ${nAds} ads</summary>
             <div class="year-content">${cards}</div>
         </details>`);
     }
