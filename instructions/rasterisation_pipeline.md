@@ -205,6 +205,19 @@ batch processing.
 
 ## Update history
 
+- **2026-05-08 — Polarity fix for unplaced-bilevel ImageMasks.** The
+  unplaced-bilevel cluster (1861-1870, 1962-1970) stores the bilevel
+  master as `/Subtype /Image /ImageMask true /Filter /CCITTFaxDecode`,
+  not as a regular bilevel image. PDF mask convention is opposite to
+  bitmap convention (0 = paint, 1 = transparent), so PyMuPDF's
+  `extract_image` returns bytes that are inverted vs what a
+  page-bitmap consumer expects. `_build_page_shaped_bitmap` now
+  inspects `xref_get_key(xref, "ImageMask")` and inverts the bitmap
+  when it's true. Verified: 1862-06-13 white_frac jumped from 0.31
+  (inverted) to 0.91 (normal); 1962-12-20 from inverted to 0.90;
+  1875-12-31 (placed, no ImageMask) unchanged at 0.87. The 15 1862
+  issues re-cut by `/tmp/recut_1862.py` between this fix and the
+  preceding one have inverted output on disk and need re-cutting.
 - **2026-05-08 — Gate widened to handle unplaced bilevel via JPEG-sibling
   bbox.** Diagnosis: every PDF in the corpus was assembled by `TCPDF
   6.0.012` in a single 2014-06-11/12 batch. At the edges of the run

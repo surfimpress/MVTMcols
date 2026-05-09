@@ -109,6 +109,23 @@ def _build_page_shaped_bitmap(doc, page):
     if len(bilevel) != 1:
         return None
     img_entry, info = bilevel[0]
+    bilevel_xref = img_entry[0]
+    # Detect PDF /ImageMask=true on the bilevel xref. PDF mask convention
+    # is opposite to bitmap convention: in a mask, 0 = paint (ink) and
+    # 1 = transparent, while extract_image transcodes the raw bits to a
+    # PNG where 0 = black and 1 = white. Empirically observed on the
+    # unplaced-bilevel cluster (1861-1870, 1962-1970): the bytes need
+    # to be inverted before being treated as a normal page bitmap. The
+    # placed bilevel cluster (1875+) uses regular images (no /ImageMask),
+    # so this flag stays false there.
+    is_image_mask = False
+    try:
+        v = doc.xref_get_key(bilevel_xref, "ImageMask")
+        if v and v[0] == "bool" and v[1] == "true":
+            is_image_mask = True
+    except Exception:
+        pass
+
     bbox = None
     try:
         b = page.get_image_bbox(img_entry)
@@ -156,12 +173,18 @@ def _build_page_shaped_bitmap(doc, page):
         bbox = sibling_bbox
 
     import io
-    from PIL import Image
+    from PIL import Image, ImageOps
     # PyMuPDF transcodes JBIG2 to a mode=L PNG with only {0, 255}
     # values. Threshold at 128 to recover strict bilevel mode='1'.
     im = Image.open(io.BytesIO(info["image"]))
     if im.mode != "1":
         im = im.convert("L").point(lambda v: 255 if v >= 128 else 0, mode="1")
+    if is_image_mask:
+        # Flip mask convention (0=paint, 1=transparent) into bitmap
+        # convention (1=white, 0=black). See ImageMask comment above.
+        im = ImageOps.invert(im.convert("L")).point(
+            lambda v: 255 if v >= 128 else 0, mode="1"
+        )
 
     native_w, native_h = im.size
     # Native PPI from the bitmap's actual extent in points. Use width
