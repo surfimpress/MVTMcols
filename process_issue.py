@@ -1108,9 +1108,17 @@ def process_issue(year, month, day, output_dir=None, db_path="data/mvtm.db",
 
 
 def _atomic_write_json(path, data):
-    """tmp + rename to avoid half-written reads. Creates parent dirs."""
+    """tmp + rename to avoid half-written reads. Creates parent dirs.
+
+    The tmp filename is suffixed with pid + monotonic_ns so that
+    concurrent writers (e.g. a parallel pool of process_issue workers
+    each rebuilding the global columns/ads.json) cannot collide on
+    columns/ads.json.tmp — the previous fixed-suffix scheme caused
+    one worker's rename to fail with FileNotFoundError when another
+    worker's rename fired first.
+    """
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
+    tmp = f"{path}.tmp.{os.getpid()}.{time.monotonic_ns()}"
     with open(tmp, "w") as f:
         json.dump(data, f, separators=(",", ":"))
     os.replace(tmp, path)
