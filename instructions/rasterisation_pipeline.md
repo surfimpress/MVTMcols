@@ -31,12 +31,15 @@ There is **no era boundary**. Whether a given page is one-image or
 three-image varies issue-by-issue across the whole corpus.
 
 The fast path's gate condition is: among `page.get_images(full=True)`,
-**exactly one image** has `bpc == 1`, and that image has a placement
-rect. JBIG2-specifically isn't required — any 1-bit image qualifies.
-For three-image PDFs the 1-bit is unplaced (no rect) and the gate
-declines, falling back to the legacy fitz path. Extending to the
-unplaced-1-bit case (using a co-bundled JPEG's bbox as a proxy) is a
-follow-up; cropping/aspect must be verified to line up.
+**exactly one image** has `bpc == 1`. JBIG2-specifically isn't
+required — any 1-bit image qualifies. For three-image PDFs the 1-bit
+master is unplaced (no rect); the gate borrows the placed JPEG
+sibling's bbox (they're co-rendered renditions of the same scan and
+share the master's content extent) and pastes the bilevel at its own
+native PPI inside that bbox. Borrowing requires all placed siblings
+to agree on a single bbox to within 0.5 pt, otherwise the gate
+declines. With this extension every probed PDF in the corpus
+(1861-1980, sampled per-decade) now engages the fast path.
 
 ## Producers — what gets written to disk
 
@@ -202,6 +205,22 @@ batch processing.
 
 ## Update history
 
+- **2026-05-08 — Gate widened to handle unplaced bilevel via JPEG-sibling
+  bbox.** Diagnosis: every PDF in the corpus was assembled by `TCPDF
+  6.0.012` in a single 2014-06-11/12 batch. At the edges of the run
+  (1861-1870, 1962-1970) the source-scan profile differed and the
+  TCPDF assembler orphaned the bilevel master in the catalog while
+  placing two JPEG previews — `get_image_bbox` returns the invalid
+  sentinel `Rect(1, 1, -1, -1)` for the bilevel xref. The bilevel
+  bytes themselves are intact. `_build_page_shaped_bitmap` now falls
+  back to a placed JPEG sibling's bbox in this case (the JPEG
+  previews are co-renditions of the same scan and share its content
+  extent), pasting the bilevel at its own native PPI inside the
+  borrowed bbox. All placed siblings must agree to within 0.5 pt.
+  Verified visually on 1862-06-13 and 1962-12-20 (mastheads correctly
+  positioned, dates match). Sweep of 18 per-decade probes 1861-1980:
+  all 7 previously-failing PDFs now engage; all 12 previously-working
+  PDFs unchanged.
 - **2026-05-08 — Gate widened to "one bpc=1 image among any number".**
   Earlier doc claimed 1948 was on the bilevel fast path; sweep across
   on-disk artefacts found half the corpus on the legacy RGB path

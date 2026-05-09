@@ -109,12 +109,51 @@ def _build_page_shaped_bitmap(doc, page):
     if len(bilevel) != 1:
         return None
     img_entry, info = bilevel[0]
+    bbox = None
     try:
-        bbox = page.get_image_bbox(img_entry)
+        b = page.get_image_bbox(img_entry)
+        if b.width > 0 and b.height > 0:
+            bbox = b
     except Exception:
-        return None
-    if bbox.width <= 0 or bbox.height <= 0:
-        return None
+        pass
+
+    if bbox is None:
+        # Bilevel image is in the catalog but not referenced in the
+        # content stream — observed in the 1861-1870 and 1962-1970
+        # sub-batches of the 2014 TCPDF digitization run. Both clusters
+        # have the same 3-image format: one unplaced bilevel master plus
+        # two placed JPEG previews of the same scan. The bilevel bytes
+        # are intact; only the page placement is missing. Borrow a
+        # placed sibling's bbox — JPEG previews of the same scan share
+        # the master's content extent, so pasting the bilevel at the
+        # JPEG bbox (at the bilevel's own native PPI) reconstructs the
+        # page-rect coordinate system identically to the placed-bilevel
+        # case. Require all placed siblings to agree to within 0.5 pt
+        # so we don't borrow an unrelated overlay.
+        sibling_bbox = None
+        for img in imgs:
+            if img is img_entry:
+                continue
+            try:
+                sb = page.get_image_bbox(img)
+            except Exception:
+                continue
+            if sb.width <= 0 or sb.height <= 0:
+                continue
+            if sibling_bbox is None:
+                sibling_bbox = sb
+                continue
+            if not (
+                abs(sb.x0 - sibling_bbox.x0) < 0.5
+                and abs(sb.y0 - sibling_bbox.y0) < 0.5
+                and abs(sb.x1 - sibling_bbox.x1) < 0.5
+                and abs(sb.y1 - sibling_bbox.y1) < 0.5
+            ):
+                # Ambiguous — don't guess.
+                return None
+        if sibling_bbox is None:
+            return None
+        bbox = sibling_bbox
 
     import io
     from PIL import Image
