@@ -1,21 +1,32 @@
 #!/bin/bash
-# Back up one year's columns/<YYYY>-MM-DD/ trees to Google Drive via
-# rclone, with checksum verification.
+# Back up one year's columns/<YYYY>-MM-DD/ trees to Google Drive.
 #
-# Prerequisites (one-time):
-#   brew install rclone
-#   rclone config           # add a Drive remote named exactly `mvtm`
+# This is now a thin loop over tools/backup_issue.sh — each issue is
+# its own independent rclone sync + check + DB UPSERT. If any one
+# issue fails the others still run; the script exits non-zero at the
+# end so caller scripts (archive_year.sh --with-backup) can see the
+# failure.
+#
+# Why per-issue grain (vs the previous whole-year manifest):
+#   - One bad issue doesn't poison a whole year's DB landing.
+#   - Partial progress survives interruption — every verified issue
+#     has its row before we move on.
+#   - Same primitive can be invoked by the cutter pipeline as soon
+#     as a single issue finishes cutting.
 #
 # Usage:
 #   ./tools/backup_year.sh 1969
 #
 # Output:
-#   logs/drive_backup_<YEAR>_<stamp>.log     — rclone sync log
-#   logs/drive_check_<YEAR>_<stamp>.log      — rclone check log
-#   logs/drive_backup_<YEAR>.manifest.json   — audit record
+#   logs/drive_backup_<YYYY-MM-DD>.log    — per-issue rclone log
+#   logs/drive_backup_<YEAR>.summary.json — year roll-up
+#   data/mvtm.db: one issue_backups row per issue with md5_verified=1
 #
-# Re-running is safe: rclone sync skips files already on Drive whose
-# md5 matches the local file. Resume after interruption is automatic.
+# Exit codes:
+#   0  every local issue dir backed up + verified + recorded
+#   2  bad usage
+#   4  no local issue dirs match
+#   7  one or more issues failed (see summary for details)
 
 set -u
 set -o pipefail
@@ -31,123 +42,81 @@ if ! [[ "$YEAR" =~ ^[0-9]{4}$ ]]; then
     exit 2
 fi
 
-REMOTE="mvtm:MVTM-corpus-backup/columns"
-SRC="columns"
-INCLUDE="${YEAR}-*/**"
-STAMP="$(date +%Y%m%d-%H%M%S)"
-SYNC_LOG="logs/drive_backup_${YEAR}_${STAMP}.log"
-CHECK_LOG="logs/drive_check_${YEAR}_${STAMP}.log"
-MANIFEST="logs/drive_backup_${YEAR}.manifest.json"
+cd "$(dirname "$0")/.."
 
-cd "$(dirname "$0")/.."   # project root
+ISSUE_SH="tools/backup_issue.sh"
+SUMMARY="logs/drive_backup_${YEAR}.summary.json"
+mkdir -p logs
 
-# ─── Sanity checks ────────────────────────────────────────────────────
-if ! command -v rclone >/dev/null 2>&1; then
-    echo "error: rclone not on PATH (brew install rclone)" >&2
+if [[ ! -x "$ISSUE_SH" ]]; then
+    echo "error: $ISSUE_SH missing or not executable" >&2
     exit 3
 fi
 
-if ! rclone listremotes 2>/dev/null | grep -qx 'mvtm:'; then
-    echo "error: rclone remote 'mvtm:' not configured." >&2
-    echo "       run: rclone config   (add a Google Drive remote named 'mvtm')" >&2
-    exit 3
-fi
-
-# Match the inclusion pattern locally to count what we're about to push
-# (avoids surprising the user with an unexpectedly large or empty year).
 shopt -s nullglob
-issue_dirs=( "$SRC"/${YEAR}-*/ )
+issue_dirs=( "columns/${YEAR}-"*/ )
 shopt -u nullglob
 if [[ ${#issue_dirs[@]} -eq 0 ]]; then
-    echo "error: no local issue dirs match $SRC/${YEAR}-* — nothing to back up" >&2
+    echo "error: no local columns/${YEAR}-* dirs — nothing to back up" >&2
     exit 4
 fi
 
-n_files=$(find "${issue_dirs[@]}" -type f | wc -l | tr -d ' ')
-bytes_local=$(du -sk "${issue_dirs[@]}" | awk '{s+=$1} END {print s*1024}')
-
 echo "──────────────────────────────────────────────────────────────"
-echo "  year:        $YEAR"
-echo "  issues:      ${#issue_dirs[@]}"
-echo "  files:       $n_files"
-echo "  bytes:       $bytes_local  ($(numfmt --to=iec-i --suffix=B "$bytes_local" 2>/dev/null || echo "$bytes_local bytes"))"
-echo "  destination: $REMOTE/"
-echo "  sync log:    $SYNC_LOG"
-echo "  check log:   $CHECK_LOG"
+echo "  year:     $YEAR"
+echo "  issues:   ${#issue_dirs[@]} local issue dirs"
+echo "  per-issue logs: logs/drive_backup_${YEAR}-MM-DD.log"
+echo "  summary:  $SUMMARY"
 echo "──────────────────────────────────────────────────────────────"
-echo
 
-# ─── Sync ─────────────────────────────────────────────────────────────
-# --checksum:   compare md5, not mod-time/size — defends against the
-#               failure mode the user hit with the Drive web UI.
-# --transfers / --checkers: comfortably under Drive's per-account
-#               concurrency budget.
-echo "$(date -Iseconds)  starting rclone sync"
-if ! rclone sync --checksum \
-        --progress --transfers 8 --checkers 16 \
-        --log-file "$SYNC_LOG" --log-level INFO \
-        "$SRC/" "$REMOTE/" \
-        --include "$INCLUDE"; then
-    echo "rclone sync FAILED — see $SYNC_LOG" >&2
-    # write a manifest noting the failure so the trail isn't silent
-    cat >"$MANIFEST" <<EOF
-{
-  "year": $YEAR,
-  "issues": ${#issue_dirs[@]},
-  "files": $n_files,
-  "bytes_local": $bytes_local,
-  "rclone_sync_log": "$SYNC_LOG",
-  "rclone_check_log": null,
-  "verified": false,
-  "verified_at": null,
-  "error": "sync_failed"
+started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+ok_issues=()
+fail_issues=()
+
+for d in "${issue_dirs[@]}"; do
+    issue="$(basename "${d%/}")"
+    if "$ISSUE_SH" "$issue"; then
+        ok_issues+=( "$issue" )
+    else
+        fail_issues+=( "$issue" )
+        echo "  ↑ continuing past failure on $issue" >&2
+    fi
+done
+
+ended_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# JSON-quote helper (issue dates are date-shaped so this is safe).
+join_json() {
+    local first=1
+    printf '['
+    for x in "$@"; do
+        [[ $first -eq 1 ]] || printf ','
+        printf '"%s"' "$x"
+        first=0
+    done
+    printf ']'
 }
-EOF
-    exit 5
-fi
 
-# ─── Verify ───────────────────────────────────────────────────────────
-# --one-way: every local file must exist on Drive with matching md5;
-#            extra files on Drive are tolerated.
-echo "$(date -Iseconds)  starting rclone check"
-if ! rclone check --checksum --one-way \
-        --log-file "$CHECK_LOG" --log-level INFO \
-        "$SRC/" "$REMOTE/" \
-        --include "$INCLUDE"; then
-    echo "rclone check FAILED — see $CHECK_LOG" >&2
-    cat >"$MANIFEST" <<EOF
+cat >"$SUMMARY" <<EOF
 {
   "year": $YEAR,
-  "issues": ${#issue_dirs[@]},
-  "files": $n_files,
-  "bytes_local": $bytes_local,
-  "rclone_sync_log": "$SYNC_LOG",
-  "rclone_check_log": "$CHECK_LOG",
-  "verified": false,
-  "verified_at": null,
-  "error": "verify_failed"
-}
-EOF
-    exit 6
-fi
-
-# ─── Manifest ─────────────────────────────────────────────────────────
-verified_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-cat >"$MANIFEST" <<EOF
-{
-  "year": $YEAR,
-  "issues": ${#issue_dirs[@]},
-  "files": $n_files,
-  "bytes_local": $bytes_local,
-  "rclone_sync_log": "$SYNC_LOG",
-  "rclone_check_log": "$CHECK_LOG",
-  "verified": true,
-  "verified_at": "$verified_at"
+  "started_at": "$started_at",
+  "ended_at":   "$ended_at",
+  "issues_total":  ${#issue_dirs[@]},
+  "issues_ok":     ${#ok_issues[@]},
+  "issues_failed": ${#fail_issues[@]},
+  "ok":     $(join_json "${ok_issues[@]}"),
+  "failed": $(join_json "${fail_issues[@]}")
 }
 EOF
 
 echo
 echo "──────────────────────────────────────────────────────────────"
-echo "  $YEAR backed up + verified."
-echo "  manifest: $MANIFEST"
+echo "  $YEAR done.  ok=${#ok_issues[@]}  failed=${#fail_issues[@]}"
+echo "  summary: $SUMMARY"
+if [[ ${#fail_issues[@]} -gt 0 ]]; then
+    echo "  failed issues:"
+    for f in "${fail_issues[@]}"; do echo "    $f"; done
+    echo "──────────────────────────────────────────────────────────────"
+    exit 7
+fi
 echo "──────────────────────────────────────────────────────────────"
