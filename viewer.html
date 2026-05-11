@@ -124,6 +124,17 @@ h1 { font-size: 1.8em; margin-bottom: 5px; }
 .thumb { max-width: 120px; border: 1px solid #ddd; border-radius: 4px; }
 .thumb-wide { max-width: 300px; }
 .thumb-row { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Ad gallery — grid that mirrors the column span of each ad in the
+   original paper, so a 2-col ad takes twice the horizontal cell of a
+   1-col ad, etc. The grid width is set inline per-issue from the
+   widest ad on the issue (with a sensible minimum so a 1-col-only
+   issue doesn't blow each thumb up to full page width). */
+.ads-grid { display: grid; gap: 8px; align-items: start; grid-auto-flow: dense; }
+.ads-grid > a { display: block; min-width: 0; }
+.ads-grid > a img {
+    width: 100%; height: auto; max-width: none; display: block;
+    border: 1px solid #ddd; border-radius: 4px;
+}
 .cols-row { display: flex; flex-wrap: nowrap; gap: 6px; align-items: flex-start; width: 100%; }
 .cols-row a { flex: 1 1 0; min-width: 0; display: block; }
 .cols-row img { width: 100%; height: auto; max-width: none; display: block; }
@@ -554,13 +565,21 @@ function renderOneIssueDetail(issue) {
     let adsHtml = '';
     const ads = issue.ads || [];
     if (ads.length > 0) {
+        // Grid width = 7 by default (the corpus's most common page
+        // column count, so a 1-col ad here is roughly the same width
+        // as a 1-col image in the page-preview rows above). Widens to
+        // fit any ad that exceeds 7 columns; capped at 12 as a safety
+        // bound.
+        const widest = ads.reduce((m, a) => Math.max(m, a.cols || 1), 1);
+        const gridCols = Math.max(7, Math.min(widest, 12));
         const adThumbs = ads.map(ad => {
             const url = `${BASE}/${issue.dir}/ads/p${ad.page}/${ad.file}`;
-            return `<a href="${url}" target="_blank"><img class="thumb" src="${url}" loading="lazy" onerror="retryImg(this)"></a>`;
+            const span = Math.max(1, Math.min(ad.cols || 1, gridCols));
+            return `<a href="${url}" target="_blank" style="grid-column: span ${span};"><img src="${url}" loading="lazy" onerror="retryImg(this)"></a>`;
         }).join('');
         adsHtml = `<details class="ads-section">
             <summary>Display Ads (${ads.length})</summary>
-            <div class="page-content"><div class="thumb-row">${adThumbs}</div></div>
+            <div class="page-content"><div class="ads-grid" style="grid-template-columns: repeat(${gridCols}, minmax(0, 1fr));">${adThumbs}</div></div>
         </details>`;
     }
 
