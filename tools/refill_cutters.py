@@ -51,7 +51,31 @@ def log(msg):
 
 
 def alive(pid):
-    """True if pid is a running process we own."""
+    """True if pid is a *running* process (not a zombie).
+
+    Important: a cutter we launched via subprocess.Popen is a direct
+    child of this supervisor. When it exits cleanly we get a SIGCHLD
+    but never call waitpid, so it sits as a zombie until reaped. On
+    macOS `os.kill(zombie_pid, 0)` returns success — the process
+    table entry still exists — which previously caused the supervisor
+    to leave a slot "occupied" by a finished cutter and never refill
+    it. The waitpid(..., WNOHANG) call below both detects the zombie
+    AND reaps it.
+
+    For pids that aren't our children (e.g. cutters that survived a
+    supervisor restart and reparented to init), waitpid raises
+    ChildProcessError; we fall through to the kill(pid, 0) check —
+    orphan zombies are reaped by init, so they won't reappear here.
+    """
+    try:
+        wp, _ = os.waitpid(pid, os.WNOHANG)
+        if wp == pid:
+            return False  # exited; just reaped it
+        # wp == 0 means child is still running (and not yet a zombie).
+        # Fall through to kill 0 for the running confirmation.
+    except ChildProcessError:
+        # Not our child; can't waitpid on it. That's fine.
+        pass
     try:
         os.kill(pid, 0)
         return True
