@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent: keeps the cutter supervisor alive across reboots and crashes,
+  but stops cleanly once the campaign queue is drained.
+
+  Install via: bash tools/install_launchagent.sh
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mvtm.cutters</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/env</string>
+        <string>python3</string>
+        <string>/Users/peter/Projects/MVTM/tools/refill_cutters.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/peter/Projects/MVTM</string>
+
+    <!-- Start at login (covers post-reboot recovery). -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart only on crash, never on clean (exit 0) completion.
+         When the queue is drained the supervisor exits 0 and stays
+         exited, which is the desired end-of-campaign state. -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <!-- Be polite about restart spacing if we ever loop on a crash bug. -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <!-- Append to the same log the manual runs use, so log history is
+         continuous. -->
+    <key>StandardOutPath</key>
+    <string>/tmp/refill_supervisor.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/refill_supervisor.log</string>
+
+    <!-- Make sure /usr/local/bin (homebrew, python) is reachable. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+</dict>
+</plist>
