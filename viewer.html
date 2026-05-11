@@ -32,6 +32,50 @@ body { font-family: -apple-system, system-ui, sans-serif; background: #f5f5f0; c
 .year-block { margin-bottom: 8px; }
 .year-block > summary { background: #efece5; font-size: 1em; }
 .year-block > summary:hover { background: #e5e2db; }
+/* Years currently being cut by a running stream — magenta outline
+   with a slow, subtle pulse for a visual cue of activity. Driven by
+   JS: count>1 (filters out pending/experiments), count<total (filters
+   completed), and the most recent issue.last_ran is within the last
+   24 hours. `outline` rather than `border` so the highlight doesn't
+   shift layout when the class toggles. The animation alternates
+   between a darker and lighter magenta over 3.2s; the delta is small
+   so it reads as a heartbeat rather than a strobe. */
+@keyframes year-in-progress-pulse {
+    0%, 100% { outline-color: #b32488; }
+    50%      { outline-color: #ee7fd0; }
+}
+.year-block.in-progress {
+    outline: 2px solid #d633ad;
+    outline-offset: 0;
+    animation: year-in-progress-pulse 3.2s ease-in-out infinite;
+}
+/* In-progress summary block at the top of the page — clones of the
+   pulsing year summaries, styled to mimic a year-block summary but
+   they're plain anchor links that scroll to + open the corresponding
+   <details> below. Lets the user monitor active cuts without scrolling. */
+#in-progress-summary { margin-bottom: 14px; }
+#in-progress-summary:empty { margin-bottom: 0; }
+.in-progress-link {
+    display: block;
+    padding: 10px 15px;
+    margin-bottom: 8px;
+    font-size: 1em;
+    font-weight: 500;
+    background: var(--year-bg, #fafaf8);
+    border: 1px solid #eee;
+    border-radius: 6px;
+    color: inherit;
+    text-decoration: none;
+    cursor: pointer;
+    outline: 2px solid #d633ad;
+    outline-offset: 0;
+    animation: year-in-progress-pulse 3.2s ease-in-out infinite;
+}
+.in-progress-link:hover { filter: brightness(0.96); }
+@media (prefers-reduced-motion: reduce) {
+    .year-block.in-progress,
+    .in-progress-link { animation: none; }
+}
 /* Year-summary background is shaded continuously by completion
    fraction (white → #d8d2c0). The actual colour is set inline as a
    CSS variable on each summary; the rule below just consumes it.
@@ -113,14 +157,11 @@ details.ads-section summary { background: #f8f5ee; }
 <header id="page-header">
 <h1>Almonte Gazette</h1>
 <nav id="decade-nav"></nav>
-<div class="global-expand expand-ctrl">
-    <a onclick="setAllYearsOpen(true)">expand all years</a>
-    |
-    <a onclick="setAllYearsOpen(false)">close all years</a>
-</div>
 </header>
 <p class="subtitle">Processed Issues — Column Extraction Pipeline</p>
 <div id="totals" class="totals"></div>
+<div id="disk-stats" class="totals"></div>
+<div id="in-progress-summary"></div>
 <div id="loading">Loading data...</div>
 <div id="issue-list" class="issue-list"></div>
 <div id="details-container"></div>
@@ -199,15 +240,19 @@ async function init() {
         const totalPages = data.total_gazette_pages || 0;
         const processed = data.total_processed || 0;
         const pct = data.pct_done || 0;
-        let statsLine = totalPages > 0
+        const statsLine = totalPages > 0
             ? `${processed.toLocaleString()} of ${totalPages.toLocaleString()} pages processed (${pct}%) \u2022 ${indexIssues.length.toLocaleString()} issues \u2022 ${totalCols.toLocaleString()} columns \u2022 ${totalAds.toLocaleString()} ads`
             : `${indexIssues.length.toLocaleString()} issues \u2022 ${totalCols.toLocaleString()} columns \u2022 ${totalAds.toLocaleString()} ads`;
+        document.getElementById('totals').textContent = statsLine;
+
+        // Disk usage on its own line — easier to scan to the headline
+        // numbers when monitoring the running campaign.
         if (diskStats) {
-            statsLine += ` \u2022 columns ${fmtBytes(diskStats.columns_size_bytes)}`
+            const diskLine = `columns ${fmtBytes(diskStats.columns_size_bytes)}`
                 + ` \u2022 disk ${fmtBytes(diskStats.disk_free_bytes)} free`
                 + (diskStats.disk_total_bytes ? ` of ${fmtBytes(diskStats.disk_total_bytes)}` : '');
+            document.getElementById('disk-stats').textContent = diskLine;
         }
-        document.getElementById('totals').textContent = statsLine;
     } catch (e) {
         document.getElementById('loading').textContent = 'Failed to load data: ' + e.message;
     }
@@ -327,6 +372,11 @@ function renderList(issues) {
     // gets a complete year list with at-a-glance progress shading.
     const parts = [];
     let lastDecade = null;
+    // Accumulator for the cloned-summaries block at the top of the page.
+    // Populated as we walk the years; rendered after the loop. Empty
+    // when no year is currently being cut, in which case the top
+    // container stays empty and collapses cleanly.
+    const inProgressSummaries = [];
     for (let year = CORPUS_START_YEAR; year <= CORPUS_END_YEAR; year++) {
         const decade = Math.floor(year / 10) * 10;
         if (decade !== lastDecade) {
@@ -391,24 +441,70 @@ function renderList(issues) {
         const pct = total > 0 ? nIssues / total : 0;
         const bg = shadeForFraction(pct);
         const denom = total !== undefined ? total : nIssues;
-        parts.push(`<details class="year-block shaded" data-decade="${decade}" data-year="${year}" style="--year-bg: ${bg};">
-            <summary>${year} \u2014 ${nIssues}/${denom} issues, ${nCols} columns, ${nAds} ads</summary>
+
+        // In-progress detection — purely frontend-derived. A year is
+        // "in progress" if it has multiple issues processed (filters
+        // out pending/experiments with 0 or 1 issue), still has more
+        // to do (count < total), and the most recent issue ran within
+        // the last 24 hours. issue.last_ran is UTC so we suffix 'Z'
+        // before parsing.
+        const NOW = Date.now();
+        const DAY_MS = 24 * 3600 * 1000;
+        let latestLastRan = 0;
+        for (const i of yearIssues) {
+            if (!i.last_ran) continue;
+            const t = new Date(i.last_ran + 'Z').getTime();
+            if (t > latestLastRan) latestLastRan = t;
+        }
+        const inProgress = (
+            total !== undefined
+            && nIssues > 1
+            && nIssues < total
+            && latestLastRan > 0
+            && (NOW - latestLastRan) < DAY_MS
+        );
+        const classes = 'year-block shaded' + (inProgress ? ' in-progress' : '');
+        const summaryText = `${year} \u2014 ${nIssues}/${denom} issues, ${nCols} columns, ${nAds} ads`;
+
+        parts.push(`<details class="${classes}" data-decade="${decade}" data-year="${year}" style="--year-bg: ${bg};">
+            <summary>${summaryText}</summary>
             <div class="year-content">${cards}</div>
         </details>`);
+
+        if (inProgress) {
+            inProgressSummaries.push({ year, bg, summaryText });
+        }
     }
     el.innerHTML = parts.join('');
+
+    // Render the top-of-page in-progress strip. Each entry mirrors the
+    // matching year-summary's text and background shading, gets the
+    // same magenta pulse, and on click opens + scrolls to the real
+    // <details> block in the list below. Empty array → empty container
+    // → no visual footprint when no cuts are running.
+    const ipEl = document.getElementById('in-progress-summary');
+    if (ipEl) {
+        ipEl.innerHTML = inProgressSummaries.map(s =>
+            `<a class="in-progress-link" data-year="${s.year}" style="--year-bg: ${s.bg};"
+                onclick="jumpToYear(${s.year}); return false;">${s.summaryText}</a>`
+        ).join('');
+    }
+}
+
+// Open + scroll to a year's <details> in the main list. Used by the
+// in-progress strip at the top of the page.
+function jumpToYear(year) {
+    const d = document.querySelector(
+        `details.year-block[data-year="${year}"]`);
+    if (!d) return;
+    d.open = true;
+    d.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function setDecadeYearsOpen(decade, open) {
     document.querySelectorAll(
         `details.year-block[data-decade="${decade}"]`
     ).forEach(d => { d.open = open; });
-}
-
-function setAllYearsOpen(open) {
-    document.querySelectorAll('details.year-block').forEach(d => {
-        d.open = open;
-    });
 }
 
 // Lazy detail rendering — replaces the eager `renderDetails(issues)`
@@ -659,6 +755,23 @@ async function applyDeepLink() {
 }
 
 (async () => { await init(); await applyDeepLink(); })();
+
+// Auto-reload on inactivity. Keeps the in-progress strip and
+// per-year counts fresh when the page is left open as a monitor:
+// after 5 minutes with no user input the page reloads itself.
+// Any of mousemove / keydown / scroll / click / touchstart resets
+// the timer, so an actively-used page never reloads under the user.
+(function autoReloadOnInactivity() {
+    const IDLE_MS = 5 * 60 * 1000;
+    let timer = null;
+    function reset() {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => location.reload(), IDLE_MS);
+    }
+    ['mousemove', 'keydown', 'scroll', 'click', 'touchstart']
+        .forEach(ev => window.addEventListener(ev, reset, { passive: true }));
+    reset();
+})();
 </script>
 </body>
 </html>
