@@ -94,8 +94,8 @@ cat >"$SUMMARY" <<EOF
   "issues_total":  ${#remote_issues[@]},
   "issues_ok":     ${#ok[@]},
   "issues_failed": ${#failed[@]},
-  "ok":     $(join_json "${ok[@]}"),
-  "failed": $(join_json "${failed[@]}")
+  "ok":     $(join_json "${ok[@]:-}"),
+  "failed": $(join_json "${failed[@]:-}")
 }
 EOF
 

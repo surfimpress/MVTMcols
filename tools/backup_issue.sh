@@ -124,5 +124,11 @@ else
     echo "warning: $DB not found — skipped DB UPSERT for $ISSUE" >&2
 fi
 
+# Refresh the viewer's backup_status.json so the cylinder badge on
+# the issue card lights up next time the page is loaded. Cheap (one
+# SELECT, atomic write); failure here is non-fatal — we already have
+# the verified DB row, the JSON projection is just for the UI.
+python3 tools/dump_backup_status.py >/dev/null 2>&1 || true
+
 human=$(numfmt --to=iec-i --suffix=B "$bytes_local" 2>/dev/null || echo "$bytes_local bytes")
 echo "  $ISSUE  ok  files=$n_files  bytes=$human"

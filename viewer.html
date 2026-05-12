@@ -114,6 +114,18 @@ h1 { font-size: 1.8em; margin-bottom: 5px; }
     line-height: 1;
 }
 .pass-badge[title] { cursor: help; }
+/* Backup badge — same chip shape as a pass badge, with a database
+   cylinder glyph inside instead of a digit. Sits in the same
+   .pass-badges flex row top-right of each issue card. The icon shape
+   carries the meaning (user is colour-blind), so the fill colour
+   matches the pass badges rather than introducing a new hue. */
+.backup-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: #2c3e50; color: white;
+}
+.backup-badge svg { width: 13px; height: 13px; display: block; }
+.backup-badge[title] { cursor: help; }
 .iiif-btn { background: #6a4f9a; color: white; border-color: #4a3578; }
 .iiif-btn:hover { background: #7a5fb0; color: white; }
 .detail-title { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; }
@@ -203,6 +215,12 @@ const indexByDir = new Map();
 // Keyed by `dir` (YYYY-MM-DD); shape: {pass1, pass2, manifest_dir, ...}.
 // Issues with no transcribe footprint are simply absent.
 let transcribeStatus = {};
+// Backup status, loaded from columns/backup_status.json.
+// Keyed by `dir` (YYYY-MM-DD); shape: {remote, verified_at}.
+// Issues without a verified backup row in the DB are simply absent.
+// Refreshed by tools/dump_backup_status.py after every successful
+// per-issue backup.
+let backupStatus = {};
 
 // Bytes → "94.7 GB" / "812 MB" / "5.3 KB". Single decimal at GB/MB scale,
 // no decimals for KB/B. Returns '?' for null/undefined so the stats
@@ -222,10 +240,11 @@ async function init() {
         // index.json is required; transcribe_status.json + disk_stats.json
         // are optional — a fresh checkout / pre-stats batch simply omits
         // the corresponding fields. Run them in parallel.
-        const [resp, statusResp, diskResp] = await Promise.all([
+        const [resp, statusResp, diskResp, backupResp] = await Promise.all([
             fetch(BASE + '/index.json'),
             fetch(BASE + '/transcribe_status.json').catch(() => null),
             fetch(BASE + '/disk_stats.json').catch(() => null),
+            fetch(BASE + '/backup_status.json').catch(() => null),
         ]);
         const data = await resp.json();
         indexIssues = data.issues || [];
@@ -235,6 +254,12 @@ async function init() {
                 const sd = await statusResp.json();
                 transcribeStatus = sd.issues || {};
             } catch (_) { transcribeStatus = {}; }
+        }
+        if (backupResp && backupResp.ok) {
+            try {
+                const bd = await backupResp.json();
+                backupStatus = bd.issues || {};
+            } catch (_) { backupStatus = {}; }
         }
         let diskStats = null;
         if (diskResp && diskResp.ok) {
@@ -284,17 +309,35 @@ async function loadIssue(dir) {
 // "2" joins it once pass-2 has produced items on every page. Drawn
 // top-right of the card; the digit carries the meaning (no colour
 // signalling — user is colour-blind).
+// Inline SVG cylinder ("database barrel") used by the backup badge.
+// Top ellipse + curved sides + two interior bands suggesting stacked
+// disks. fill=currentColor so the badge background-vs-glyph contrast
+// is set by the .backup-badge CSS rule.
+const CYLINDER_SVG = `<svg viewBox="0 0 16 16" aria-hidden="true">
+    <ellipse cx="8" cy="3" rx="6" ry="1.8" fill="currentColor"/>
+    <path d="M2 3 V13 C2 14 5 14.8 8 14.8 C11 14.8 14 14 14 13 V3" fill="currentColor"/>
+    <path d="M2 7 C2 8 5 8.8 8 8.8 C11 8.8 14 8 14 7"
+        fill="none" stroke="white" stroke-width="0.8"/>
+    <path d="M2 10 C2 11 5 11.8 8 11.8 C11 11.8 14 11 14 10"
+        fill="none" stroke="white" stroke-width="0.8"/>
+</svg>`;
+
 function renderPassBadges(dir) {
     const s = transcribeStatus[dir];
-    if (!s) return '';
+    const b = backupStatus[dir];
     const parts = [];
-    if (s.pass1) {
+    if (s && s.pass1) {
         const tip = `Pass 1 complete: ${s.n_cols_done}/${s.n_cols_expected} columns, ${s.n_ads_done}/${s.n_ads_expected} ads`;
         parts.push(`<span class="pass-badge" title="${tip}">1</span>`);
     }
-    if (s.pass2) {
+    if (s && s.pass2) {
         const tip = `Pass 2 complete: items extracted on ${s.n_pages_with_items}/${s.n_pages_expected} pages`;
         parts.push(`<span class="pass-badge" title="${tip}">2</span>`);
+    }
+    if (b) {
+        const when = b.verified_at || '';
+        const tip = `Backed up to Drive (${b.remote || 'mvtm:'})${when ? ' on ' + when : ''}`;
+        parts.push(`<span class="backup-badge" title="${tip}">${CYLINDER_SVG}</span>`);
     }
     if (parts.length === 0) return '';
     return `<div class="pass-badges">${parts.join('')}</div>`;
@@ -454,13 +497,17 @@ function renderList(issues) {
         const denom = total !== undefined ? total : nIssues;
 
         // In-progress detection — purely frontend-derived. A year is
-        // "in progress" if it has multiple issues processed (filters
-        // out pending/experiments with 0 or 1 issue), still has more
-        // to do (count < total), and the most recent issue ran within
-        // the last 24 hours. issue.last_ran is UTC so we suffix 'Z'
-        // before parsing.
+        // "in progress" if it has at least one issue committed, isn't
+        // complete, and its most recent issue ran within the last 30
+        // minutes (proxy for "a cutter is currently writing here").
+        // The freshness window does the job of excluding pending /
+        // experiment years that have a stale single issue — a tighter
+        // qualifier than the previous "nIssues > 1" floor, and the
+        // strip lights up as soon as a year's first issue commits
+        // rather than waiting for the second. issue.last_ran is UTC
+        // so we suffix 'Z' before parsing.
         const NOW = Date.now();
-        const DAY_MS = 24 * 3600 * 1000;
+        const FRESH_MS = 30 * 60 * 1000;
         let latestLastRan = 0;
         for (const i of yearIssues) {
             if (!i.last_ran) continue;
@@ -469,10 +516,10 @@ function renderList(issues) {
         }
         const inProgress = (
             total !== undefined
-            && nIssues > 1
+            && nIssues >= 1
             && nIssues < total
             && latestLastRan > 0
-            && (NOW - latestLastRan) < DAY_MS
+            && (NOW - latestLastRan) < FRESH_MS
         );
         const classes = 'year-block shaded' + (inProgress ? ' in-progress' : '');
         const summaryText = `${year} \u2014 ${nIssues}/${denom} issues, ${nCols} columns, ${nAds} ads`;
