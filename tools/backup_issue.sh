@@ -85,9 +85,18 @@ bytes_local=$(du -sk "$SRC" | awk '{print $1*1024}')
 # stays bounded if an issue is re-backed-up many times.
 : > "$LOG"
 
+# Parallelism knobs — env-overridable so a supervisor can throttle a
+# concurrent backup run when cutters are also using the disk/network.
+# Defaults match the previous hardcoded values.
+RC_TRANSFERS="${RCLONE_TRANSFERS:-8}"
+RC_CHECKERS="${RCLONE_CHECKERS:-16}"
+RC_BWLIMIT_FLAG=()
+[[ -n "${RCLONE_BWLIMIT:-}" ]] && RC_BWLIMIT_FLAG=( --bwlimit "$RCLONE_BWLIMIT" )
+
 # ─── Sync ─────────────────────────────────────────────────────────────
 if ! rclone sync --checksum \
-        --transfers 8 --checkers 16 \
+        --transfers "$RC_TRANSFERS" --checkers "$RC_CHECKERS" \
+        "${RC_BWLIMIT_FLAG[@]+"${RC_BWLIMIT_FLAG[@]}"}" \
         --log-file "$LOG" --log-level INFO \
         "$SRC/" "$DST/"; then
     echo "  $ISSUE: sync FAILED — see $LOG" >&2
@@ -96,6 +105,7 @@ fi
 
 # ─── Verify ───────────────────────────────────────────────────────────
 if ! rclone check --checksum --one-way \
+        --checkers "$RC_CHECKERS" \
         --log-file "$LOG" --log-level INFO \
         "$SRC/" "$DST/"; then
     echo "  $ISSUE: check FAILED — see $LOG" >&2

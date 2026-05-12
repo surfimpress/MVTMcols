@@ -24,19 +24,21 @@ set -o pipefail
 
 WITH_BACKUP=0
 DRY_RUN=0
+MIN_AGE_HOURS=0
 YEAR=""
 
-for arg in "$@"; do
-    case "$arg" in
-        --with-backup) WITH_BACKUP=1 ;;
-        --dry-run)     DRY_RUN=1 ;;
-        [0-9][0-9][0-9][0-9]) YEAR="$arg" ;;
-        *) echo "usage: $0 [--with-backup] [--dry-run] YYYY" >&2; exit 2 ;;
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --with-backup)   WITH_BACKUP=1; shift ;;
+        --dry-run)       DRY_RUN=1; shift ;;
+        --min-age-hours) MIN_AGE_HOURS="$2"; shift 2 ;;
+        [0-9][0-9][0-9][0-9]) YEAR="$1"; shift ;;
+        *) echo "usage: $0 [--with-backup] [--dry-run] [--min-age-hours N] YYYY" >&2; exit 2 ;;
     esac
 done
 
 if [[ -z "$YEAR" ]]; then
-    echo "usage: $0 [--with-backup] [--dry-run] YYYY" >&2; exit 2
+    echo "usage: $0 [--with-backup] [--dry-run] [--min-age-hours N] YYYY" >&2; exit 2
 fi
 
 cd "$(dirname "$0")/.."
@@ -64,6 +66,7 @@ echo "────────────────────────�
 args=()
 [[ "$WITH_BACKUP" -eq 1 ]] && args+=( --with-backup )
 [[ "$DRY_RUN"     -eq 1 ]] && args+=( --dry-run )
+[[ "$MIN_AGE_HOURS" -gt 0 ]] && args+=( --min-age-hours "$MIN_AGE_HOURS" )
 
 archived=()
 skipped=()

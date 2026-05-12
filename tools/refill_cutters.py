@@ -30,7 +30,12 @@ import os, sys, time, subprocess, json, datetime as dt, tempfile
 REPO = '/Users/peter/Projects/MVTM'
 os.chdir(REPO)
 
-TARGET_SLOTS = 4
+# Pool size: 2 is the empirically-safe steady state when the
+# archive supervisor is also running. 4 was used on a clean machine
+# but proved to drive the 8-core / 8 GB Mac into 2+ GB swap and
+# load avg 10 once the archiver was added in parallel. Override via
+# CUT_POOL_SIZE if the constraints change.
+TARGET_SLOTS = int(os.environ.get('CUT_POOL_SIZE', '2'))
 POLL_SECS = 30
 
 QUEUE_FILE = 'data/cut_queue.json'

@@ -33,12 +33,18 @@ set -o pipefail
 TARGET_FREE_GB=0   # 0 = no early stop
 LIMIT=0            # 0 = no limit
 DRY_RUN=0
+MIN_AGE_HOURS=0    # 0 = no freshness guard (passed to archive_issue.sh)
+LOOP=0             # 1 = keep re-scanning, sleeping between passes
+LOOP_SLEEP=1800    # seconds between scans in --loop mode (30 min default)
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --target-free-gb) TARGET_FREE_GB="$2"; shift 2 ;;
         --limit)          LIMIT="$2"; shift 2 ;;
         --dry-run)        DRY_RUN=1; shift ;;
+        --min-age-hours)  MIN_AGE_HOURS="$2"; shift 2 ;;
+        --loop)           LOOP=1; shift ;;
+        --loop-sleep)     LOOP_SLEEP="$2"; shift 2 ;;
         -h|--help)
             sed -n '2,30p' "$0"; exit 0 ;;
         *) echo "unknown arg: $1" >&2; exit 2 ;;
@@ -62,30 +68,36 @@ disk_free_gb() {
 # user can tell whether the loop quit cleanly or was killed mid-year.
 trap 'log "INTERRUPTED.  free_now=$(disk_free_gb) GB.  archived $n_done years."; exit 130' INT TERM
 
-# ─── Build protect set ───────────────────────────────────────────────
-protect=()
-
-# Cut queue (planned years, never archive even if local files exist).
-if [[ -f data/cut_queue.json ]]; then
+# ─── Helpers (re-evaluated per pass when in --loop mode) ─────────────
+build_protect_set() {
+    # Fresh array each call — assigned to global `protect`.
+    protect=()
+    if [[ -f data/cut_queue.json ]]; then
+        while IFS= read -r y; do
+            [[ -n "$y" ]] && protect+=( "$y" )
+        done < <(
+            python3 -c "import json,sys; print('\n'.join(str(y) for y in json.load(open('data/cut_queue.json'))))" \
+                2>/dev/null || true
+        )
+    fi
     while IFS= read -r y; do
         [[ -n "$y" ]] && protect+=( "$y" )
+    done < <(live_cutter_years)
+}
+
+build_ranking() {
+    # Fresh size ranking each call — assigned to global `ranking`.
+    ranking=()
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && ranking+=( "$line" )
     done < <(
-        python3 -c "import json,sys; print('\n'.join(str(y) for y in json.load(open('data/cut_queue.json'))))" \
-            2>/dev/null || true
+        du -sk columns/[0-9][0-9][0-9][0-9]-*/ 2>/dev/null \
+            | awk '{ p=$2; gsub("/$","",p); gsub(".*/","",p); y=substr(p,1,4);
+                     if (y ~ /^[0-9]{4}$/) s[y]+=$1 }
+                   END { for (y in s) printf "%d %s\n", s[y], y }' \
+            | sort -rn
     )
-fi
-
-# Live cutters (snapshot at start; re-checked per year below).
-while IFS= read -r y; do
-    [[ -n "$y" ]] && protect+=( "$y" )
-done < <(
-    ps -axo command= 2>/dev/null \
-        | awk '/cut_corpus\.py/ { for (i=1;i<=NF;i++) if ($i=="--year" && (i+1)<=NF) print $(i+1) }'
-)
-
-# Membership in protect[] tolerates duplicates (cheap linear scan
-# per year), so we don't bother de-duping. Skipping declare -A keeps
-# us compatible with macOS's stock bash 3.2.
+}
 
 is_protected() {
     local y="$1"
@@ -95,82 +107,123 @@ is_protected() {
     return 1
 }
 
-# Re-scan live cutters before each year, so that if the user kicks off
-# a new cut mid-job we don't archive its target out from under it.
 live_cutter_years() {
     ps -axo command= 2>/dev/null \
         | awk '/cut_corpus\.py/ { for (i=1;i<=NF;i++) if ($i=="--year" && (i+1)<=NF) print $(i+1) }'
 }
 
-# ─── Build size-sorted year ranking ──────────────────────────────────
-# Aggregate per-issue du -sk into per-year totals, sort DESC by KB.
-# bash 3.2 has no mapfile; read in a loop.
-ranking=()
-while IFS= read -r line; do
-    [[ -n "$line" ]] && ranking+=( "$line" )
-done < <(
-    du -sk columns/[0-9][0-9][0-9][0-9]-*/ 2>/dev/null \
-        | awk '{ p=$2; gsub("/$","",p); gsub(".*/","",p); y=substr(p,1,4);
-                 if (y ~ /^[0-9]{4}$/) s[y]+=$1 }
-               END { for (y in s) printf "%d %s\n", s[y], y }' \
-        | sort -rn
-)
+cutter_campaign_complete() {
+    # The cutter supervisor writes this marker when the queue drains
+    # AND no cutters are alive. Used as the stop signal for --loop mode
+    # so the archiver can keep running until the cut campaign is done.
+    [[ -f data/cut_campaign_complete.json ]]
+}
+
+# Build the args we'll pass to archive_year.sh once — same for every
+# year in every pass.
+year_args=( --with-backup )
+[[ "$MIN_AGE_HOURS" -gt 0 ]] && year_args=( --with-backup --min-age-hours "$MIN_AGE_HOURS" )
 
 # ─── Header / banner ─────────────────────────────────────────────────
-log "started.  target_free_gb=$TARGET_FREE_GB  limit=$LIMIT  dry_run=$DRY_RUN"
-log "protect set (${#protect[@]} years): ${protect[*]:-}"
-log "ranked candidates: ${#ranking[@]} years on disk"
+log "started.  target_free_gb=$TARGET_FREE_GB  limit=$LIMIT  dry_run=$DRY_RUN  min_age_hours=$MIN_AGE_HOURS  loop=$LOOP"
 log "disk_free_gb_start: $(disk_free_gb)"
 
-# ─── Main loop ───────────────────────────────────────────────────────
+# Cumulative counters across all passes.
 n_done=0
 n_skipped=0
 n_failed=0
-for entry in "${ranking[@]}"; do
-    size_kb=$(awk '{print $1}' <<<"$entry")
-    year=$(awk '{print $2}' <<<"$entry")
-    size_gb=$(awk -v k="$size_kb" 'BEGIN{printf "%.2f", k/1024/1024}')
+pass=0
 
-    if is_protected "$year"; then
-        log "skip $year ($size_gb GB) — protected (queue or live cutter)"
-        n_skipped=$((n_skipped + 1))
-        continue
-    fi
+do_one_pass() {
+    pass=$((pass + 1))
+    build_protect_set
+    build_ranking
+    log "── pass $pass ── protect=${#protect[@]} years  candidates=${#ranking[@]} years"
 
-    # Re-check live cutters in case the user just started one.
-    if live_cutter_years | grep -qx "$year"; then
-        log "skip $year ($size_gb GB) — cutter started mid-job"
-        n_skipped=$((n_skipped + 1))
-        continue
-    fi
+    local pass_archived=0
+    for entry in "${ranking[@]:-}"; do
+        [[ -z "$entry" ]] && continue
+        local size_kb year size_gb
+        size_kb=$(awk '{print $1}' <<<"$entry")
+        year=$(awk '{print $2}' <<<"$entry")
+        size_gb=$(awk -v k="$size_kb" 'BEGIN{printf "%.2f", k/1024/1024}')
 
-    log "── $year ($size_gb GB) ──"
-    if [[ "$DRY_RUN" -eq 1 ]]; then
-        bash tools/archive_year.sh --dry-run "$year" 2>&1 | tee -a "$LOG"
-        n_done=$((n_done + 1))
-    else
-        if bash tools/archive_year.sh --with-backup "$year" 2>&1 | tee -a "$LOG"; then
-            log "$year ok.  disk_free_gb: $(disk_free_gb)"
-            n_done=$((n_done + 1))
-        else
-            log "$year FAILED — continuing to next year"
-            n_failed=$((n_failed + 1))
+        if is_protected "$year"; then
+            n_skipped=$((n_skipped + 1))
+            continue
         fi
-    fi
+        if live_cutter_years | grep -qx "$year"; then
+            log "skip $year ($size_gb GB) — cutter started mid-job"
+            n_skipped=$((n_skipped + 1))
+            continue
+        fi
 
-    # ─── Stop conditions ────────────────────────────────────────────
-    if [[ "$LIMIT" -gt 0 && "$n_done" -ge "$LIMIT" ]]; then
-        log "limit reached ($LIMIT years archived) — stopping"
+        log "── $year ($size_gb GB) ──"
+        if [[ "$DRY_RUN" -eq 1 ]]; then
+            bash tools/archive_year.sh --dry-run "$year" 2>&1 | tee -a "$LOG"
+            n_done=$((n_done + 1))
+            pass_archived=$((pass_archived + 1))
+        else
+            if bash tools/archive_year.sh "${year_args[@]}" "$year" 2>&1 | tee -a "$LOG"; then
+                log "$year ok.  disk_free_gb: $(disk_free_gb)"
+                n_done=$((n_done + 1))
+                pass_archived=$((pass_archived + 1))
+            else
+                log "$year FAILED — continuing to next year"
+                n_failed=$((n_failed + 1))
+            fi
+        fi
+
+        if [[ "$LIMIT" -gt 0 && "$n_done" -ge "$LIMIT" ]]; then
+            log "limit reached ($LIMIT years archived) — stopping"
+            return 10
+        fi
+        if [[ "$TARGET_FREE_GB" -gt 0 ]]; then
+            local free
+            free=$(disk_free_gb)
+            if awk -v f="$free" -v t="$TARGET_FREE_GB" 'BEGIN{exit !(f>=t)}'; then
+                log "target_free_gb $TARGET_FREE_GB reached (free=$free) — stopping"
+                return 10
+            fi
+        fi
+    done
+
+    log "pass $pass complete.  archived_in_pass=$pass_archived  total_archived=$n_done"
+    return 0
+}
+
+# ─── Outer pass loop ─────────────────────────────────────────────────
+while true; do
+    if do_one_pass; then
+        :  # pass finished naturally; either loop again or exit
+    else
+        # rc=10 means an early-stop condition (LIMIT / TARGET_FREE_GB).
+        # That's terminal regardless of --loop mode.
         break
     fi
 
-    if [[ "$TARGET_FREE_GB" -gt 0 ]]; then
-        free=$(disk_free_gb)
-        if awk -v f="$free" -v t="$TARGET_FREE_GB" 'BEGIN{exit !(f>=t)}'; then
-            log "target_free_gb $TARGET_FREE_GB reached (free=$free) — stopping"
-            break
-        fi
+    if [[ "$LOOP" -ne 1 ]]; then
+        break
     fi
+
+    # Loop mode: if there's nothing left to do and the cutter campaign
+    # is complete, we're genuinely done. Otherwise sleep and re-scan.
+    # ranking is the candidate list AFTER size-sort but BEFORE protect
+    # filter — count what would actually be archivable next pass.
+    eligible=0
+    for entry in "${ranking[@]:-}"; do
+        [[ -z "$entry" ]] && continue
+        y=$(awk '{print $2}' <<<"$entry")
+        if ! is_protected "$y" && ! live_cutter_years | grep -qx "$y"; then
+            eligible=$((eligible + 1))
+        fi
+    done
+    if [[ "$eligible" -eq 0 ]] && cutter_campaign_complete; then
+        log "loop: nothing eligible AND cutter campaign complete — exiting"
+        break
+    fi
+    log "loop: $eligible eligible candidate(s); sleeping ${LOOP_SLEEP}s before next pass"
+    sleep "$LOOP_SLEEP"
 done
 
-log "DONE.  archived=$n_done  skipped=$n_skipped  failed=$n_failed  free_now=$(disk_free_gb) GB"
+log "DONE.  archived=$n_done  skipped=$n_skipped  failed=$n_failed  passes=$pass  free_now=$(disk_free_gb) GB"
