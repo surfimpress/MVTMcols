@@ -69,7 +69,9 @@ archived=()
 skipped=()
 for d in "${local_dirs[@]}"; do
     issue="$(basename "${d%/}")"
-    if "$ISSUE_SH" "${args[@]}" "$issue"; then
+    # bash 3.2 + set -u: empty arrays expand to "unbound variable", so
+    # use the "${arr[@]+"${arr[@]}"}" idiom — yields nothing when empty.
+    if "$ISSUE_SH" ${args[@]+"${args[@]}"} "$issue"; then
         archived+=( "$issue" )
     else
         skipped+=( "$issue" )
@@ -80,7 +82,7 @@ echo
 echo "──────────────────────────────────────────────────────────────"
 echo "  $YEAR done.  archived=${#archived[@]}  skipped=${#skipped[@]}"
 if [[ ${#skipped[@]} -gt 0 ]]; then
-    for s in "${skipped[@]}"; do echo "    skipped: $s"; done
+    for s in "${skipped[@]:-}"; do [[ -n "$s" ]] && echo "    skipped: $s"; done
     echo "──────────────────────────────────────────────────────────────"
     exit 7
 fi
