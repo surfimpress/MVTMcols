@@ -191,6 +191,13 @@ details.ads-section summary { background: #f8f5ee; }
 
 <script>
 const BASE = '/MVTM/columns';
+// Drive-hosted fallback for issues whose local files have been archived
+// to free disk. Points at `rclone serve http mvtm:MVTM-corpus-backup/columns/`
+// (see tools/serve_archive.sh). Drive layout is /YYYY/MM/YYYY-MM-DD/...
+// so the fallback rewrites the URL when backupStatus[issue.dir] is set
+// AND the local fetch 404s. Configurable via window.ARCHIVE_BASE if you
+// need to point a deployment at a different host.
+const ARCHIVE_BASE = window.ARCHIVE_BASE || 'http://127.0.0.1:8050';
 
 // Caching strategy:
 // Plain `fetch(url)` with no cache-busting query string and no
@@ -798,6 +805,19 @@ function retryImg(img) {
         img.dataset.fellBack = '1';
         img.src = img.src.replace('page_display.avif', 'page_raw.png');
         return;
+    }
+    // Drive-archive fallback: if the local file is gone (issue has been
+    // archived) AND backupStatus says we have a verified Drive copy,
+    // rewrite the URL to point at the rclone-serve sidecar. We only do
+    // this once per <img>; if the Drive copy is also unreachable, fall
+    // through to the cache-buster retry below.
+    if (!img.dataset.droveFallback) {
+        const m = img.src.match(/\/columns\/(\d{4})-(\d{2})-(\d{2})\/(.+)$/);
+        if (m && backupStatus[`${m[1]}-${m[2]}-${m[3]}`]) {
+            img.dataset.droveFallback = '1';
+            img.src = `${ARCHIVE_BASE}/${m[1]}/${m[2]}/${m[1]}-${m[2]}-${m[3]}/${m[4]}`;
+            return;
+        }
     }
     const tries = parseInt(img.dataset.retryTries || '0', 10);
     if (tries >= 3) return;
