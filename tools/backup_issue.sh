@@ -134,6 +134,15 @@ else
     echo "warning: $DB not found — skipped DB UPSERT for $ISSUE" >&2
 fi
 
+# Capture Drive file IDs + URLs into file_assets so the per-file row
+# can deep-link back to its Drive copy. Walks the remote tree we just
+# wrote with `rclone lsjson --hash`; UPSERTs by (remote, local_path).
+# Non-fatal: a failure here leaves file_assets drive_url=NULL for this
+# issue but the issue is still verifiably backed up.
+if ! python3 tools/capture_drive_urls.py "$ISSUE" >/dev/null 2>&1; then
+    echo "  $ISSUE: warning — drive URL capture failed (file_assets not updated)" >&2
+fi
+
 # Refresh the viewer's backup_status.json so the cylinder badge on
 # the issue card lights up next time the page is loaded. Cheap (one
 # SELECT, atomic write); failure here is non-fatal — we already have
