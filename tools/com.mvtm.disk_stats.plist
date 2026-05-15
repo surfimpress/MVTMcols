@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent: keeps columns/disk_stats.json fresh so the viewer's "disk N GB
+  free" line tracks reality even when no cutter is running (process_issue.py
+  is otherwise the only writer of this file).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mvtm.disk_stats</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/env</string>
+        <string>python3</string>
+        <string>/Users/peter/Projects/MVTM/tools/refresh_disk_stats.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/peter/Projects/MVTM</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/refresh_disk_stats.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/refresh_disk_stats.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+</dict>
+</plist>
