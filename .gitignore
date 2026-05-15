@@ -31,6 +31,10 @@ data/cut_corpus_state.json
 *.db-wal
 *.db-shm
 
+# The main DB is too big for git (~100 MB+); backed up to Drive instead
+# via tools/backup_db_to_drive.sh on a LaunchAgent.
+data/mvtm.db
+
 # transcribe pipeline runtime data (DB + work tickets)
 transcribe/data/transcribe.db
 transcribe/data/transcribe.db.*

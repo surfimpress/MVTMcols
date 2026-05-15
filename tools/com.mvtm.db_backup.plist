@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent: hourly Drive backup of data/mvtm.db.
+
+  Replaces the previous "commit DB to git" pattern, which has grown too
+  big for GitHub's 100 MB hard limit. See tools/backup_db_to_drive.sh
+  for the SQLite-safe snapshot reasoning.
+
+  Install via:
+    cp tools/com.mvtm.db_backup.plist ~/Library/LaunchAgents/
+    launchctl load -w ~/Library/LaunchAgents/com.mvtm.db_backup.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mvtm.db_backup</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/peter/Projects/MVTM/tools/backup_db_to_drive.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/peter/Projects/MVTM</string>
+
+    <!-- Daily. Off-site safety net only; local *.bak files cover the
+         high-frequency safety needs. RunAtLoad gives one immediate
+         backup whenever the agent is (re)loaded. -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StartInterval</key>
+    <integer>86400</integer>
+
+    <!-- A finished backup run exits 0; we do NOT want a permanent loop.
+         StartInterval handles scheduling. -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/db_backup.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/db_backup.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+</dict>
+</plist>
