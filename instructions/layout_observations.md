@@ -23,8 +23,8 @@ sentence is worth recording. See "Update history" at the bottom.
 | 1950s | 7→6 | ~12% | Transition starts; 1952-12-25 still 7c but with mixed ad disruption. |
 | 1960s | 6 | wider | Transition to fewer, wider columns. |
 | 1970s | 7 | ~11% | 1974-05-23: 7c editorial, but heavy ads (53 detected) and supplement pages disrupt some pages. |
-| 1980s | 3–5 | variable | Modern broadsheet layout. |
-| 2000s | 3–4 | variable | Modern with display ads and photos. |
+| 1980s | n/a — modular | n/a | **Modular broadsheet, not a column grid.** Articles are bounded rectangles with local column counts; no page-level rules. See `post1980_layout_observations.md` for the full characterisation (`detected_ads` / `page_layouts` aggregates from the 1980 trial run are misleading — those cuts were "beyond useless" and were deleted). |
+| 2000s | n/a — modular | n/a | Same modular paradigm as 1980s, with heavier classifieds and full-page display ads. See `post1980_layout_observations.md`. |
 
 Column counts in `LayoutDB.era_patterns` (run `python3 layout_intelligence.py
 data/mvtm.db` for the live aggregate) confirm the ranges above.
@@ -319,6 +319,21 @@ other.
 This file evolves issue-by-issue. When a new pattern, era boundary, or
 scan condition is observed, append it here.
 
+- **2026-05-16 — Post-1980 visual characterisation (Phase 0).**
+  Rendered and reviewed 10 issues across 1985/1990/1995/2000/2007.
+  Established that the classical column-grid paradigm does not
+  apply to any post-1980 page in the sample — these are modular
+  broadsheets with article-as-rectangle layout, multi-column
+  headlines local to each article, integrated photos, banner pull
+  quotes, and dedicated classified pages. Full per-era observations,
+  patterns, comparison to classical, and implications for cutter
+  redesign are in
+  [`post1980_layout_observations.md`](post1980_layout_observations.md).
+  Updated the era table above to point readers at the new file
+  instead of the previous (incorrect) "3–5 columns variable"
+  shorthand. Source PDFs from 1985 are TCPDF-rewrapped A4 (lower
+  fidelity); 1990–2007 are Adobe Paper Capture broadsheet
+  (~19"×28", consistent fidelity).
 - **2026-05-06 — Started 71-year corpus-cutting campaign (1862–1979).**
   Added `cut_corpus.py` supervisor — runs `archive.process_archive`
   one year at a time in a deterministic non-sequential order
