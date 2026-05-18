@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Post-1980 cutter — Phase 2n: run-over into obstacles</title>
+<style>
+  :root { --bg: #f7f6f3; --fg: #1a1a1a; --muted: #555; --rule: #d9d4c8; }
+  html, body { background: var(--bg); color: var(--fg); margin: 0;
+    font-family: -apple-system, "Segoe UI", "Helvetica Neue", sans-serif;
+    line-height: 1.5; }
+  body { max-width: 1480px; margin: 0 auto; padding: 24px 28px 60px; }
+  h1 { margin-top: 0; font-weight: 600; font-size: 22px; }
+  h2 { font-weight: 600; font-size: 17px; margin: 36px 0 8px;
+       padding-bottom: 4px; border-bottom: 1px solid var(--rule); }
+  p { font-size: 14px; }
+  p.preamble { max-width: 82ch; color: var(--muted); }
+  .panel { margin: 16px 0 36px; }
+  .panel img { width: 100%; height: auto; border: 1px solid var(--rule);
+               background: white; }
+  .panel .label { font-size: 11px; color: var(--muted); font-weight: 500;
+                  margin-bottom: 4px; letter-spacing: .02em; text-transform: uppercase; }
+  .nav { margin: 4px 0 20px; font-size: 13px; }
+  .nav a { color: var(--muted); margin-right: 18px; }
+  ul.changes { font-size: 13px; max-width: 82ch; color: var(--muted); }
+  ul.changes li { margin: 4px 0; }
+  ul.changes b { color: var(--fg); }
+  .note { background: #efece5; border-left: 3px solid #303048;
+          padding: 12px 14px; font-size: 13px; max-width: 82ch; margin: 12px 0; }
+</style>
+</head>
+<body>
+
+<h1>Post-1980 cutter — Phase 2n: run-over into obstacles</h1>
+<p class="nav">
+  Earlier:
+  <a href="../post1980_phase2m/index.html">2m (2D masking + edge suppression)</a>
+</p>
+
+<ul class="changes">
+  <li><b>Measurement regions run over each obstacle by 12pt.</b> Per
+    user direction: article edges have no border, only a gutter against
+    the next column — so the gutter sits right at the obstacle
+    boundary. Stopping the measurement at the obstacle's edge put the
+    gutter at the clip boundary; now the gutter sits 10–12pt inside
+    the measurement region, where the valley detector can see it.</li>
+  <li><b>Edge suppression only at paper margins.</b> A valley near the
+    region's clip-edge is rejected only if that edge is at the page
+    boundary (within 50pt of x=0 or x=page_w). Region edges that abut
+    an obstacle are allowed to land valleys — that's where the
+    article-to-ad / article-to-photo gutters live.</li>
+</ul>
+
+<h2>2000-02-16 page 1 — the case that prompted this</h2>
+<div class="panel">
+  <div class="label">5 gutters now — the missing one against the photo's left edge is recovered</div>
+  <img src="overlays/2000-02-16-p1-overlay.png">
+</div>
+
+<h2>1995-02-15 page 3</h2>
+<div class="panel">
+  <div class="label">all 5 inner gutters across the 6-column body</div>
+  <img src="overlays/1995-02-15-p3-overlay.png">
+</div>
+
+<h2>2007-02-13 page 1</h2>
+<div class="panel">
+  <img src="overlays/2007-02-13-p1-overlay.png">
+</div>
+
+<h2>2007-02-13 page 3</h2>
+<div class="panel">
+  <img src="overlays/2007-02-13-p3-overlay.png">
+</div>
+
+<h2>1995-02-15 page 1</h2>
+<div class="panel">
+  <img src="overlays/1995-02-15-p1-overlay.png">
+</div>
+
+<h2>1990-02-14 page 1</h2>
+<div class="panel">
+  <img src="overlays/1990-02-14-p1-overlay.png">
+</div>
+
+<h2>1985-02-13 page 1 (A4 re-wrap)</h2>
+<div class="panel">
+  <img src="overlays/1985-02-13-p1-overlay.png">
+</div>
+
+</body>
+</html>
