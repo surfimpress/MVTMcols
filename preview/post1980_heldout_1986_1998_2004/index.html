@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Post-1980 cutter — held-out test (1986 / 1998 / 2004)</title>
+<style>
+  :root { --bg: #f7f6f3; --fg: #1a1a1a; --muted: #555; --rule: #d9d4c8; }
+  html, body { background: var(--bg); color: var(--fg); margin: 0;
+    font-family: -apple-system, "Segoe UI", "Helvetica Neue", sans-serif;
+    line-height: 1.5; }
+  body { max-width: 1900px; margin: 0 auto; padding: 24px 28px 60px; }
+  h1 { margin-top: 0; font-weight: 600; font-size: 22px; }
+  h2 { font-weight: 600; font-size: 17px; margin: 32px 0 4px;
+       padding-bottom: 4px; border-bottom: 1px solid var(--rule); }
+  p.preamble { max-width: 82ch; color: var(--fg); font-size: 14px; }
+  p.preamble.muted { color: var(--muted); }
+  .counts { font-size: 12px; color: var(--muted); font-family: ui-monospace, Menlo, monospace; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr;
+          gap: 12px; margin: 8px 0 6px; align-items: start; }
+  .col { display: flex; flex-direction: column; }
+  .col label { font-size: 11px; color: var(--muted); font-weight: 500;
+               margin-bottom: 4px; letter-spacing: .02em; text-transform: uppercase; }
+  .col img { width: 100%; height: auto; border: 1px solid var(--rule);
+             background: white; }
+  .verdict { font-size: 14px; margin: 4px 0 24px; max-width: 90ch;
+             padding: 8px 12px; border-left: 3px solid var(--rule);
+             background: #fff; }
+  .verdict .good { color: #00563B; font-weight: 600; }
+  .verdict .gap  { color: #b4500a; font-weight: 600; }
+  details.key { margin: 8px 0 24px; max-width: 82ch; }
+  details.key summary { cursor: pointer; font-weight: 600; font-size: 14px;
+                        color: var(--fg); padding: 6px 0; }
+  details.key table { font-size: 12px; border-collapse: collapse; margin-top: 8px; }
+  details.key td { padding: 5px 12px; border-bottom: 1px solid var(--rule);
+                   vertical-align: middle; }
+  details.key td.sample { width: 90px; min-width: 90px; }
+</style>
+</head>
+<body>
+<h1>Post-1980 cutter — held-out test on 1986 / 1998 / 2004</h1>
+
+<p class="preamble"><b>What this is.</b> The post-1980 modular cutter
+(<code>tools/post1980/</code>) was developed and eyeballed entirely on the
+ten Phase-0 issues (1985, 1990, 1995, 2000, 2007 — Feb &amp; Oct). This page
+is the <b>first run on issues that were never used during development</b>:
+three fresh issues, one early (1986, the low-resolution A4-rewrap generation),
+one mid (1998 broadsheet), one late (2004 broadsheet), each at page&nbsp;1
+(front), page&nbsp;3 (interior editorial) and page&nbsp;10 (deep interior /
+ads &amp; classifieds). Nine pages, no parameter touched.</p>
+
+<p class="preamble muted"><b>How to read it.</b> Left = original scan, right =
+the cutter's detections overlaid. Open each image full-size to zoom — the
+captions below describe gross structure (does each coloured box land on a real
+reading unit?). I have <b>not</b> verified fine column-grid accuracy at full
+resolution; that is exactly what the right-hand images let you check by eye.
+Captions are deliberately honest about misses, not just hits.</p>
+
+<details class="key"><summary>Key — overlay colours</summary>
+<table>
+<tr><td class="sample"><svg width="60" height="16"><line x1="2" y1="8" x2="58" y2="8" stroke="#0064FF" stroke-width="4"/></svg></td><td><b>Article</b> — blue box around an article body; darker-blue inner box = detected headline.</td></tr>
+<tr><td class="sample"><svg width="60" height="16"><line x1="2" y1="8" x2="58" y2="8" stroke="#DC1E1E" stroke-width="4"/></svg></td><td><b>Display ad</b> — red box.</td></tr>
+<tr><td class="sample"><svg width="60" height="16"><line x1="2" y1="8" x2="58" y2="8" stroke="#FF96B4" stroke-width="4"/></svg></td><td><b>Photo</b> — light-pink box.</td></tr>
+<tr><td class="sample"><svg width="60" height="16"><line x1="2" y1="8" x2="58" y2="8" stroke="#FF8200" stroke-width="4"/></svg></td><td><b>Uncovered</b> — orange box: visible ink not claimed by any detector (a miss flagged for review).</td></tr>
+<tr><td class="sample"><svg width="60" height="16"><rect x="2" y="3" width="56" height="10" fill="#aaaaaa"/></svg></td><td><b>Masthead / section banner</b> — grey fill across the top.</td></tr>
+<tr><td class="sample"><svg width="60" height="16"><line x1="2" y1="8" x2="58" y2="8" stroke="#00563B" stroke-width="3" stroke-dasharray="6,3"/></svg></td><td><b>Structural grid</b> — racing-green dashed: column gutters, whitespace bands, text-area edges, masthead bottom.</td></tr>
+</table>
+</details>
+
+<!-- 1986 -->
+<h2>1986-03-12 &nbsp;p1 — front <span class="counts">[modular · 4 articles · 1 ad · 0 photos]</span></h2>
+<div class="pair">
+  <div class="col"><label>Original</label><img src="renders/1986-03-12-p1__base.png" loading="lazy"></div>
+  <div class="col"><label>Detections</label><img src="renders/1986-03-12-p1__overlay.png" loading="lazy"></div>
+</div>
+<p class="verdict"><span class="good">Works:</span> masthead band correct;
+the lead "Corkery…offenders' centre" story and the three lower stories
+("Ramsay council…", "Deficit is nation's…", "De-indexing…") each land as
+their own article rectangle with a headline box; the right-hand sidebar
+items ("In focus", "Animal shelter…closure") are caught.
+<span class="gap">Miss:</span> the large central news photo is left
+<b>orange (uncovered)</b> rather than classified as a photo — borderless
+photos on these A4-rewrap scans aren't embedded image objects, so pixel-photo
+detection didn't claim it.</p>
+
+<h2>1986-03-12 &nbsp;p3 — interior editorial <span class="counts">[modular · 4 articles · 3 ads · 0 photos]</span></h2>
+<div class="pair">
+  <div class="col"><label>Original</label><img src="renders/1986-03-12-p3__base.png" loading="lazy"></div>
+  <div class="col"><label>Detections</label><img src="renders/1986-03-12-p3__overlay.png" loading="lazy"></div>
+</div>
+<p class="verdict"><span class="good">Works:</span> "Almonte and district"
+section banner detected; main stories bounded; the inset "Police Beat" box is
+caught as its own unit.
+<span class="gap">Watch:</span> the row of short news briefs along the bottom
+is boxed in <b>red (ad)</b> — several of these read as brief news items, not
+ads, so there's likely some news-brief→ad misclassification here. The right
+photo is again <b>orange (uncovered)</b>.</p>
+
+<h2>1986-03-12 &nbsp;p10 — deep interior (ads) <span class="counts">[modular · 5 articles · 10 ads · 0 photos]</span></h2>
+<div class="pair">
+  <div class="col"><label>Original</label><img src="renders/1986-03-12-p10__base.png" loading="lazy"></div>
+  <div class="col"><label>Detections</label><img src="renders/1986-03-12-p10__overlay.png" loading="lazy"></div>
+</div>
+<p class="verdict"><span class="good">Works:</span> a busy mixed ad/editorial
+page broken into ten ad boxes plus a few article blocks — the modular grid is
+followed rather than sliced into nonsense.
+<span class="gap">Miss:</span> graphics/photos (e.g. the bottom-right
+"Budget information" map) fall to <b>orange</b>; a couple of adjacent ads may
+be merged or split — worth a full-res look.</p>
+
+<!-- 1998 -->
+<h2>1998-09-23 &nbsp;p1 — front <span class="counts">[modular · 7 articles · 5 ads · 0 photos]</span></h2>
+<div class="pair">
+  <div class="col"><label>Original</label><img src="renders/1998-09-23-p1__base.png" loading="lazy"></div>
+  <div class="col"><label>Detections</label><img src="renders/1998-09-23-p1__overlay.png" loading="lazy"></div>
+</div>
+<p class="verdict"><span class="good">Works:</span> full broadsheet — masthead
+caught, top teaser strip separated, lead stories and the large performance
+photo each get a block.
+<span class="gap">Check at full res:</span> with seven article blocks there may
+be over-segmentation where a single story's columns split; the right-hand
+"…contract negotiations" column boundary is the thing to verify by eye.</p>
+
+<h2>1998-09-23 &nbsp;p3 — interior editorial <span class="counts">[modular · 8 articles · 2 ads · 0 photos]</span></h2>
+<div class="pair">
+  <div class="col"><label>Original</label><img src="renders/1998-09-23-p3__base.png" loading="lazy"></div>
+  <div class="col"><label>Detections</label><img src="renders/1998-09-23-p3__overlay.png" loading="lazy"></div>
+</div>
+<p class="verdict"><span class="good">Works:</span> "ALMONTE AND DISTRICT"
+banner; the "United Way…" lead and the row of three portrait photos are
+bounded; "COBBO briefs" / "County council…" columns separated.</p>
+
+<h2>1998-09-23 &nbsp;p10 — deep interior (ads) <span class="counts">[modular · 1 article · 9 ads · 2 photos]</span></h2>
+<div class="pair">
+  <div class="col"><label>Original</label><img src="renders/1998-09-23-p10__base.png" loading="lazy"></div>
+  <div class="col"><label>Detections</label><img src="renders/1998-09-23-p10__overlay.png" loading="lazy"></div>
+</div>
+<p class="verdict"><span class="good">Works:</span> a near-pure ad page handled
+as such — the big "CARPET / Color Your World" display ad and eight other ad
+boxes caught, the one "Hub returns to downtown Almonte" article kept separate,
+and two photos correctly classified (photo detection working better on the
+higher-res broadsheet scans than on 1986).</p>
+
+<!-- 2004 -->
+<h2>2004-09-21 &nbsp;p1 — front <span class="counts">[modular · 3 articles · 5 ads · 4 photos]</span></h2>
+<div class="pair">
+  <div class="col"><label>Original</label><img src="renders/2004-09-21-p1__base.png" loading="lazy"></div>
+  <div class="col"><label>Detections</label><img src="renders/2004-09-21-p1__overlay.png" loading="lazy"></div>
+</div>
+<p class="verdict"><span class="good">Works:</span> the wide "Breaking down the
+barriers" banner headline is captured as a single multi-column headline (not
+mistaken for a 6-column page grid); the large lead photo and the bottom photo
+strip are classified as photos — four photos found on a front page, matching
+the rising photo density the field notes predicted for the 2000s.</p>
+
+<h2>2004-09-21 &nbsp;p3 — interior editorial <span class="counts">[modular · 4 articles · 7 ads · 1 photo]</span></h2>
+<div class="pair">
+  <div class="col"><label>Original</label><img src="renders/2004-09-21-p3__base.png" loading="lazy"></div>
+  <div class="col"><label>Detections</label><img src="renders/2004-09-21-p3__overlay.png" loading="lazy"></div>
+</div>
+<p class="verdict"><span class="good">Works:</span> "DISTRICT NEWS" banner; the
+"Reva and Len Dolgoy…Cultural Achievement Award" lead and other stories
+bounded; right-rail ad boxes ("Wanted", "Looking") separated from editorial.</p>
+
+<h2>2004-09-21 &nbsp;p10 — deep interior (classifieds) <span class="counts">[modular · 1 article · 5 ads · 4 photos]</span></h2>
+<div class="pair">
+  <div class="col"><label>Original</label><img src="renders/2004-09-21-p10__base.png" loading="lazy"></div>
+  <div class="col"><label>Detections</label><img src="renders/2004-09-21-p10__overlay.png" loading="lazy"></div>
+</div>
+<p class="verdict"><span class="gap">Gap worth flagging:</span> this is a
+classifieds page ("SOCIAL NOTES" banner over dense narrow-column tiny-type
+listings), but it was classified as generic <b>modular</b>, not as a distinct
+<b>classifieds</b> page-class — so the listing columns aren't handled with a
+classifieds-specific grid. The right-hand display ads are caught, but the
+classifieds body is the known unhandled case the Phase-0 notes anticipated.</p>
+
+<hr style="margin:40px 0 20px;border:none;border-top:1px solid var(--rule)">
+<p class="preamble"><b>Overall (honest read).</b> On three issues never seen
+during development, the cutter holds up at the structural level across all
+three eras: mastheads/section banners, article-as-rectangle blocks,
+multi-column headlines, and display ads are detected sensibly — a different
+universe from the "beyond useless" classical cuts on 1980. Two recurring gaps
+stand out: (1) <b>borderless photos on the 1986 low-res scans</b> fall through
+to "uncovered" orange instead of being classified, and (2) <b>classifieds
+pages aren't yet a distinct page-class</b> (2004 p10). News-brief→ad
+misclassification on dense interior bottoms (1986 p3) is a third, smaller
+one. None of these are grid-paradigm failures; they're specific detector
+gaps. Fine column-grid accuracy still needs a full-res eyeball — which these
+overlays support.</p>
+
+</body>
+</html>
