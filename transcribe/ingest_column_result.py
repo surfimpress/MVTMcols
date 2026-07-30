@@ -158,23 +158,28 @@ def load_result(row_id: str, result_path: str | None = None) -> str:
 
 
 def _assemble_transcript(envelope: dict,
-                         ticket: dict) -> tuple[str, str, list[dict] | None]:
-    """Return ``(transcript_text, transcriber_notes, slice_boundaries)``
-    from an envelope, joining per-slice transcripts when sliced.
+                         ticket: dict
+                         ) -> tuple[str, str, list[dict] | None, str | None]:
+    """Return ``(transcript_text, transcriber_notes, slice_boundaries,
+    transcript_text_raw)`` from an envelope, joining per-slice
+    transcripts when sliced.
 
     For the sliced shape, the manifest from the ticket supplies the
     rule-class metadata the joiner needs; per-slice transcriber notes
     are concatenated into a single notes block prefixed by the slice
     index. ``slice_boundaries`` is the manifest enriched with char
     offsets — written to the schema column of the same name.
+    ``transcript_text_raw`` holds the pre-dedup joined text, and is
+    non-None only when the joiner actually collapsed a slice-overlap
+    duplicate (see ``transcribe.slice.join_slice_transcripts``).
 
     For the legacy full-image shape, the joiner is a no-op:
-    ``slice_boundaries`` returns None.
+    ``slice_boundaries`` and ``transcript_text_raw`` both return None.
     """
     if "slices" not in envelope:
         return (envelope["transcript_text"],
                 envelope.get("transcriber_notes") or "",
-                None)
+                None, None)
 
     manifest = ticket.get("slices")
     if not manifest:
@@ -195,8 +200,13 @@ def _assemble_transcript(envelope: dict,
             f"got {actual}")
 
     per_slice_text = [s["transcript_text"] for s in slice_records]
-    joined, boundaries = _slice.join_slice_transcripts(
+    joined, boundaries, dedup_events = _slice.join_slice_transcripts(
         manifest, per_slice_text)
+
+    transcript_text_raw = None
+    if dedup_events:
+        transcript_text_raw, _, _ = _slice.join_slice_transcripts(
+            manifest, per_slice_text, dedupe=False)
 
     # Per-slice notes → one combined block. Empty notes are dropped.
     notes_parts = []
@@ -206,7 +216,7 @@ def _assemble_transcript(envelope: dict,
             notes_parts.append(f"[slice {s['idx']:02d}] {n}")
     transcriber_notes = "\n".join(notes_parts)
 
-    return joined, transcriber_notes, boundaries
+    return joined, transcriber_notes, boundaries, transcript_text_raw
 
 
 def ingest(row_id: str,
@@ -222,8 +232,8 @@ def ingest(row_id: str,
         agent_path = os.path.join(_db.REPO_ROOT, AGENT_FILE_REL)
         model = _db.read_agent_default_model(agent_path) or "unknown"
 
-    transcript_text, transcriber_notes, slice_boundaries = \
-        _assemble_transcript(envelope, ticket)
+    transcript_text, transcriber_notes, slice_boundaries, \
+        transcript_text_raw = _assemble_transcript(envelope, ticket)
 
     conn = _db.open_connection()
     try:
@@ -246,6 +256,7 @@ def ingest(row_id: str,
             repair_needed=envelope["repair_needed"],
             repair_reason=envelope.get("repair_reason") or None,
             slice_boundaries=slice_boundaries,
+            transcript_text_raw=transcript_text_raw,
             model=model,
             prompt_hash_value=ticket.get("prompt_hash", ""),
             raw_response_json=raw)
@@ -283,6 +294,7 @@ def ingest(row_id: str,
         "transcript_chars": len(transcript_text),
         "sliced": slice_boundaries is not None,
         "num_slices": len(slice_boundaries) if slice_boundaries else 0,
+        "dedup_applied": transcript_text_raw is not None,
         "any_quality_flag":
             any(envelope["quality_flags"].values()),
     }
@@ -316,6 +328,8 @@ def main(argv: list[str] | None = None) -> int:
            if report["sliced"] else " (full image)"))
     print(f"  quality flag(s): "
           f"{'yes' if report['any_quality_flag'] else 'none'}")
+    if report["dedup_applied"]:
+        print("  slice overlap dedup: collapsed (see transcript_text_raw)")
     if report["repair_id"]:
         print(f"  repair raised:   {report['repair_id']}")
     return 0

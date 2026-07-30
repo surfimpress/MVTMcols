@@ -154,6 +154,7 @@ def mark_column_done(conn: sqlite3.Connection,
                      prompt_hash_value: str,
                      raw_response_json: str,
                      slice_boundaries: list | None = None,
+                     transcript_text_raw: str | None = None,
                      tokens_in: int | None = None,
                      tokens_out: int | None = None,
                      cost_usd: float | None = None) -> None:
@@ -162,11 +163,17 @@ def mark_column_done(conn: sqlite3.Connection,
     ``slice_boundaries`` is the manifest-with-char-offsets returned by
     ``transcribe.slice.join_slice_transcripts``. Stored as JSON; null
     on legacy full-image transcripts.
+
+    ``transcript_text_raw`` is the pre-dedup joined text, set only
+    when ``transcribe.slice.join_slice_transcripts`` collapsed a
+    slice-boundary overlap duplicate (see schema.sql v3 and
+    quality_review.md) -- null when there was nothing to collapse.
     """
     conn.execute(
         """UPDATE column_transcripts SET
               status='done',
               transcript_text=?,
+              transcript_text_raw=?,
               transcriber_notes=?,
               quality_flags=?,
               repair_needed=?,
@@ -180,7 +187,7 @@ def mark_column_done(conn: sqlite3.Connection,
               cost_usd=?,
               updated_at=?
             WHERE id=?""",
-        (transcript_text, transcriber_notes,
+        (transcript_text, transcript_text_raw, transcriber_notes,
          json.dumps(quality_flags) if quality_flags is not None else None,
          1 if repair_needed else 0, repair_reason,
          model, prompt_hash_value, raw_response_json,

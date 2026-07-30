@@ -240,8 +240,87 @@ def slice_column(*,
     return manifest
 
 
+# Minimum character length for the partial-overlap stitch below.
+# Real duplicated spans run to dozens of characters (whole clauses);
+# this floor is just high enough to make a coincidental match on a
+# short common phrase fragment implausible.
+_MIN_STITCH_OVERLAP = 20
+
+
+def resolve_slice_overlap(prev_line: str, curr_line: str) -> str | None:
+    """Detect whether ``prev_line`` (the last line of one subdivided
+    slice) and ``curr_line`` (the first line of the next) share a
+    duplicated span, caused by the ~20px vertical overlap between
+    adjacent slice images (see column-transcriber.md, "Sliced mode").
+    Returns the merged line to keep, or ``None`` if they don't look
+    like a duplicate (a genuine line break).
+
+    Handles the shapes observed in transcribed columns:
+    - exact duplicate (both slices transcribed the full line)
+    - ``curr_line`` is the fuller version (``prev_line`` was cut off
+      at the bottom of its slice; ``curr_line`` caught the whole
+      line at the top of the next, since the overlap band let it see
+      further up)
+    - ``prev_line`` is the fuller version (the reverse)
+    - a middle span is duplicated: neither line contains the other,
+      but a trailing chunk of ``prev_line`` exactly matches a leading
+      chunk of ``curr_line`` (each slice caught a different partial
+      view of the same physical line/clause). The two are stitched
+      into one, keeping prev's lead-in and curr's tail.
+
+    Deliberately conservative: requires an exact (word-boundary
+    aligned) match rather than a fuzzy one, so a line that merely
+    looks similar is left untouched rather than guessing a stitch
+    that could corrupt the transcript.
+    """
+    p = prev_line.strip()
+    c = curr_line.strip()
+    if not p or not c:
+        return None
+    if p == c:
+        return prev_line
+    if c.startswith(p):
+        return curr_line
+    if p.endswith(c):
+        return prev_line
+
+    max_check = min(len(p), len(c))
+    for overlap_len in range(max_check, _MIN_STITCH_OVERLAP - 1, -1):
+        if p[-overlap_len:] != c[:overlap_len]:
+            continue
+        # Require the match to start on a word boundary in p so the
+        # stitch doesn't fuse two partial words together.
+        boundary_idx = len(p) - overlap_len
+        if boundary_idx > 0 and not p[boundary_idx - 1].isspace():
+            continue
+        return p + c[overlap_len:]
+    return None
+
+
+def _split_off_last_line(s: str) -> tuple[str, str]:
+    """Return ``(rest, last_line)`` splitting ``s`` on its final newline."""
+    idx = s.rfind("\n")
+    if idx == -1:
+        return "", s
+    return s[:idx + 1], s[idx + 1:]
+
+
+def _split_off_first_line(s: str) -> tuple[str, str]:
+    """Return ``(first_line, rest)`` splitting ``s`` on its first newline.
+
+    ``rest`` keeps the delimiting newline so re-joining head+rest is exact.
+    """
+    idx = s.find("\n")
+    if idx == -1:
+        return s, ""
+    return s[:idx], s[idx:]
+
+
 def join_slice_transcripts(slice_records: list[dict],
-                           per_slice_text: list[str]) -> tuple[str, list[dict]]:
+                           per_slice_text: list[str],
+                           *,
+                           dedupe: bool = True
+                           ) -> tuple[str, list[dict], list[dict]]:
     """Join per-slice transcripts into one column transcript.
 
     Inserts a markdown rule between consecutive slices based on the
@@ -249,14 +328,26 @@ def join_slice_transcripts(slice_records: list[dict],
 
     - ``full`` rule  → ``\\n\\n---\\n\\n`` (markdown HR; item separator)
     - ``narrow`` rule → ``\\n\\n--\\n\\n`` (not a markdown HR; item-internal)
-    - sub-slice continuation (no rule between) → ``\\n``
+    - sub-slice continuation (no rule between) → the last line of the
+      previous slice and the first line of this one are checked for
+      the ~20px overlap duplicate (see ``resolve_slice_overlap``); if
+      found, the two lines collapse into one with no separator,
+      otherwise they join with ``\\n``.
+
+    ``dedupe=False`` skips the overlap check entirely (plain ``\\n``
+    join for every subdivided continuation, the pre-fix behaviour) —
+    used by callers that want the naive joined text for comparison
+    (e.g. ``transcript_text_raw``), not for normal use.
 
     Returns:
-      ``(joined_text, slice_boundaries)`` where
+      ``(joined_text, slice_boundaries, dedup_events)`` where
       ``slice_boundaries`` is the manifest enriched with per-slice
       ``char_offset_start`` and ``char_offset_end`` into
-      ``joined_text``. This is the JSON written to
-      ``column_transcripts.slice_boundaries``.
+      ``joined_text`` (this is the JSON written to
+      ``column_transcripts.slice_boundaries``), and ``dedup_events``
+      lists each collapsed overlap (``boundary_idx``, ``prev_line``,
+      ``curr_line``, ``merged_line``) for audit/logging. ``dedup_events``
+      is always empty when ``dedupe=False``.
 
     The first slice never has a rule marker before it. The
     ``column_edge`` rule class is also treated as "no marker"
@@ -270,14 +361,35 @@ def join_slice_transcripts(slice_records: list[dict],
 
     parts: list[str] = []
     boundaries: list[dict] = []
+    dedup_events: list[dict] = []
     cursor = 0
 
     for i, (rec, text) in enumerate(zip(slice_records, per_slice_text)):
         if i > 0:
             prev = slice_records[i - 1]
-            # Same h-rule-bounded item, sub-divisions: no rule.
+            # Same h-rule-bounded item, sub-divisions: no rule, but
+            # check for the slice-overlap duplicate line first.
             if prev["subdivided"] and rec["subdivided"]:
-                sep = "\n"
+                joined_so_far = "".join(parts)
+                head, prev_last_line = _split_off_last_line(joined_so_far)
+                curr_first_line, curr_rest = _split_off_first_line(text)
+                merged_line = (resolve_slice_overlap(
+                    prev_last_line, curr_first_line) if dedupe else None)
+                if merged_line is not None:
+                    parts = [head, merged_line]
+                    cursor = len(head) + len(merged_line)
+                    if boundaries:
+                        boundaries[-1]["char_offset_end"] = len(head)
+                    text = curr_rest
+                    dedup_events.append({
+                        "boundary_idx": i,
+                        "prev_line": prev_last_line,
+                        "curr_line": curr_first_line,
+                        "merged_line": merged_line,
+                    })
+                    sep = ""
+                else:
+                    sep = "\n"
             else:
                 rule_class = rec["top_rule_class"]
                 if rule_class == "full":
@@ -300,7 +412,7 @@ def join_slice_transcripts(slice_records: list[dict],
             "char_offset_end": end,
         })
 
-    return "".join(parts), boundaries
+    return "".join(parts), boundaries, dedup_events
 
 
 __all__ = [
@@ -310,4 +422,5 @@ __all__ = [
     "FULL_WIDTH_RATIO",
     "slice_column",
     "join_slice_transcripts",
+    "resolve_slice_overlap",
 ]

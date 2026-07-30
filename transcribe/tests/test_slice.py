@@ -177,19 +177,20 @@ class JoinSliceTranscriptsTests(unittest.TestCase):
             self._rec(0, "column_edge", "full"),
             self._rec(1, "full", "column_edge"),
         ]
-        joined, bnd = ts.join_slice_transcripts(recs, ["A", "B"])
+        joined, bnd, events = ts.join_slice_transcripts(recs, ["A", "B"])
         self.assertEqual(joined, "A\n\n---\n\nB")
         self.assertEqual(bnd[0]["char_offset_start"], 0)
         self.assertEqual(bnd[0]["char_offset_end"], 1)
         self.assertEqual(bnd[1]["char_offset_start"],
                          len("A\n\n---\n\n"))
+        self.assertEqual(events, [])
 
     def test_narrow_rules_join_with_double_dash(self):
         recs = [
             self._rec(0, "column_edge", "narrow"),
             self._rec(1, "narrow", "column_edge"),
         ]
-        joined, _ = ts.join_slice_transcripts(recs, ["A", "B"])
+        joined, _, _ = ts.join_slice_transcripts(recs, ["A", "B"])
         self.assertEqual(joined, "A\n\n--\n\nB")
 
     def test_sub_slice_continuation_uses_blank_line(self):
@@ -199,13 +200,147 @@ class JoinSliceTranscriptsTests(unittest.TestCase):
             self._rec(1, "column_edge", "column_edge",
                       subdivided=True, sub_idx=1),
         ]
-        joined, _ = ts.join_slice_transcripts(recs, ["A", "B"])
+        joined, _, events = ts.join_slice_transcripts(recs, ["A", "B"])
         self.assertEqual(joined, "A\nB")
+        self.assertEqual(events, [])
 
     def test_length_mismatch_raises(self):
         recs = [self._rec(0, "column_edge", "column_edge")]
         with self.assertRaises(ValueError):
             ts.join_slice_transcripts(recs, ["A", "B"])
+
+    def test_sub_slice_overlap_exact_duplicate_collapses(self):
+        recs = [
+            self._rec(0, "column_edge", "column_edge",
+                      subdivided=True, sub_idx=0),
+            self._rec(1, "column_edge", "column_edge",
+                      subdivided=True, sub_idx=1),
+        ]
+        prev_text = "Some intro text.\nA GOOD SMART BOY, apply to"
+        curr_text = "A GOOD SMART BOY, apply to\nD. SHAW,\nAlmonte."
+        joined, bnd, events = ts.join_slice_transcripts(
+            recs, [prev_text, curr_text])
+        self.assertEqual(
+            joined,
+            "Some intro text.\nA GOOD SMART BOY, apply to\nD. SHAW,\nAlmonte.")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["prev_line"], "A GOOD SMART BOY, apply to")
+        self.assertEqual(bnd[0]["char_offset_end"],
+                         len("Some intro text.\n"))
+
+    def test_sub_slice_overlap_curr_is_fuller_version(self):
+        recs = [
+            self._rec(0, "column_edge", "column_edge",
+                      subdivided=True, sub_idx=0),
+            self._rec(1, "column_edge", "column_edge",
+                      subdivided=True, sub_idx=1),
+        ]
+        prev_text = "at a cost of some $2,000. It will shortly be inaugurated"
+        curr_text = ("at a cost of some $2,000. It will shortly be "
+                    "inaugurated by a concert and ball.\n\n-Mr. Chas. J. Foy")
+        joined, _, events = ts.join_slice_transcripts(
+            recs, [prev_text, curr_text])
+        self.assertEqual(
+            joined,
+            "at a cost of some $2,000. It will shortly be inaugurated by a "
+            "concert and ball.\n\n-Mr. Chas. J. Foy")
+        self.assertEqual(len(events), 1)
+
+    def test_sub_slice_overlap_prev_is_fuller_version(self):
+        recs = [
+            self._rec(0, "column_edge", "column_edge",
+                      subdivided=True, sub_idx=0),
+            self._rec(1, "column_edge", "column_edge",
+                      subdivided=True, sub_idx=1),
+        ]
+        prev_text = ("At Perth, 30th Oct., Mr. Thomas Kirkham to Miss "
+                    "Lizzie Dickson, both of Bathurst.")
+        curr_text = "Lizzie Dickson, both of Bathurst.\n\nIn Toronto"
+        joined, _, events = ts.join_slice_transcripts(
+            recs, [prev_text, curr_text])
+        self.assertEqual(
+            joined,
+            "At Perth, 30th Oct., Mr. Thomas Kirkham to Miss Lizzie "
+            "Dickson, both of Bathurst.\n\nIn Toronto")
+        self.assertEqual(len(events), 1)
+
+    def test_no_overlap_leaves_lines_alone(self):
+        recs = [
+            self._rec(0, "column_edge", "column_edge",
+                      subdivided=True, sub_idx=0),
+            self._rec(1, "column_edge", "column_edge",
+                      subdivided=True, sub_idx=1),
+        ]
+        joined, _, events = ts.join_slice_transcripts(
+            recs, ["First paragraph.", "Second paragraph."])
+        self.assertEqual(joined, "First paragraph.\nSecond paragraph.")
+        self.assertEqual(events, [])
+
+
+class ResolveSliceOverlapTests(unittest.TestCase):
+
+    def test_exact_duplicate(self):
+        self.assertEqual(ts.resolve_slice_overlap("foo bar", "foo bar"),
+                         "foo bar")
+
+    def test_curr_is_fuller(self):
+        self.assertEqual(
+            ts.resolve_slice_overlap("Miss Lizzie", "Miss Lizzie Dickson"),
+            "Miss Lizzie Dickson")
+
+    def test_prev_is_fuller(self):
+        self.assertEqual(
+            ts.resolve_slice_overlap("Miss Lizzie Dickson", "Lizzie Dickson"),
+            "Miss Lizzie Dickson")
+
+    def test_unrelated_lines_return_none(self):
+        self.assertIsNone(
+            ts.resolve_slice_overlap("The end of one item.",
+                                     "The start of another."))
+
+    def test_empty_line_returns_none(self):
+        self.assertIsNone(ts.resolve_slice_overlap("", "something"))
+        self.assertIsNone(ts.resolve_slice_overlap("something", ""))
+
+    def test_middle_span_stitch(self):
+        # Real case from row 1eb44481: neither line contains the
+        # other, but a long trailing chunk of prev exactly matches a
+        # leading chunk of curr.
+        prev = ("The Hon. Mr. Ouimet has been given a portfolio in the "
+               "Cabinet. He was the man who kicked on the hanging of "
+               "Riel, but was made all right on being given the "
+               "position of Speaker. The other names are not yet "
+               "announced,")
+        curr = ("kicked on the hanging of Riel, but was made all right "
+               "on being given the position of Speaker. The other "
+               "names are not yet announced, although it is pretty "
+               "certain that Lieutenant-Governor Angers will join the "
+               "cabinet.")
+        merged = ts.resolve_slice_overlap(prev, curr)
+        self.assertEqual(
+            merged,
+            "The Hon. Mr. Ouimet has been given a portfolio in the "
+            "Cabinet. He was the man who kicked on the hanging of "
+            "Riel, but was made all right on being given the position "
+            "of Speaker. The other names are not yet announced, "
+            "although it is pretty certain that Lieutenant-Governor "
+            "Angers will join the cabinet.")
+
+    def test_short_coincidental_overlap_ignored(self):
+        # A short shared fragment below the stitch floor should not
+        # trigger a merge.
+        self.assertIsNone(
+            ts.resolve_slice_overlap("He went to the store to buy",
+                                     "the answer was clear to all."))
+
+    def test_stitch_respects_word_boundary(self):
+        # p ends in "...the fragment of the whole story" and c starts
+        # with "agment of the whole story..." -- a genuine 20+ char
+        # exact match, but it starts mid-word ("fr|agment") in p, so
+        # it must not stitch.
+        prev = "This got cut off oddly right at the fragment of the whole story"
+        curr = "agment of the whole story keeps going for a while longer today"
+        self.assertIsNone(ts.resolve_slice_overlap(prev, curr))
 
 
 if __name__ == "__main__":

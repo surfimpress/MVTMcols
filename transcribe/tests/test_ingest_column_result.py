@@ -328,6 +328,72 @@ class IngestRoundtripTest(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_sliced_ingest_dedups_subdivided_overlap(self):
+        manifest = [
+            {"idx": 0, "y_top_pct": 0.0, "y_bottom_pct": 50.0,
+             "y_top_px": 0, "y_bottom_px": 400, "height_px": 400,
+             "image_path": "transcribe/work/slices/x/slice00.png",
+             "top_rule_class": "column_edge",
+             "bottom_rule_class": "column_edge",
+             "top_rule_y_pct": None, "bottom_rule_y_pct": None,
+             "subdivided": True, "sub_idx": 0},
+            {"idx": 1, "y_top_pct": 50.0, "y_bottom_pct": 100.0,
+             "y_top_px": 400, "y_bottom_px": 800, "height_px": 400,
+             "image_path": "transcribe/work/slices/x/slice01.png",
+             "top_rule_class": "column_edge",
+             "bottom_rule_class": "column_edge",
+             "top_rule_y_pct": None, "bottom_rule_y_pct": None,
+             "subdivided": True, "sub_idx": 1},
+        ]
+        row_id = self._claim_and_ticket(slices=manifest)
+        env = _good_sliced_envelope()
+        env["slices"] = [
+            {"idx": 0,
+             "transcript_text": "Intro text here.\nA GOOD SMART BOY, apply to",
+             "transcriber_notes": ""},
+            {"idx": 1,
+             "transcript_text": "A GOOD SMART BOY, apply to\nD. SHAW,\nAlmonte.",
+             "transcriber_notes": ""},
+        ]
+        self._write_result(row_id, env)
+
+        report = ing.ingest(row_id, model="claude-sonnet-5")
+        self.assertTrue(report["dedup_applied"])
+
+        conn = sqlite3.connect(self.tmp_db.name)
+        conn.row_factory = sqlite3.Row
+        try:
+            row = conn.execute(
+                "SELECT transcript_text, transcript_text_raw "
+                "FROM column_transcripts WHERE id=?",
+                (row_id,)).fetchone()
+            self.assertEqual(
+                row["transcript_text"],
+                "Intro text here.\nA GOOD SMART BOY, apply to\n"
+                "D. SHAW,\nAlmonte.")
+            self.assertIn("A GOOD SMART BOY, apply to\nA GOOD SMART BOY",
+                         row["transcript_text_raw"])
+        finally:
+            conn.close()
+
+    def test_sliced_ingest_no_overlap_leaves_raw_null(self):
+        manifest = _three_slice_manifest()
+        row_id = self._claim_and_ticket(slices=manifest)
+        self._write_result(row_id, _good_sliced_envelope())
+
+        report = ing.ingest(row_id, model="claude-sonnet-4-6")
+        self.assertFalse(report["dedup_applied"])
+
+        conn = sqlite3.connect(self.tmp_db.name)
+        conn.row_factory = sqlite3.Row
+        try:
+            row = conn.execute(
+                "SELECT transcript_text_raw FROM column_transcripts "
+                "WHERE id=?", (row_id,)).fetchone()
+            self.assertIsNone(row["transcript_text_raw"])
+        finally:
+            conn.close()
+
     def test_sliced_envelope_without_manifest_raises(self):
         # Ticket lacks 'slices' but envelope is sliced — error.
         row_id = self._claim_and_ticket()  # no slices=
