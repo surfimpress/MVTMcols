@@ -98,3 +98,30 @@ Before resuming the transcription loop at volume, decide whether to:
 
 No changes have been made to `transcript_text` for any row — this
 review only read existing data.
+
+## Resolution (2026-07-30, same day)
+
+Went with (1), deterministically rather than via an LLM pass — every
+duplicate found here and in the full-DB scan fell into one of three
+exact shapes (whole-line duplicate, one side truncated, or a middle
+span shared across the boundary), which a plain string match handles
+correctly and reversibly without the cost or judgment-call risk of a
+model-based dedup agent.
+
+`transcribe.slice.resolve_slice_overlap()` + the fixed
+`join_slice_transcripts()` now catch this at ingest time for every
+new column. `transcribe.dedup_backfill` re-derived per-slice text
+from each already-done row's own `slice_boundaries` offsets (no
+re-transcription needed) and re-joined with the fix: **185 of the
+396 sliced/done rows at the time** had a collapsible duplicate,
+including all three cases named above. Zero residual on a second
+pass (idempotent). `transcribe.db` was backed up
+(`transcribe.db.pre-dedup-backfill.bak`) before the backfill ran, and
+`transcript_text_raw` (schema v3) holds the pre-dedup text on every
+row it touched, so any of these edits can be inspected or reverted.
+
+Also verified live (not just backfill): dispatched 5
+`column-transcriber` agents against fresh, previously-untranscribed
+columns from 1963-10-10; 2 of 5 hit a genuine overlap duplicate and
+the fix collapsed it correctly on brand-new agent output. Logged in
+`transcribe/work/experiments.jsonl` (`kind: dedup-fix-live-verification`).
