@@ -192,12 +192,11 @@ details.ads-section summary { background: #f8f5ee; }
 <script>
 const BASE = '/MVTM/columns';
 // Drive-hosted fallback for issues whose local files have been archived
-// to free disk. Points at `rclone serve http mvtm:MVTM-corpus-backup/columns/`
-// (see tools/serve_archive.sh). Drive layout is /YYYY/MM/YYYY-MM-DD/...
-// so the fallback rewrites the URL when backupStatus[issue.dir] is set
-// AND the local fetch 404s. Configurable via window.ARCHIVE_BASE if you
-// need to point a deployment at a different host.
-const ARCHIVE_BASE = window.ARCHIVE_BASE || 'http://127.0.0.1:8050';
+// to free disk. The Drive tree is mounted on the Mac at
+// MVTM/columns_archive/ via `rclone nfsmount` (see tools/mount_archive.sh)
+// and served by the same dev server / tunnel as the rest of MVTM —
+// so the fallback URL is same-origin. Drive layout is /YYYY/MM/YYYY-MM-DD/...
+const ARCHIVE_BASE = '/MVTM/columns_archive';
 
 // Caching strategy:
 // Plain `fetch(url)` with no cache-busting query string and no
