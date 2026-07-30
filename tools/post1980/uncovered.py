@@ -41,7 +41,8 @@ def _connected_components(mask):
 def find_uncovered_content(page, masthead_bottom, claimed_bboxes,
                            page_w, page_h,
                            grid_pt=20, dpi=100, dark_thr=130,
-                           min_dark_frac=0.04, min_cells=12):
+                           min_dark_frac=0.04, min_cells=2,
+                           column_x_edges=None, band_y_edges=None):
     """Return list of bboxes (x0, y0, x1, y1) for regions of the page
     below the masthead that:
       - are not inside any claimed rectangle (articles, ads, photos,
@@ -52,6 +53,17 @@ def find_uncovered_content(page, masthead_bottom, claimed_bboxes,
     to be fast, fine enough to localise within ~1cm.
 
     Components smaller than `min_cells` cells are discarded as noise.
+
+    When `column_x_edges` AND/OR `band_y_edges` are given, the
+    connected-component scan runs INDEPENDENTLY within each
+    (column_strip × y_zone) cell of the structural grid. So each
+    emitted region is bounded to a single grid cell — at most one
+    column wide and at most one band-row tall. This makes downstream
+    snap/resolution grid-aligned by construction.
+
+    Typical edges to pass:
+      column_x_edges = text_area_left + scored_grid_gutters + text_area_right
+      band_y_edges   = masthead_bottom + whitespace_band centres + page_h
     """
     zoom = dpi / 72.0
     pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom),
@@ -98,29 +110,66 @@ def find_uncovered_content(page, masthead_bottom, claimed_bboxes,
             if cell.mean() > min_dark_frac:
                 has_ink[gy, gx] = True
 
-    labels, n = _connected_components(has_ink)
-    bboxes = []
+    # Build the list of column strips (gx-index ranges) to scan
+    # independently. If no column edges supplied, fall back to one
+    # strip covering the whole page (original behaviour).
+    # Per user direction 2026-05-18: the orange should cover EVERYTHING
+    # that's left, no matter the size. Captions under photos, teaser
+    # lines above headlines, headline-fragment slivers — all in. The
+    # only filters kept are:
+    #   - drop truly empty regions (< 2 cells)
+    #   - drop the binding-edge sliver artefact (very narrow boxes
+    #     hugging the page edge — these are scanner artefacts, not
+    #     content)
     edge_band = 30.0    # pt — tall slivers in this margin band are dropped
-    min_dim_pt = 60     # pt — drop if both width AND height are below this
-    min_area_pt = 6000  # sq pt — drop if total area is below this
-    for region_id in range(1, n + 1):
-        ys, xs = np.where(labels == region_id)
-        if len(ys) < min_cells:
-            continue
-        x0 = float(int(xs.min()) * grid_pt)
-        y0 = float(int(ys.min()) * grid_pt)
-        x1 = float((int(xs.max()) + 1) * grid_pt)
-        y1 = float((int(ys.max()) + 1) * grid_pt)
-        w = x1 - x0
-        h = y1 - y0
-        # Drop tall slivers near the page edges (these are usually
-        # binding-edge artefacts or thin margin noise, not content).
-        if w <= 40 and (x0 < edge_band or x1 > page_w - edge_band):
-            continue
-        # Drop tiny boxes anywhere on the page
-        if w < min_dim_pt and h < min_dim_pt:
-            continue
-        if w * h < min_area_pt:
-            continue
-        bboxes.append((x0, y0, x1, y1))
+    min_dim_pt = 0      # disabled: keep even single-cell-wide blobs
+    min_area_pt = 0     # disabled: keep even tiny blobs
+
+    if column_x_edges and len(column_x_edges) >= 2:
+        edges_sorted = sorted(float(e) for e in column_x_edges)
+        strips_gx = []
+        for k in range(len(edges_sorted) - 1):
+            gx0 = max(0, int(edges_sorted[k] / grid_pt))
+            gx1 = min(gw, int(edges_sorted[k + 1] / grid_pt) + 1)
+            if gx1 > gx0:
+                strips_gx.append((gx0, gx1))
+    else:
+        strips_gx = [(0, gw)]
+
+    if band_y_edges and len(band_y_edges) >= 2:
+        y_edges_sorted = sorted(float(e) for e in band_y_edges)
+        zones_gy = []
+        for k in range(len(y_edges_sorted) - 1):
+            gy0 = max(0, int(y_edges_sorted[k] / grid_pt))
+            gy1 = min(gh, int(y_edges_sorted[k + 1] / grid_pt) + 1)
+            if gy1 > gy0:
+                zones_gy.append((gy0, gy1))
+    else:
+        zones_gy = [(0, gh)]
+
+    bboxes = []
+    for (sgx0, sgx1) in strips_gx:
+        for (sgy0, sgy1) in zones_gy:
+            # Restrict the has_ink mask to this (column × band-row) cell
+            cell_mask = np.zeros_like(has_ink)
+            cell_mask[sgy0:sgy1, sgx0:sgx1] = has_ink[sgy0:sgy1, sgx0:sgx1]
+            labels, n = _connected_components(cell_mask)
+            for region_id in range(1, n + 1):
+                ys, xs = np.where(labels == region_id)
+                if len(ys) < min_cells:
+                    continue
+                x0 = float(int(xs.min()) * grid_pt)
+                y0 = float(int(ys.min()) * grid_pt)
+                x1 = float((int(xs.max()) + 1) * grid_pt)
+                y1 = float((int(ys.max()) + 1) * grid_pt)
+                w = x1 - x0
+                h = y1 - y0
+                # Drop tall slivers near the page edges
+                if w <= 40 and (x0 < edge_band or x1 > page_w - edge_band):
+                    continue
+                if w < min_dim_pt and h < min_dim_pt:
+                    continue
+                if w * h < min_area_pt:
+                    continue
+                bboxes.append((x0, y0, x1, y1))
     return bboxes

@@ -18,6 +18,7 @@ import re
 import sys
 
 import fitz   # PyMuPDF
+import numpy as np
 
 # Make the package importable when invoked as a script
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -74,7 +75,8 @@ COL = {
     "headline":      (  0,  50, 180, 255),  # darker blue stroke
     "pull_quote":    (220, 170,   0, 230),  # ochre stroke
     "display_ad":    (220,  30,  30, 230),  # red stroke
-    "photo":         (  0, 120,   0, 230),  # dark green stroke (caption-distinct)
+    "photo":         (255, 150, 180, 230),  # light pink stroke — visible vs
+                                            # page content (per user 2026-05-18)
     "image_only":    ( 80,  80,  80, 60),   # grey fill (whole page)
     "classifieds":   (180,  80,   0, 60),   # ochre fill (whole page)
     "uncovered":     (255, 130,   0, 230),  # orange stroke — uncovered ink-bearing region
@@ -83,10 +85,17 @@ COL = {
     "grid_low":      (180, 130, 200, 130),  # light purple — low conf (single band)
     "grid_band":     (200, 220, 255, 80),   # faint blue fill — measurement band
     "racing_green":  (  0,  86,  59, 230),  # fundamental-grid dashed lines
+                                            # — restored 2026-05-18: user
+                                            # explicitly chose this colour
+                                            # despite being colour-blind,
+                                            # relying on the dash pattern
+                                            # to distinguish; the cobalt-
+                                            # blue substitute clashed with
+                                            # other blue overlays.
 }
 
 
-def _draw_dashed_line(draw, p0, p1, fill, width=2, dash=10, gap=7):
+def _draw_dashed_line(draw, p0, p1, fill, width=2, dash=14, gap=8):
     """Draw a dashed line from p0 to p1 (PIL has no built-in dashed)."""
     x0, y0 = p0; x1, y1 = p1
     dx = x1 - x0; dy = y1 - y0
@@ -163,6 +172,14 @@ def cut_page(pdf_path, page_idx=0, out_root="columns_modular"):
             profile["text_area"]["right"] / 100.0 * page_w
             if profile and profile.get("text_area") else None
         ),
+        "text_area_top_pt": (
+            profile["text_area"]["top"] / 100.0 * page_h
+            if profile and profile.get("text_area") else None
+        ),
+        "text_area_bottom_pt": (
+            profile["text_area"]["bottom"] / 100.0 * page_h
+            if profile and profile.get("text_area") else None
+        ),
     }
 
     if page_class == "modular":
@@ -192,19 +209,11 @@ def cut_page(pdf_path, page_idx=0, out_root="columns_modular"):
         cols = cluster_body_columns(spans, body, mast_y)
         raw_heads = real_headlines(spans, body, body_spans, mast_y)
 
-        # 1C — exclude pull quotes
-        pull_qs = []
-        actual_heads = []
-        for h in raw_heads:
-            if is_pull_quote(h, body_spans, body):
-                pull_qs.append(h)
-            else:
-                actual_heads.append(h)
-        layers["pull_quotes"] = [
-            (h.x0, h.y0, h.x1, h.y1, h.size, h.text) for h in pull_qs
-        ]
-
-        heads = merge_headline_runs(actual_heads)
+        # Pull quotes are not detected separately — they're part of
+        # articles (per user direction 2026-05-18). Every large-type
+        # run is treated as an article headline.
+        layers["pull_quotes"] = []
+        heads = merge_headline_runs(raw_heads)
 
         # 1E — photos (image regions)
         photos = extract_image_regions(page, page_w, page_h)
@@ -238,12 +247,23 @@ def cut_page(pdf_path, page_idx=0, out_root="columns_modular"):
             + [(p.x0, p.y0, p.x1, p.y1) for p in photos]
             + [(h.x0, h.y0, h.x1, h.y1) for h in heads]
         )
-        col_bands, col_grid, col_profiles = find_column_grid(
+        col_bands, col_grid, coarse_pack, col_profiles = find_column_grid(
             page, mast_y, bands,
             obstacles,
             dark_thr=dark_thr,
             return_profiles=True,
+            text_area_left_pt=layers.get("text_area_left_pt"),
+            text_area_right_pt=layers.get("text_area_right_pt"),
         )
+        layers["coarse_axes"] = list(coarse_pack["candidates"])
+        layers["coarse_profile"] = coarse_pack["profile"]
+        layers["coarse_profile_y_range"] = list(coarse_pack["y_range"])
+        layers["coarse_quadrants_l1"] = coarse_pack.get("quadrants_l1", [])
+        layers["coarse_quadrants_l2"] = coarse_pack.get("quadrants_l2", [])
+        layers["coarse_segments_4x6"] = coarse_pack.get("segments_4x6", [])
+        layers["pitch_grid"] = coarse_pack.get("pitch_grid")
+        layers["scored_grid"] = coarse_pack.get("scored_grid")
+
         layers["column_grid_bands"] = [
             (b.y0_pt, b.y1_pt,
              b.x0_pt if b.x0_pt is not None else 0.0,
@@ -260,19 +280,6 @@ def cut_page(pdf_path, page_idx=0, out_root="columns_modular"):
         # was derived from).
         layers["column_grid_profiles"] = col_profiles
 
-        # Negative-space pass — what wasn't claimed by any detection?
-        # If there's visible ink inside an uncovered region, surface it
-        # as a candidate missed area (orange on the overlay).
-        claimed = (
-            [a.bbox for a in arts]
-            + [(a.x0, a.y0, a.x1, a.y1) for a in ads]
-            + [(p[0], p[1], p[2], p[3]) for p in layers["photos"]]
-            + [(pq[0], pq[1], pq[2], pq[3]) for pq in layers["pull_quotes"]]
-        )
-        uncovered = find_uncovered_content(
-            page, mast_y, claimed, page_w, page_h,
-        )
-        layers["uncovered_regions"] = uncovered
         layers["articles"] = [
             {
                 "bbox": a.bbox,
@@ -288,6 +295,200 @@ def cut_page(pdf_path, page_idx=0, out_root="columns_modular"):
             }
             for a in arts
         ]
+
+        # Pixel-based headline detection — widen the OCR-derived
+        # headline bboxes where the visual headline is broader than
+        # the text-layer captured (per user direction 2026-05-18).
+        # OCR on Adobe Paper Capture PDFs often truncates headlines.
+        from post1980.headline_detect import (
+            detect_headline_runs, widen_article_headlines,
+            detect_horizontal_rules, detect_pixel_photos,
+            find_closed_rectangles,
+        )
+        pixel_runs = detect_headline_runs(
+            page, body_size_pt=body,
+            mast_y=mast_y, page_h=page_h,
+            text_area_left_pt=layers.get("text_area_left_pt"),
+            text_area_right_pt=layers.get("text_area_right_pt"),
+        )
+        layers["pixel_headline_runs"] = [
+            {"x0": r.x0, "y0": r.y0, "x1": r.x1, "y1": r.y1,
+             "char_height_pt": r.char_height_pt,
+             "n_chars": r.n_chars, "n_lines": r.n_lines}
+            for r in pixel_runs
+        ]
+        n_widened = widen_article_headlines(layers["articles"], pixel_runs)
+        layers["n_headlines_widened"] = n_widened
+
+        # Pixel-based photo detection — on Adobe Paper Capture PDFs
+        # photos are baked into the page raster and not exposed as
+        # embedded image objects, so the OCR-derived photos list is
+        # empty. The pixel detector finds dense moderately-dark
+        # regions with low row-std (uniform fill).
+        claimed_for_photo = (
+            [a["bbox"] for a in (layers.get("articles") or [])
+                if isinstance(a, dict) and "bbox" in a]
+            + [(b[0], b[1], b[2], b[3])
+                for b in (layers.get("display_ads") or [])]
+            + [(p[0], p[1], p[2], p[3])
+                for p in (layers.get("photos") or [])]
+        )
+        pixel_photos = detect_pixel_photos(
+            page, mast_y=mast_y, page_h=page_h, page_w=page_w,
+            claimed_bboxes=claimed_for_photo,
+            text_area_left_pt=layers.get("text_area_left_pt"),
+            text_area_right_pt=layers.get("text_area_right_pt"),
+        )
+        # Two filters on pixel-detected photos (per user direction
+        # 2026-05-19):
+        #   (a) drop a pixel photo that significantly overlaps an
+        #       existing detected ad — the ad zone keeps its ad
+        #       classification (the pixel detector spans the gap
+        #       between adjacent ads).
+        #   (b) if a pixel photo contains pixel-detected headlines or
+        #       large body text inside, it's almost certainly an AD
+        #       (with photos inside it), not a pure image. Move to
+        #       display_ads instead of photos.
+        def _bbox_iou_simple(a, b):
+            ix0 = max(a[0], b[0]); iy0 = max(a[1], b[1])
+            ix1 = min(a[2], b[2]); iy1 = min(a[3], b[3])
+            iw = max(0.0, ix1 - ix0); ih = max(0.0, iy1 - iy0)
+            inter = iw * ih
+            aa = max(0.0, a[2] - a[0]) * max(0.0, a[3] - a[1])
+            ba = max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
+            union = aa + ba - inter
+            return inter / union if union > 0 else 0.0
+
+        def _contains_headline(photo_bbox, hl_runs, min_chars=4):
+            for hr in hl_runs:
+                if hr.n_chars < min_chars:
+                    continue
+                # Headline centre inside the photo bbox
+                hcx = (hr.x0 + hr.x1) / 2.0
+                hcy = (hr.y0 + hr.y1) / 2.0
+                if (photo_bbox[0] <= hcx <= photo_bbox[2]
+                        and photo_bbox[1] <= hcy <= photo_bbox[3]):
+                    return True
+            return False
+
+        kept_photos = []
+        for pp in pixel_photos:
+            pp_bbox = (pp.x0, pp.y0, pp.x1, pp.y1)
+            overlaps_ad = False
+            for ad_b in (layers.get("display_ads") or []):
+                if _bbox_iou_simple(pp_bbox, ad_b) >= 0.15:
+                    overlaps_ad = True
+                    break
+            if overlaps_ad:
+                continue   # ad wins
+            # Headline-in-region check: pure photos don't carry text
+            # at headline scale.
+            if _contains_headline(pp_bbox, pixel_runs, min_chars=4):
+                # Promote to display_ads instead — has text inside
+                layers["display_ads"].append(pp_bbox)
+                continue
+            kept_photos.append(pp)
+        for pp in kept_photos:
+            layers["photos"].append((pp.x0, pp.y0, pp.x1, pp.y1))
+        pixel_photos = kept_photos
+        layers["pixel_photos"] = [
+            {"x0": p.x0, "y0": p.y0, "x1": p.x1, "y1": p.y1,
+             "density": p.density, "row_std": p.row_std}
+            for pp in pixel_photos for p in [pp]
+        ]
+
+        # Detect all closed-rectangle frames in the page (any border
+        # thickness). Used as item candidates — bordered content is
+        # almost always its own item (sidebar / ad / image).
+        closed_rects = find_closed_rectangles(
+            page, mast_y=mast_y, page_h=page_h, page_w=page_w,
+            column_grid=layers["column_grid"],
+            text_area_left_pt=layers.get("text_area_left_pt"),
+            text_area_right_pt=layers.get("text_area_right_pt"),
+        )
+        layers["closed_rectangles"] = [
+            {"x0_pt": r.x0_pt, "y0_pt": r.y0_pt,
+             "x1_pt": r.x1_pt, "y1_pt": r.y1_pt,
+             "border_thickness_pt": r.border_thickness_pt}
+            for r in closed_rects
+        ]
+
+        # Detect horizontal rules — used as merge barriers later
+        h_rules = detect_horizontal_rules(
+            page, mast_y=mast_y, page_h=page_h, page_w=page_w,
+        )
+        layers["horizontal_rules"] = [
+            {"y_pt": r.y_pt, "x0_pt": r.x0_pt, "x1_pt": r.x1_pt,
+             "thickness_pt": r.thickness_pt}
+            for r in h_rules
+        ]
+
+        # Stage-1 snap: snap ads/photos/articles only. Uncovered comes
+        # next, and uses these snapped bboxes as the claimed list — so
+        # orange regions only bound what's genuinely unclaimed AFTER
+        # snap (per user direction 2026-05-18).
+        from post1980.column_grid import snap_obstacles_to_grid
+        interim = snap_obstacles_to_grid(layers)
+
+        # Build column + band-row grid edges for the orange scan
+        sg = layers.get("scored_grid") or {}
+        grid_gutters = [g["x_pt"]
+                         for g in (sg.get("estimated_gutters") or [])]
+        ta_l = layers.get("text_area_left_pt") or 0.0
+        ta_r = layers.get("text_area_right_pt") or page_w
+        col_edges = sorted(set([float(ta_l)]
+                                + [float(x) for x in grid_gutters]
+                                + [float(ta_r)]))
+        band_centres = [(float(b[0]) + float(b[1])) / 2.0
+                         for b in (layers.get("whitespace_bands") or [])]
+        band_edges_list = sorted(set([float(mast_y)] + band_centres
+                                      + [float(page_h)]))
+
+        # Uncovered scan uses SNAPPED article/ad/photo bboxes as claimed
+        snapped_claimed = (
+            list(interim.get("display_ads") or [])
+            + list(interim.get("photos") or [])
+            + list(interim.get("articles") or [])
+            + [tuple(pq[:4]) for pq in (layers.get("pull_quotes") or [])
+                if len(pq) >= 4]
+        )
+        uncovered = find_uncovered_content(
+            page, mast_y, snapped_claimed, page_w, page_h,
+            column_x_edges=col_edges,
+            band_y_edges=band_edges_list,
+        )
+        layers["uncovered_regions"] = uncovered
+
+        # Stage-2 snap: now uncovered is in layers, snap all four types
+        # together so the dedup pass sees the complete set.
+        snapped = snap_obstacles_to_grid(layers)
+        layers["snapped_display_ads"] = snapped.get("display_ads", [])
+        layers["snapped_photos"] = snapped.get("photos", [])
+        layers["snapped_articles"] = snapped.get("articles", [])
+        layers["snapped_uncovered"] = snapped.get("uncovered_regions", [])
+
+        # Post-snap resolution: reclassify false ads and absorb/promote
+        # uncovered (orange) regions to get accurate item boundaries.
+        # Pass a 100-DPI greyscale render so resolution can do pixel-
+        # based ink-pattern checks instead of relying on OCR span
+        # counts (OCR is unreliable on older issues).
+        zoom_res = 100.0 / 72.0
+        pix_res = page.get_pixmap(matrix=fitz.Matrix(zoom_res, zoom_res),
+                                   colorspace=fitz.csGRAY, alpha=False)
+        page_image = np.frombuffer(pix_res.samples, dtype=np.uint8) \
+            .reshape(pix_res.height, pix_res.width)
+        from post1980.resolution import resolve_obstacles
+        resolved = resolve_obstacles(layers, spans=spans, body=body,
+                                      page_image=page_image,
+                                      image_zoom=zoom_res)
+        layers["resolved_items"]       = resolved["items"]
+        layers["resolved_articles"]    = resolved["resolved_articles"]
+        layers["resolved_display_ads"] = resolved["resolved_display_ads"]
+        layers["resolved_photos"]      = resolved["resolved_photos"]
+        layers["resolved_pull_quotes"] = resolved["resolved_pull_quotes"]
+        layers["resolved_uncovered"]   = resolved.get("resolved_uncovered", [])
+        layers["resolved_dropped"]     = resolved["resolved_dropped"]
+        layers["resolution_log"]       = resolved["resolution_log"]
 
     return doc, page, layers
 
@@ -409,7 +610,13 @@ def render_overlay(page, layers, out_path, dpi=100):
                 return y1p - v * band_h_px
             # Polyline points
             pts = [(x_pt * zoom, map_val(v)) for (x_pt, v) in prof]
-            # Curve: dark slate
+            # Fill area under the curve with very light opacity so the
+            # chart shape is perceptible against busy page content. Use
+            # a closed polygon down to the band's bottom edge.
+            if len(pts) >= 2:
+                poly_pts = list(pts) + [(pts[-1][0], y1p), (pts[0][0], y1p)]
+                draw.polygon(poly_pts, fill=(40, 40, 60, 50))
+            # Curve: dark slate (line on top of the fill)
             curve_col = (40, 40, 60, 230)
             for k in range(len(pts) - 1):
                 draw.line([pts[k], pts[k + 1]], fill=curve_col, width=2)
@@ -426,20 +633,29 @@ def render_overlay(page, layers, out_path, dpi=100):
             draw.line([(x0p + 4, ct_y), (x1p - 4, ct_y)],
                       fill=(80, 130, 80, 130), width=1)
 
-    # Fundamental grid — racing-green dashed lines for all four kinds.
+    # Fundamental grid — cobalt-blue dashed lines for all four kinds.
     # Drawn last so they sit above everything else and are the
-    # visual key for the page's structural framework.
-    rg = COL["racing_green"]
+    # visual key for the page's structural framework. Per user
+    # feedback 2026-05-18, racing green was imperceptible against
+    # busy text — strong blue + bold strokes are far more legible.
+    gl = COL["racing_green"]
     page_h_pt = layers.get("page_size", [0, 0])[1]
 
-    # Column centrelines — verticals. Use the same style for all
-    # confidence levels; line width carries the confidence signal.
+    # Coarse first-pass axes — thin dotted reference lines drawn BEFORE
+    # the refined grid so the refined lines sit on top. These show the
+    # full-page candidate axes that act as cross-corroboration.
+    for cx_pt in layers.get("coarse_axes", []) or []:
+        x_px = cx_pt * zoom
+        _draw_dashed_line(draw, (x_px, 0), (x_px, img.height),
+                          gl, width=2, dash=4, gap=10)
+
+    # Column centrelines — verticals. Width carries confidence signal.
     for g in layers.get("column_grid", []):
         x_px = g["x_pt"] * zoom
         conf = g.get("confidence", "low")
-        w = 3 if conf == "high" else (2 if conf == "medium" else 1)
+        w = 5 if conf == "high" else (4 if conf == "medium" else 2)
         _draw_dashed_line(draw, (x_px, 0), (x_px, img.height),
-                          rg, width=w)
+                          gl, width=w)
 
     # Text-area left/right verticals (page-profile bounds of the
     # printed content rectangle — distinguishes content from margin)
@@ -447,16 +663,16 @@ def render_overlay(page, layers, out_path, dpi=100):
     ta_right = layers.get("text_area_right_pt")
     if ta_left is not None:
         _draw_dashed_line(draw, (ta_left * zoom, 0),
-                          (ta_left * zoom, img.height), rg, width=3)
+                          (ta_left * zoom, img.height), gl, width=5)
     if ta_right is not None:
         _draw_dashed_line(draw, (ta_right * zoom, 0),
-                          (ta_right * zoom, img.height), rg, width=3)
+                          (ta_right * zoom, img.height), gl, width=5)
 
     # Masthead bottom — horizontal line across the page
     mast_y = layers.get("masthead_bottom", 0.0)
     if mast_y > 0:
         my = mast_y * zoom
-        _draw_dashed_line(draw, (0, my), (img.width, my), rg, width=3)
+        _draw_dashed_line(draw, (0, my), (img.width, my), gl, width=5)
 
     # Whitespace-band horizontals: interior bands → draw at centreline;
     # bands near the bottom of the page → draw at top edge (so the
@@ -471,7 +687,7 @@ def render_overlay(page, layers, out_path, dpi=100):
                 line_y = (b_y0 + b_y1) / 2.0   # centreline of interior band
             yp = line_y * zoom
             _draw_dashed_line(draw, (0, yp), (img.width, yp),
-                              rg, width=2)
+                              gl, width=4)
 
     out = Image.alpha_composite(img, overlay).convert("RGB")
     out.save(out_path)
