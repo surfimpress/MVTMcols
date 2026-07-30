@@ -48,6 +48,14 @@ CREATE TABLE IF NOT EXISTS column_transcripts (
     -- without slicing (the full-PNG mode that pre-dates the
     -- 2026-05-02 refinement).
     slice_boundaries  TEXT,
+    -- Set only when the page-level deduplicator agent edits
+    -- transcript_text to remove a slice-boundary overlap duplicate
+    -- (see column-transcriber.md "Sliced mode" for why the overlap
+    -- exists in the first place). Holds the pre-edit joined text so
+    -- a dedup mistake is always recoverable. NULL means either the
+    -- dedup pass hasn't run yet, or it ran and found nothing to
+    -- change.
+    transcript_text_raw TEXT,
     created_at        TEXT NOT NULL,
     updated_at        TEXT,
     notes             TEXT,
@@ -384,7 +392,8 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 --   1 — initial (2026-05-02): columns/ads/items + entity-mention tables
 --   2 — pass-3 additions (2026-05-06): items.geometry_polygon_json,
 --                                      items.derived_from_item_ids
+--   3 — dedup audit trail (2026-07-30): column_transcripts.transcript_text_raw
 INSERT OR IGNORE INTO schema_meta (key, value)
-    VALUES ('schema_version', '2');
+    VALUES ('schema_version', '3');
 INSERT OR IGNORE INTO schema_meta (key, value)
     VALUES ('created_at_iso', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));

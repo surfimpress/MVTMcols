@@ -20,10 +20,15 @@ The orchestrator's job is to glue them together.
    ```
    python3 -m transcribe.claim_columns YYYY-MM-DD
    ```
-   (add `--page N` or `--limit N` if scoped). This walks the
-   issue's pages, hashes each column PNG, inserts a `claimed`
-   stub row in `column_transcripts`, and writes a per-column
-   ticket file under `transcribe/work/columns/<row-id>.json`.
+   (add `--page N` or `--limit N` if scoped). This queries
+   `file_assets` in mvtm.db for the issue's columns, downloads
+   each PNG from Google Drive to
+   `transcribe/work/downloads/<date>/p<N>/` (cached; no re-download
+   if already present), hashes it, inserts a `claimed` stub row in
+   `column_transcripts`, and writes a per-column ticket file under
+   `transcribe/work/columns/<row-id>.json`. Downloads are rate-limited
+   at 0.5 s per file; a typical issue (~53 columns) takes ~30 s to
+   claim.
 
 2. **Read the new tickets.** Each ticket is a small JSON file
    carrying the row id, the column's position, neighbour
@@ -133,7 +138,22 @@ The orchestrator's job is to glue them together.
    re-dispatch the agent against the same ticket. The DB row
    stays in `claimed` until a successful ingest lands.
 
-5. **At the end of the issue**, summarise: how many columns
+5. **Delete the local downloads** to reclaim disk space:
+   ```python
+   from transcribe.download import remove_issue_downloads
+   from transcribe.db import REPO_ROOT
+   n = remove_issue_downloads(REPO_ROOT, "YYYY-MM-DD")
+   print(f"Removed {n} downloaded PNGs")
+   ```
+   Or via Bash:
+   ```
+   python3 -c "from transcribe.download import remove_issue_downloads; from transcribe.db import REPO_ROOT; print(remove_issue_downloads(REPO_ROOT, 'YYYY-MM-DD'), 'files removed')"
+   ```
+   The slices under `transcribe/work/slices/` are small and can be
+   kept for debugging; only the full-resolution source PNGs (under
+   `transcribe/work/downloads/`) need removal.
+
+6. **At the end of the issue**, summarise: how many columns
    succeeded, how many failed, how many repairs were raised, and
    any quality flags worth surfacing. Don't ingest ads or items
    yet — those are separate skills.

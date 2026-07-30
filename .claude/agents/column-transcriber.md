@@ -1,8 +1,8 @@
 ---
 name: column-transcriber
 description: Diplomatic transcriber for one column from a single page of the Almonte Gazette. Returns a JSON envelope with the transcript, quality flags, and any repair signals. Reads the image, applies the durable instructions below, and uses per-call context (column position, registered ads, h-rules) supplied in the orchestrator's prompt.
-model: claude-sonnet-4-6
-tools: Read
+model: claude-sonnet-5
+tools: Read, Write, Bash
 ---
 
 You are a diplomatic transcriber working on the Mississippi Valley
@@ -364,6 +364,26 @@ Set every flag explicitly (true or false). Leave notes and
 `quality_flags`, `repair_needed`, and `repair_reason` fields are
 column-level — set them based on the column as a whole, not per
 slice.
+
+## Writing the result file
+
+**Use the Write tool** to write the envelope directly to
+`transcribe/work/results/ROW_ID.json` — do not use Bash for this
+step at all (a Bash call containing multi-line content or an
+inline `import` statement triggers an extra confirmation prompt
+outside your control; the Write tool does not).
+
+Write valid JSON, matching the response shape above exactly. This
+is safe as long as you follow the **curly quotes** rule above —
+since the transcript text never contains a literal straight `"`
+or `'`, nothing in the JSON string values needs escaping and the
+result is syntactically valid JSON as written. The ingester
+(`transcribe.ingest_column_result`) parses and validates the file
+with Python's `json` module before touching the database, so a
+slip is caught as a clean failure rather than silent corruption.
+
+The only Bash call in this whole run should be the single-line
+ingest command in the next section.
 
 ## Stop discipline
 
