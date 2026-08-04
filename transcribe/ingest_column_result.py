@@ -270,15 +270,17 @@ def ingest(row_id: str,
                 "page": ticket["page"],
                 "col_idx": ticket["col_idx"],
             }
-            # The agent gives a free-form repair_reason; we don't
-            # ask it to classify into our enum (that would force
-            # misclassification when the case is novel). Pass-1
-            # repairs land as 'other'; later curation can re-bucket.
+            # The agent picks repair_kind itself (see
+            # column-transcriber.md): "advert_identification" when the
+            # transcript is fine and the only issue is an ad needing
+            # registration, "other" for anything affecting transcript
+            # accuracy. Envelopes from before this field existed won't
+            # have it -- fall back to "other" rather than fail ingest.
             repair_id = _db.raise_repair(
                 conn,
                 target_kind="column",
                 target_ref=target_ref,
-                repair_kind="other",
+                repair_kind=envelope.get("repair_kind") or "other",
                 description=envelope.get("repair_reason") or
                             "(no reason given)",
                 raised_by=model,

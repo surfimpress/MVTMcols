@@ -197,6 +197,28 @@ def mark_column_done(conn: sqlite3.Connection,
     conn.commit()
 
 
+def record_agent_usage(conn: sqlite3.Connection,
+                       row_id: str,
+                       *,
+                       duration_ms: int,
+                       tool_calls: int) -> None:
+    """Record the orchestrator-observed wall-clock duration and tool-call
+    count for the agent run that produced ``row_id``.
+
+    Called by the orchestrator after receiving the agent's completion
+    notification -- this data doesn't exist yet when ``mark_column_done``
+    runs inside the agent's own process, since the agent has no
+    visibility into its own overall duration or call count.
+    """
+    conn.execute(
+        """UPDATE column_transcripts SET
+              agent_duration_ms=?,
+              agent_tool_calls=?
+            WHERE id=?""",
+        (duration_ms, tool_calls, row_id))
+    conn.commit()
+
+
 def claim_ad(conn: sqlite3.Connection,
              *,
              ad_uuid: str,

@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MVTM transcription — repair rate monitor</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #6b6b6b;
+    --border: #e0e0e0;
+    --row-alt: #f7f7f7;
+    --accent: #2b6cb0;   /* blue */
+    --warn: #d9822b;     /* orange */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a;
+      --fg: #e8e8e8;
+      --muted: #9a9a9a;
+      --border: #2c2f33;
+      --row-alt: #1b1e21;
+      --accent: #5b9bd5;
+      --warn: #e6a45c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2rem 1.5rem 4rem;
+    background: var(--bg);
+    color: var(--fg);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: 0 0 0.25rem; }
+  .sub { color: var(--muted); font-size: 0.9rem; margin: 0 0 1.5rem; }
+  .summary {
+    display: flex; gap: 2rem; flex-wrap: wrap;
+    margin-bottom: 1.5rem; padding: 1rem 1.25rem;
+    border: 1px solid var(--border); border-radius: 8px;
+  }
+  .summary div { display: flex; flex-direction: column; }
+  .summary .n { font-size: 1.4rem; font-weight: 600; }
+  .summary .l { font-size: 0.8rem; color: var(--muted); }
+  .corpus-note { color: var(--muted); font-size: 0.8rem; margin: -0.75rem 0 1.5rem; }
+  .th-repairs { display: flex; flex-direction: column; align-items: flex-end; gap: 0.3rem; }
+  .th-repairs select {
+    font: inherit; font-size: 0.75rem; font-weight: 400; text-transform: none;
+    letter-spacing: normal; padding: 0.15rem 0.35rem; cursor: pointer;
+    border-radius: 5px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--fg);
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+  th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; cursor: pointer; }
+  th:hover { color: var(--fg); }
+  tbody tr:nth-child(even) { background: var(--row-alt); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .bar-cell { display: flex; align-items: center; gap: 0.5rem; }
+  .bar-track { flex: 1; height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; }
+  .bar-fill { height: 100%; background: var(--accent); }
+  .bar-fill.high { background: var(--warn); }
+  .empty { color: var(--muted); padding: 2rem 0; text-align: center; }
+  footer { margin-top: 2rem; color: var(--muted); font-size: 0.8rem; }
+  td.repair-cell { cursor: pointer; }
+  td.repair-cell:hover .bar-track { outline: 1px solid var(--accent); }
+
+  dialog#repair-dialog {
+    max-width: 640px; width: 90vw; max-height: 75vh;
+    padding: 0; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--bg); color: var(--fg);
+  }
+  dialog#repair-dialog.wide { max-width: 1400px; width: 95vw; max-height: 88vh; }
+  dialog#repair-dialog::backdrop { background: rgba(0,0,0,0.4); }
+  .dialog-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 1rem 1.25rem; border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; background: var(--bg);
+  }
+  .dialog-head h2 { font-size: 1.05rem; margin: 0; }
+  .dialog-head button {
+    background: none; border: none; color: var(--muted); font-size: 1.3rem;
+    cursor: pointer; line-height: 1; padding: 0.25rem;
+  }
+  .dialog-body { padding: 0.5rem 1.25rem 1.25rem; overflow-y: auto; max-height: calc(75vh - 4rem); }
+  dialog#repair-dialog.wide .dialog-body { max-height: calc(88vh - 4rem); }
+  .repair-item { display: flex; gap: 0.75rem; padding: 0.6rem 0; border-bottom: 1px solid var(--border); }
+  .repair-item:last-child { border-bottom: none; }
+  .repair-thumb {
+    flex: 0 0 auto; width: 64px; height: 96px; object-fit: cover; object-position: top;
+    border-radius: 4px; border: 1px solid var(--border); cursor: pointer; background: var(--row-alt);
+  }
+  .repair-thumb-missing {
+    display: flex; align-items: center; justify-content: center;
+    text-align: center; font-size: 0.7rem; color: var(--muted); cursor: pointer;
+  }
+  .repair-text { flex: 1 1 auto; min-width: 0; }
+  .repair-loc { font-weight: 600; font-size: 0.85rem; color: var(--accent); margin-bottom: 0.2rem; }
+  .repair-kind { color: var(--muted); font-weight: 400; }
+  .repair-desc { font-size: 0.9rem; }
+
+  .image-view { display: none; flex-direction: column; gap: 0.75rem; min-height: 0; }
+  .image-view.active { display: flex; }
+  .image-view .back-btn {
+    align-self: flex-start; background: none; border: 1px solid var(--border);
+    border-radius: 6px; color: var(--fg); padding: 0.35rem 0.7rem; font-size: 0.85rem; cursor: pointer;
+  }
+  .panes { display: flex; gap: 1.25rem; align-items: flex-start; min-height: 0; }
+  .pane-images, .pane-transcript { flex: 1 1 50%; min-width: 0; }
+  .pane-label {
+    font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.03em; color: var(--muted); margin-bottom: 0.4rem;
+  }
+  /* Slices are vertical crops of the same column at the same native
+     width -- force every one to the pane's full width (not
+     max-width/contain, which would let differently-sized slices
+     shrink independently) so stacking them reads as one column.
+     Each slice gets its own margin and drop shadow so they read as
+     distinct pieces, not one seamless image. */
+  .image-stack {
+    display: flex; flex-direction: column; gap: 1rem; overflow-y: auto;
+    max-height: 70vh; padding: 0.25rem;
+  }
+  .image-stack img {
+    display: block; width: 100%; height: auto;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  }
+  .transcript-text {
+    white-space: pre-wrap; font-size: 0.85rem; line-height: 1.6;
+    max-height: 70vh; overflow-y: auto; padding: 0.75rem;
+    border: 1px solid var(--border); border-radius: 6px; background: var(--row-alt);
+  }
+  .list-view.hidden { display: none; }
+
+  tr.highlighted { outline: 2px solid var(--accent); outline-offset: -2px; }
+  tr.highlighted td:first-child { font-weight: 600; }
+  .complete-tick { color: var(--accent); font-weight: 700; }
+  tr.incomplete td { font-weight: 600; }
+
+  .charts { display: flex; flex-wrap: wrap; gap: 2rem; margin-top: 2.5rem; }
+  .chart-block { flex: 1 1 320px; min-width: 280px; }
+  .chart-block h2 { font-size: 1rem; margin: 0 0 0.2rem; }
+  .chart-sub { color: var(--muted); font-size: 0.8rem; margin: 0 0 0.75rem; }
+  .bar-chart { width: 100%; height: auto; overflow: visible; }
+  .bar-chart .bar { fill: var(--accent); }
+  .bar-chart .bar:hover { fill: var(--warn); }
+  .bar-chart .axis-line { stroke: var(--border); stroke-width: 1; }
+  .bar-chart .axis-label {
+    fill: var(--muted); font-size: 10px; text-anchor: middle;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .chart-tooltip {
+    position: fixed; pointer-events: none; z-index: 10;
+    background: var(--fg); color: var(--bg);
+    font-size: 0.78rem; padding: 0.35rem 0.6rem; border-radius: 6px;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Transcription repair-rate monitor</h1>
+  <p class="sub">Per-issue count of columns transcribed vs. flagged
+    <code>repair_needed</code> by the column-transcriber agent. A high
+    rate usually points at an upstream cutting or ad-detection
+    problem, not a transcription-quality problem — see
+    <code>transcribe/quality_review.md</code>. Click a repair-rate cell
+    to see what was flagged.</p>
+
+  <div class="summary" id="summary"></div>
+  <p class="corpus-note" id="corpus-note"></p>
+  <table id="table">
+    <thead>
+      <tr>
+        <th data-key="date">Issue</th>
+        <th data-key="n_columns" class="num">Columns</th>
+        <th data-key="total_time" class="num">Total time</th>
+        <th data-key="n_repairs" class="num">
+          <div class="th-repairs">
+            <span>Repairs</span>
+            <select id="kind-filter">
+              <option value="no_ads" selected>All except ads</option>
+              <option value="all">All</option>
+            </select>
+          </div>
+        </th>
+        <th data-key="repair_rate" class="num">Repair rate</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div id="empty" class="empty" style="display:none">No transcribed issues yet.</div>
+
+  <div class="charts" id="charts">
+    <div class="chart-block">
+      <h2>Average time per page number</h2>
+      <p class="chart-sub">Mean agent duration for columns on this page number,
+        averaged across every issue that has one — not skewed by issues with
+        fewer pages.</p>
+      <svg class="bar-chart" id="chart-page" viewBox="0 0 600 220"></svg>
+    </div>
+    <div class="chart-block">
+      <h2>Average time per column position</h2>
+      <p class="chart-sub">Mean agent duration by column index within a page
+        (c0 = leftmost).</p>
+      <svg class="bar-chart" id="chart-col" viewBox="0 0 600 220"></svg>
+    </div>
+    <div class="chart-block">
+      <h2>Average time per decade</h2>
+      <p class="chart-sub">Mean agent duration by the decade of the issue.</p>
+      <svg class="bar-chart" id="chart-decade" viewBox="0 0 600 220"></svg>
+    </div>
+  </div>
+  <div id="chart-tooltip" class="chart-tooltip" style="display:none"></div>
+
+  <footer id="generated"></footer>
+</div>
+
+<dialog id="repair-dialog">
+  <div class="dialog-head">
+    <h2 id="repair-dialog-title"></h2>
+    <button id="repair-dialog-close" aria-label="Close">&times;</button>
+  </div>
+  <div class="dialog-body" id="repair-dialog-body"></div>
+</dialog>
+
+<script>
+let data = null;
+let sortKey = "date";
+let sortDir = 1;
+let activeKind = "no_ads";
+let currentIssues = [];
+let issueRows = [];             // <tr> elements, index-aligned with currentIssues
+let highlightedIssueDate = null; // survives table re-sorts/re-renders
+
+// Repair count/rate for an issue under the current kind filter.
+// "no_ads" excludes advert_identification -- the dominant, lowest-severity
+// repair kind (a registration/masking gap, not a transcription problem) --
+// so the default view surfaces the rarer, more serious repair kinds.
+function filteredCount(issue) {
+  if (activeKind === "all") return issue.n_repairs;
+  if (activeKind === "no_ads") {
+    return issue.n_repairs - (issue.repairs_by_kind["advert_identification"] || 0);
+  }
+  return issue.repairs_by_kind[activeKind] || 0;
+}
+function repairMatchesActiveKind(repairKind) {
+  if (activeKind === "all") return true;
+  if (activeKind === "no_ads") return repairKind !== "advert_identification";
+  return repairKind === activeKind;
+}
+function filteredRate(issue) {
+  return issue.n_columns ? round1(100 * filteredCount(issue) / issue.n_columns) : 0;
+}
+function round1(n) { return Math.round(n * 10) / 10; }
+
+// Agent-run wall-clock duration, recorded by the orchestrator after each
+// column-transcriber run completes (see transcribe/record_usage.py) --
+// null for columns transcribed before that instrumentation existed.
+function formatDuration(seconds) {
+  if (seconds == null) return "—";
+  if (seconds < 60) return Math.round(seconds) + "s";
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return `${m}m ${s}s`;
+}
+function formatHours(seconds) {
+  if (!seconds) return "0h";
+  const h = seconds / 3600;
+  return (h < 1 ? Math.round(seconds / 60) + "m" : h.toFixed(1) + "h");
+}
+
+function el(tag, props, ...children) {
+  const node = document.createElement(tag);
+  if (props) {
+    for (const [k, v] of Object.entries(props)) {
+      if (k === "class") node.className = v;
+      else if (k === "text") node.textContent = v;
+      else if (k.startsWith("data-")) node.setAttribute(k, v);
+      else node[k] = v;
+    }
+  }
+  for (const child of children) {
+    if (child == null) continue;
+    node.append(child instanceof Node ? child : document.createTextNode(child));
+  }
+  return node;
+}
+
+function scoreCard(n, label) {
+  return el("div", null,
+    el("span", { class: "n", text: String(n) }),
+    el("span", { class: "l", text: label }));
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+function svgEl(tag, attrs) {
+  const node = document.createElementNS(SVG_NS, tag);
+  if (attrs) {
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === "text") node.textContent = v;
+      else node.setAttribute(k, v);
+    }
+  }
+  return node;
+}
+
+// Rounded-top bar path -- the baseline edge stays square (the bar visibly
+// rests on the axis), only the far end is rounded, per the dataviz mark spec.
+function barPath(x, yTop, yBottom, width, r) {
+  r = Math.min(r, width / 2, Math.max(0, yBottom - yTop));
+  return `M${x},${yBottom} L${x},${yTop + r} Q${x},${yTop} ${x + r},${yTop} `
+       + `L${x + width - r},${yTop} Q${x + width},${yTop} ${x + width},${yTop + r} `
+       + `L${x + width},${yBottom} Z`;
+}
+
+const chartTooltip = document.getElementById("chart-tooltip");
+function showChartTooltip(evt, text) {
+  chartTooltip.textContent = text;
+  chartTooltip.style.display = "block";
+  chartTooltip.style.left = (evt.clientX + 12) + "px";
+  chartTooltip.style.top = (evt.clientY + 12) + "px";
+}
+function hideChartTooltip() {
+  chartTooltip.style.display = "none";
+}
+
+// data: [{label, avg_duration_s, n}, ...]. Single-hue magnitude bars --
+// no legend needed (one series; the chart title names it) per dataviz
+// mark spec. Value shown on hover only, never stamped on every bar.
+function renderBarChart(svgId, data) {
+  const svg = document.getElementById(svgId);
+  svg.replaceChildren();
+  if (!data || data.length === 0) {
+    svg.append(svgEl("text", {
+      x: 300, y: 110, class: "axis-label", text: "No timing data yet",
+    }));
+    return;
+  }
+
+  const W = 600, H = 220;
+  const padL = 10, padR = 10, padTop = 10, axisY = 190, labelY = 208;
+  const innerW = W - padL - padR;
+  const maxVal = Math.max(...data.map(d => d.avg_duration_s));
+  const gap = 6;
+  const barW = Math.max(4, innerW / data.length - gap);
+
+  svg.append(svgEl("line", {
+    x1: padL, y1: axisY, x2: W - padR, y2: axisY, class: "axis-line",
+  }));
+
+  data.forEach((d, i) => {
+    const x = padL + i * (barW + gap) + gap / 2;
+    const barH = maxVal > 0 ? (d.avg_duration_s / maxVal) * (axisY - padTop) : 0;
+    const yTop = axisY - barH;
+    const path = svgEl("path", {
+      d: barPath(x, yTop, axisY, barW, 4),
+      class: "bar",
+    });
+    path.addEventListener("mousemove", (e) =>
+      showChartTooltip(e, `${d.label}: ${formatDuration(d.avg_duration_s)} avg (n=${d.n})`));
+    path.addEventListener("mouseleave", hideChartTooltip);
+    svg.append(path);
+
+    svg.append(svgEl("text", {
+      x: x + barW / 2, y: labelY, class: "axis-label", text: d.label,
+    }));
+  });
+}
+
+function render() {
+  const emptyEl = document.getElementById("empty");
+  const summaryEl = document.getElementById("summary");
+  const rowsEl = document.getElementById("rows");
+  summaryEl.replaceChildren();
+  rowsEl.replaceChildren();
+
+  if (!data || !data.issues || data.issues.length === 0) {
+    emptyEl.style.display = "block";
+    return;
+  }
+  emptyEl.style.display = "none";
+
+  const valueForSort = (issue, key) => {
+    if (key === "n_repairs") return filteredCount(issue);
+    if (key === "repair_rate") return filteredRate(issue);
+    if (key === "total_time") return issue.timing?.total_agent_time_s ?? -1;
+    return issue[key];
+  };
+  currentIssues = [...data.issues].sort((a, b) => {
+    const va = valueForSort(a, sortKey), vb = valueForSort(b, sortKey);
+    return va < vb ? -sortDir : va > vb ? sortDir : 0;
+  });
+
+  const totalPages = currentIssues.reduce((s, i) => s + (i.n_pages || 0), 0);
+  const totalCols = currentIssues.reduce((s, i) => s + i.n_columns, 0);
+  const totalRepairs = currentIssues.reduce((s, i) => s + filteredCount(i), 0);
+  const overallRate = totalCols ? (100 * totalRepairs / totalCols).toFixed(1) : "0.0";
+  const kindLabel = activeKind === "all" ? "overall"
+    : activeKind === "no_ads" ? "all except ads" : activeKind;
+  const totalAgentTimeS = currentIssues.reduce(
+    (s, i) => s + (i.timing?.total_agent_time_s || 0), 0);
+
+  summaryEl.append(
+    scoreCard(currentIssues.length, "issues transcribed"),
+    scoreCard(totalPages, "pages transcribed"),
+    scoreCard(totalCols, "columns done"),
+    scoreCard(totalRepairs, `"${kindLabel}" repairs`),
+    scoreCard(overallRate + "%", `"${kindLabel}" repair rate`),
+    scoreCard(formatHours(totalAgentTimeS), "total agent time"));
+
+  const corpusNoteEl = document.getElementById("corpus-note");
+  corpusNoteEl.textContent = data.total_corpus_issues
+    ? `${currentIssues.length} of ${data.total_corpus_issues} issues in the corpus `
+      + `(${data.corpus_pct}%)`
+    : "";
+
+  issueRows = [];
+  currentIssues.forEach((issue, idx) => {
+    const count = filteredCount(issue);
+    const rate = filteredRate(issue);
+    const highClass = rate >= 50 ? "high" : "";
+
+    const barFill = el("div", {
+      class: "bar-fill " + highClass,
+      style: `width:${Math.min(100, rate)}%`,
+    });
+    const barTrack = el("div", { class: "bar-track" }, barFill);
+    const barCell = el("div", { class: "bar-cell" },
+      barTrack, el("span", { text: rate.toFixed(1) + "%" }));
+
+    const repairTd = el("td", {
+      class: "num repair-cell",
+      "data-issue-idx": String(idx),
+      title: "Click to see what was flagged",
+    }, barCell);
+    repairTd.addEventListener("click", () => openRepairDialog(issue, idx));
+
+    const totalTime = issue.timing?.total_agent_time_s;
+    const perPage = (issue.timing?.n_timed && issue.n_pages)
+      ? totalTime / issue.n_pages : null;
+    const timeTitle = issue.timing?.n_timed
+      ? `${issue.timing.n_timed} of ${issue.n_columns} columns timed; `
+        + `mean ${formatDuration(issue.timing.mean_duration_s)} per column, `
+        + `${formatDuration(perPage)} per page average; `
+        + `median tool calls ${issue.timing.median_tool_calls}`
+      : "No timing data recorded for this issue";
+
+    const dateCell = el("td", null, issue.date,
+      issue.complete
+        ? el("span", { class: "complete-tick", title: "All columns transcribed", text: " ✓" })
+        : null);
+
+    const colsText = issue.n_columns_total != null
+      ? `${issue.n_columns}/${issue.n_columns_total}`
+      : String(issue.n_columns);
+
+    const tr = el("tr", { class: issue.complete ? "" : "incomplete" },
+      dateCell,
+      el("td", { class: "num", text: colsText }),
+      el("td", { class: "num", text: formatHours(totalTime), title: timeTitle }),
+      el("td", { class: "num", text: String(count) }),
+      repairTd);
+    rowsEl.append(tr);
+    issueRows[idx] = tr;
+  });
+
+  // Sorting rebuilds the table, so re-apply any standing highlight
+  // to whichever row now corresponds to the previously-highlighted issue.
+  if (highlightedIssueDate) {
+    const idx = currentIssues.findIndex(i => i.date === highlightedIssueDate);
+    if (idx >= 0) issueRows[idx].classList.add("highlighted");
+  }
+}
+
+function highlightIssueRow(idx) {
+  document.querySelectorAll("tr.highlighted").forEach(tr => tr.classList.remove("highlighted"));
+  issueRows[idx].classList.add("highlighted");
+  highlightedIssueDate = currentIssues[idx].date;
+}
+
+// Same convention as viewer.html's BASE ('/MVTM/columns') -- the site
+// is served with the repo mounted at /MVTM/, so an absolute path is
+// correct regardless of where this page itself is loaded from.
+// slice_images entries are already repo-root-relative.
+function repoPathUrl(path) {
+  return "/MVTM/" + path;
+}
+
+function openRepairDialog(issue, idx) {
+  const dialog = document.getElementById("repair-dialog");
+  const title = document.getElementById("repair-dialog-title");
+  const body = document.getElementById("repair-dialog-body");
+
+  const repairs = (issue.repairs || []).filter(r => repairMatchesActiveKind(r.repair_kind));
+
+  const kindSuffix = activeKind === "all" ? ""
+    : activeKind === "no_ads" ? ` ("all except ads")` : ` ("${activeKind}")`;
+  title.textContent = `${issue.date} — ${repairs.length} of ${issue.n_columns} columns flagged${kindSuffix}`;
+  body.replaceChildren();
+
+  const listView = el("div", { class: "list-view" });
+  const imageView = el("div", { class: "image-view" });
+
+  const backBtn = el("button", { class: "back-btn", type: "button", text: "← Back to list" });
+  const imageStack = el("div", { class: "image-stack" });
+  const transcriptBox = el("div", { class: "transcript-text" });
+  const panes = el("div", { class: "panes" },
+    el("div", { class: "pane-images" },
+      el("div", { class: "pane-label", text: "Column image" }), imageStack),
+    el("div", { class: "pane-transcript" },
+      el("div", { class: "pane-label", text: "Transcript" }), transcriptBox));
+  backBtn.addEventListener("click", () => {
+    imageView.classList.remove("active");
+    listView.classList.remove("hidden");
+    dialog.classList.remove("wide");
+  });
+  imageView.append(backBtn, panes);
+
+  function showExpanded(r) {
+    const sliceImages = r.slice_images || [];
+    imageStack.replaceChildren(...sliceImages.map(p =>
+      el("img", { src: repoPathUrl(p), alt: p })));
+    transcriptBox.textContent = r.transcript_text || "(no transcript recorded)";
+    listView.classList.add("hidden");
+    imageView.classList.add("active");
+    dialog.classList.add("wide");
+    highlightIssueRow(idx);
+  }
+
+  if (repairs.length === 0) {
+    listView.append(el("p", { style: "color:var(--muted)", text: "No repair details recorded." }));
+  } else {
+    for (const r of repairs) {
+      const images = r.slice_images || [];
+      const thumbSrc = images.length ? repoPathUrl(images[0]) : null;
+      const thumb = thumbSrc
+        ? el("img", { class: "repair-thumb", alt: `p${r.page}c${r.col_idx}`, src: thumbSrc })
+        : el("div", { class: "repair-thumb repair-thumb-missing", text: "no image" });
+      thumb.addEventListener("click", () => showExpanded(r));
+
+      const locBits = [`p${r.page}c${r.col_idx} `,
+        el("span", { class: "repair-kind", text: r.repair_kind || "" })];
+      if (r.duration_s != null) {
+        locBits.push(el("span", { class: "repair-kind", text: " · " + formatDuration(r.duration_s) }));
+      }
+      const loc = el("div", { class: "repair-loc" }, ...locBits);
+      const desc = el("div", { class: "repair-desc", text: r.description || "" });
+      const text = el("div", { class: "repair-text" }, loc, desc);
+      listView.append(el("div", { class: "repair-item" }, text, thumb));
+    }
+  }
+
+  body.append(listView, imageView);
+  dialog.showModal();
+}
+
+document.getElementById("repair-dialog-close").addEventListener("click", () => {
+  document.getElementById("repair-dialog").close();
+});
+document.getElementById("repair-dialog").addEventListener("click", (e) => {
+  if (e.target.id === "repair-dialog") document.getElementById("repair-dialog").close();
+});
+
+document.querySelectorAll("th[data-key]").forEach(th => {
+  th.addEventListener("click", () => {
+    const key = th.dataset.key;
+    if (sortKey === key) { sortDir *= -1; } else { sortKey = key; sortDir = 1; }
+    render();
+  });
+});
+
+// This <select> lives inside a sortable <th>; stop its clicks from
+// also triggering that header's sort-toggle handler.
+const kindFilterEl = document.getElementById("kind-filter");
+kindFilterEl.addEventListener("click", (e) => e.stopPropagation());
+kindFilterEl.addEventListener("change", (e) => {
+  activeKind = e.target.value;
+  render();
+});
+
+fetch("repair_stats.json?_=" + Date.now())
+  .then(r => r.json())
+  .then(json => {
+    data = json;
+    document.getElementById("generated").textContent =
+      data.generated_at ? `Generated ${data.generated_at}` : "";
+
+    const select = document.getElementById("kind-filter");
+    for (const kind of (data.repair_kinds || [])) {
+      select.append(el("option", { value: kind, text: kind }));
+    }
+
+    render();
+    renderBarChart("chart-page", data.avg_time_by_page);
+    renderBarChart("chart-col", data.avg_time_by_col_idx);
+    renderBarChart("chart-decade", data.avg_time_by_decade);
+  })
+  .catch(err => {
+    const emptyEl = document.getElementById("empty");
+    emptyEl.textContent = "Could not load repair_stats.json: " + err;
+    emptyEl.style.display = "block";
+  });
+</script>
+</body>
+</html>

@@ -196,10 +196,35 @@ column compared to sequential Reads (measured), with no change to
 transcription quality — the model attends to the same images either
 way, just with one round-trip instead of N.
 
+**If you ever find yourself about to re-Read an image you already
+have, or repeat any step you've already done, stop and write one
+line into `transcriber_notes` explaining why before doing it.**
+You already have every slice image in context after the first
+batch — a second look does not improve the transcript, and
+repeating a step is a signal something went wrong upstream. The
+line you write is what lets the orchestrator see it; don't just
+silently redo the step.
+
 Concretely: after you've Read the agent file and the ticket JSON,
 your next assistant turn should contain one `Read` tool_use block
 per slice in `slices[]`, all in parallel. Then proceed to generate
 the envelope.
+
+### Trust the images you are given — do not verify or re-process them
+
+Read the slice PNGs exactly as provided and transcribe from them
+directly. Do not run Bash commands to inspect image dimensions
+(e.g. `PIL.Image.open(...).size`), and do not crop, resize, or
+re-slice the images yourself. This includes writing throwaway
+Python scripts to do any of the above.
+
+The slices you receive are already the correct input for this
+task. If a slice looks small or hard to read, that is a
+legibility issue to report via `quality_flags` / `transcriber_notes`
+/ `repair_needed` — it is not something to fix by writing image-
+processing code mid-run. Any Bash call to `python3` invoking PIL,
+or any Write of a `.py` file, is out of scope for this agent and
+should not happen.
 
 ## What to ignore
 
@@ -232,21 +257,22 @@ them as a check on your own reading:
   identifying which registered ad it corresponds to (e.g.
   "matches registered ad 4f49bbf5… (full-column)" — the
   per-call context lists ad uuids and y-ranges). Set
-  `repair_needed: true` only if the mask should have landed
-  there but didn't — describe the mismatch briefly.
+  `repair_needed: true` with `repair_kind: "advert_identification"`
+  only if the mask should have landed there but didn't — describe
+  the mismatch briefly.
 - **If you see an ad that is NOT in the registered list**
   (visually presents as an advertisement — heavy border,
   display type, prices, branded product names, "for sale" /
   "wanted" notices — and no entry in the per-call context
   matches its location): transcribe it as well, and set
-  `repair_needed: true` with a short repair_reason naming what
-  was missed and roughly where. This is a missed ad the
-  cutting stage didn't see.
+  `repair_needed: true` with `repair_kind: "advert_identification"`
+  and a short repair_reason naming what was missed and roughly
+  where. This is a missed ad the cutting stage didn't see.
 - If you see a flat white rectangle that the context does not
   list, an ad was masked but isn't registered — set
-  `repair_needed: true` and describe where (vertical extent in
-  page-percent if you can estimate). Don't transcribe inside
-  the rectangle.
+  `repair_needed: true` with `repair_kind: "advert_identification"`
+  and describe where (vertical extent in page-percent if you can
+  estimate). Don't transcribe inside the rectangle.
 - If a horizontal rule the context lists is clearly absent (or
   one is visibly present that the context does not list), note
   it in `transcriber_notes`. A missed h-rule does not on its own
@@ -276,17 +302,31 @@ If you set `repair_needed: true`, write a one-sentence
 `repair_reason` describing what the cutting pipeline got wrong
 and where (e.g. "left edge has cut into the second column —
 visible text 'and Mrs. Brown' belongs to the column to the
-right"). The most common cases are:
+right"), and set `repair_kind` to one of four values:
 
-- The column is too narrow on one side, with text from the next
-  column clearly cropped at the edge.
-- The column is too wide and is including a strip of the
-  neighbouring column.
-- A horizontal rule that should mark a boundary between articles
-  has been swallowed.
-- An ad is in the wrong place (mask doesn't match what's there)
-  or is missing entirely.
-- Physical damage that needs noting before any further work.
+- `"advert_identification"` — the transcript itself is fine; the
+  only problem is that advertisement content needs to be
+  recognized and registered as an ad (a registered ad's mask
+  didn't land, or a display ad on the page has no registered
+  entry at all). This is the most common repair case. It's worth
+  flagging so the ad-detection stage can catch up, but it is
+  **not a transcription-quality problem** — nothing here means
+  the transcript is wrong or incomplete.
+- `"column_boundary"` — the column boundary itself is miscalibrated:
+  text from the next column is clearly cropped at an edge, the
+  column is too wide and includes a strip of the neighbour, or a
+  heading/article start or end is visibly cut off. This corresponds
+  to `quality_flags.partial_cut` and/or `quality_flags.adjacent_text_visible`
+  being true.
+- `"damage_illegible"` — the source material itself is hard to read:
+  physical damage, fading, smudging, or general low legibility with
+  no boundary problem. This corresponds to `quality_flags.damage`,
+  `quality_flags.faded`, `quality_flags.smudged`, or
+  `quality_flags.low_legibility` being true.
+- `"other"` — anything that doesn't fit the three cases above, e.g.
+  a horizontal rule that should mark a boundary between articles has
+  been swallowed, or an OCR/print-quality discrepancy unrelated to
+  cutting or damage.
 
 ## Notes discipline
 
@@ -348,6 +388,7 @@ fence. The shape depends on the input mode.
     "adjacent_text_visible": false
   },
   "repair_needed": false,
+  "repair_kind": "",
   "repair_reason": ""
 }
 ```
@@ -359,11 +400,11 @@ slice, in any order.
 For full-image mode (legacy fall-back), see the appendix at the
 bottom of this file.
 
-Set every flag explicitly (true or false). Leave notes and
-`repair_reason` as empty strings if nothing applies. The
-`quality_flags`, `repair_needed`, and `repair_reason` fields are
-column-level — set them based on the column as a whole, not per
-slice.
+Set every flag explicitly (true or false). Leave notes,
+`repair_kind`, and `repair_reason` as empty strings if nothing
+applies. The `quality_flags`, `repair_needed`, `repair_kind`, and
+`repair_reason` fields are column-level — set them based on the
+column as a whole, not per slice.
 
 ## Writing the result file
 
@@ -427,9 +468,10 @@ The orchestrator hands you the entire column as one image (no
     "adjacent_text_visible": false
   },
   "repair_needed": false,
+  "repair_kind": "",
   "repair_reason": ""
 }
 ```
 
-Set every flag explicitly (true or false). Leave notes and
-`repair_reason` as empty strings if nothing applies.
+Set every flag explicitly (true or false). Leave notes,
+`repair_kind`, and `repair_reason` as empty strings if nothing applies.

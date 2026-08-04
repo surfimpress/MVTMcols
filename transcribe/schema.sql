@@ -38,6 +38,16 @@ CREATE TABLE IF NOT EXISTS column_transcripts (
     tokens_in         INTEGER,
     tokens_out        INTEGER,
     cost_usd          REAL,
+    -- Wall-clock duration and tool-call count for the column-transcriber
+    -- agent run that produced this row, as reported by the orchestrating
+    -- Claude Code session's own completion notification. Not part of the
+    -- agent's JSON envelope -- the agent has no visibility into its own
+    -- overall duration or call count, so the orchestrator records these
+    -- via record_agent_usage() in a follow-up UPDATE after ingest. NULL
+    -- for rows transcribed before this field was added (2026-08-04) or
+    -- ingested by a caller that doesn't report usage.
+    agent_duration_ms INTEGER,
+    agent_tool_calls  INTEGER,
     raw_response_json TEXT,
     -- JSON list of slice records produced by transcribe/slice.py:
     -- [{idx, y_top_pct, y_bottom_pct, image_path, char_offset_start,
