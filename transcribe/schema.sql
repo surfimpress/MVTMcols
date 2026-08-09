@@ -165,6 +165,12 @@ CREATE TABLE IF NOT EXISTS items (
     -- for splits.
     geometry_polygon_json    TEXT,
     derived_from_item_ids    TEXT,
+    -- terms_extracted_at: set once transcribe.extract_terms has run its
+    -- independent term-extraction pass on this item (Unit 3 of the
+    -- OCR+LLM route's split pipeline). NULL means "not processed yet",
+    -- the sole readiness signal extract_terms.pending_items() selects
+    -- on -- there is no other column on this table that plays that role.
+    terms_extracted_at       TEXT,
     FOREIGN KEY (continued_to_item_id)   REFERENCES items(id),
     FOREIGN KEY (continued_from_item_id) REFERENCES items(id)
 );
@@ -685,7 +691,16 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 --                                    terminology_review.html -- survive
 --                                    entity id changes, unlike
 --                                    terminology_reviews.status alone
+--  12 — items.terms_extracted_at (2026-08-09): readiness/completion
+--                                    signal for the OCR+LLM route's
+--                                    independent term-extraction pass
+--                                    (transcribe/extract_terms.py) --
+--                                    entity extraction moved out of
+--                                    ocr-items (page segmentation) into
+--                                    its own decoupled Unit 3, this is
+--                                    how it finds items it hasn't
+--                                    processed yet
 INSERT OR IGNORE INTO schema_meta (key, value)
-    VALUES ('schema_version', '11');
+    VALUES ('schema_version', '12');
 INSERT OR IGNORE INTO schema_meta (key, value)
     VALUES ('created_at_iso', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));

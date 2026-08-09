@@ -1,6 +1,6 @@
 export const meta = {
   name: 'ocr-llm-issue',
-  description: 'OCR+LLM route: cleanup + item/entity markup for one issue\'s already-rendered pages',
+  description: 'OCR+LLM route: cleanup + item segmentation for one issue\'s already-rendered pages. Entity/term extraction is a separate, later, independent pass -- see transcribe/workflows/extract_terms.js',
   phases: [
     { title: 'Cleanup' },
     { title: 'Items' },
@@ -34,24 +34,14 @@ const CLEANUP_SCHEMA = {
   required: ['blocks'],
 }
 
-// mention_text and manufacturer were being silently dropped -- the agent
-// prompt (ocr-items.md) asks for them but this schema never declared
-// them, so structured-output validation stripped them before ingest ever
-// saw them. Fixed 2026-08-09 alongside the item_type enum sync below.
-const ENTITY_MENTION = {
-  type: 'array',
-  items: {
-    type: 'object',
-    properties: {
-      id: { type: ['string', 'null'] },
-      name: { type: 'string' },
-      mention_text: { type: 'string' },
-      manufacturer: { type: 'string' },
-    },
-    required: ['name'],
-  },
-}
-
+// ocr-items only segments the page now -- no entity fields here at all.
+// Entity/term extraction moved out to a separate, later, independent
+// pass (transcribe/extract_terms.py + workflows/extract_terms.js) that
+// reads items.full_text once this Workflow's results are ingested,
+// rather than working inline off the page image + a candidate list.
+// Removed 2026-08-09 (previously ENTITY_MENTION/people/organizations/
+// places/products/events lived here) -- see CLAUDE.md and
+// .claude/agents/term-extractor.md for the full split.
 const ITEMS_SCHEMA = {
   type: 'object',
   properties: {
@@ -79,11 +69,6 @@ const ITEMS_SCHEMA = {
           },
           block_ids: { type: 'array', items: { type: 'integer' } },
           caption_block_ids: { type: 'array', items: { type: 'integer' } },
-          people: ENTITY_MENTION,
-          organizations: ENTITY_MENTION,
-          places: ENTITY_MENTION,
-          products: ENTITY_MENTION,
-          events: ENTITY_MENTION,
         },
         required: ['label', 'type', 'bbox', 'block_ids'],
       },

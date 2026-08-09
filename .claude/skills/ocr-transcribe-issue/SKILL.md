@@ -1,6 +1,6 @@
 ---
 name: ocr-transcribe-issue
-description: Run the OCR+LLM route for one issue (YYYY-MM-DD) -- 1980s+ issues that resist column detection. Renders and OCRs every page, dispatches the geometry-first cleanup+item+entity markup passes via Workflow, ingests the results, and checks block coverage.
+description: Run the OCR+LLM route for one issue (YYYY-MM-DD) -- 1980s+ issues that resist column detection. Renders and OCRs every page, dispatches the geometry-first cleanup+item segmentation passes via Workflow, ingests the results, and checks block coverage. Entity/term extraction is a separate, later, independent step -- see "Entity extraction" below, not part of this skill's steps.
 ---
 
 # /ocr-transcribe-issue YYYY-MM-DD
@@ -17,6 +17,15 @@ LLM. The two LLM passes are done by dedicated agent types
 (`.claude/agents/ocr-cleanup.md`, `.claude/agents/ocr-items.md`),
 dispatched via the `Workflow` tool for concurrency. The orchestrator's
 job is to glue these together and verify the result.
+
+`ocr-items` only segments the page (label/type/bbox/block_ids) --
+it does not extract entities/terms. That's a separate, later,
+independent step (`transcribe/extract_terms.py` +
+`.claude/agents/term-extractor.md`, dispatched via
+`transcribe/workflows/extract_terms.js`), decoupled in time and code
+from this skill, same shape as `classify_terms.py`. Run it whenever,
+over whatever's accumulated -- it isn't part of this skill's steps and
+doesn't need to run right after ingest.
 
 ## Steps
 
@@ -97,16 +106,36 @@ job is to glue these together and verify the result.
    -- don't fabricate a confident label for content you can't actually
    classify). For a large gap, re-run that page's items pass instead.
 
-6. **Summarise.** How many pages, items, entity mentions; any
-   coverage gaps found and how they were resolved; anything that
-   needed `--force` on `render-issue` (routing override) and why.
+6. **Summarise.** How many pages, items; any coverage gaps found and
+   how they were resolved; anything that needed `--force` on
+   `render-issue` (routing override) and why. Entity/term counts don't
+   belong here -- that's a separate step's summary, see below.
+
+## Entity extraction (separate step, run whenever)
+
+Once items exist (step 4 above), run term extraction independently --
+not tied to this skill's completion, can run against this issue's
+items alongside any other already-segmented issue's pending items:
+
+```
+python3 -m transcribe.extract_terms build
+```
+Then dispatch `Workflow({ scriptPath: "transcribe/workflows/extract_terms.js",
+args: <workflow_args.json's contents> })`, save the result, and run:
+```
+python3 -m transcribe.extract_terms ingest-workflow-result <path>
+```
+`items.terms_extracted_at` is the readiness signal -- `build` only
+picks up items that don't have it set yet, so re-running `build` later
+(after more issues are ingested) only processes what's actually new.
 
 ## Not yet built (unlike `transcribe-issue`)
 
-- No content-filter-block escalation ladder. If an `ocr-cleanup` or
-  `ocr-items` agent call is blocked by Anthropic's safety classifier,
-  there is no Tier 2/3/4 retry path here yet -- surface it and decide
-  case by case. Worth building if it recurs; not built preemptively.
+- No content-filter-block escalation ladder. If an `ocr-cleanup`,
+  `ocr-items`, or `term-extractor` agent call is blocked by
+  Anthropic's safety classifier, there is no Tier 2/3/4 retry path
+  here yet -- surface it and decide case by case. Worth building if it
+  recurs; not built preemptively.
 - No Haiku/Sonnet comparison mode.
 - No download cleanup step (`transcribe-issue`'s step 5) -- rendered
   pages and their tickets stay under `transcribe/work/ocr_llm/` and

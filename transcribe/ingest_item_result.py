@@ -675,8 +675,10 @@ def _insert_mentions(conn: sqlite3.Connection,
                      name_keys: tuple[str, ...],
                      mention_date: str | None = None) -> int:
     """Insert a list of mentions into the appropriate junction table,
-    upserting the entity by normalised name. Returns the count
-    inserted. ``name_keys`` is the ordered list of candidate name
+    upserting the entity by normalised name. Deliberately never reads
+    an ``id`` off a mention dict -- any candidate id an agent may have
+    referenced is discarded; see ocr_llm.py:604-609 for why. Returns
+    the count inserted. ``name_keys`` is the ordered list of candidate name
     fields (e.g. ('full_name', 'name')) — the first one present on
     the mention dict is used for normalisation.
     """

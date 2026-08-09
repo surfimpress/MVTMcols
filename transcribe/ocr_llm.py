@@ -48,8 +48,6 @@ from pdf_utils import get_full_pixmap, try_embedded_bitmap_pil
 
 from . import db as _db
 from . import download as _dl
-from . import entity_candidates as _entity_candidates
-from . import ingest_item_result as _ingest_items
 from . import routing as _routing
 from . import workflow_usage as _wf_usage
 
@@ -407,7 +405,7 @@ def write_page_and_blocks(conn, year: int, month: int, day: int, page: int,
 
 CLEANUP_PROMPT_TEMPLATE = """Almonte Gazette, {date} page {page}. Low-confidence Tesseract blocks are at {blocks_path}."""
 
-ITEMS_PROMPT_TEMPLATE = """Almonte Gazette, {date} page {page}. Blocks: {blocks_path} (page image space, {display_w}x{display_h} px). Page image: {display_png}. Entity candidates: {candidates_path}."""
+ITEMS_PROMPT_TEMPLATE = """Almonte Gazette, {date} page {page}. Blocks: {blocks_path} (page image space, {display_w}x{display_h} px). Page image: {display_png}."""
 
 
 def build_cleanup_ticket(conn, page_id: str,
@@ -471,23 +469,16 @@ def build_items_ticket(conn, page_id: str) -> str:
     with open(blocks_path, "w") as f:
         json.dump(payload, f)
 
-    candidates = _entity_candidates.build_candidate_lists(conn, page_row["year"])
-    candidates_path = os.path.join(out_dir, "entity_candidates.json")
-    with open(candidates_path, "w") as f:
-        json.dump(candidates, f)
-
     prompt = ITEMS_PROMPT_TEMPLATE.format(
         date=date_str, page=page_row["page"],
         display_png=page_row["display_image_path"],
         display_w=disp_w, display_h=disp_h, blocks_path=blocks_path,
-        candidates_path=candidates_path,
     )
     ticket_path = os.path.join(out_dir, "items_ticket.json")
     with open(ticket_path, "w") as f:
         json.dump({
             "page_id": page_id, "kind": "items", "agent_type": "ocr-items",
             "blocks_path": blocks_path, "display_png": page_row["display_image_path"],
-            "candidates_path": candidates_path,
             "n_blocks": len(payload), "prompt": prompt,
         }, f, indent=2)
     return ticket_path
@@ -601,30 +592,13 @@ def ingest_items_data(conn, page_id: str, items: list[dict],
                 )
                 seq += 1
 
-        # Entity mentions -- reuses ingest_item_result's upsert_entity via
-        # _insert_mentions rather than re-deriving dedup logic here. The
-        # LLM-supplied candidate "id" (if any) is only a hint that shaped
-        # its own generation; the actual dedup decision is always the
-        # normalised-key lookup inside upsert_entity, same as the pre-1980
-        # route -- an LLM-misattributed id is never trusted directly.
-        mention_date = (f"{page_row['year']:04d}-{page_row['month']:02d}-"
-                        f"{page_row['day']:02d}")
-        for entity_table, junction_table, fk_col, name_keys in (
-            ("people", "item_people_mentions", "person_id", ("name", "full_name")),
-            ("organizations", "item_organizations_mentions", "organization_id", ("name",)),
-            ("places", "item_places_mentions", "place_id", ("name",)),
-            ("products", "item_products_mentions", "product_id", ("name",)),
-            ("events", "item_events_mentions", "event_id", ("name",)),
-        ):
-            _ingest_items._insert_mentions(
-                conn, item_id=item_id,
-                mentions=it.get(entity_table) or [],
-                entity_table=entity_table,
-                junction_table=junction_table,
-                junction_fk_col=fk_col,
-                name_keys=name_keys,
-                mention_date=mention_date,
-            )
+        # No entity-mention ingest here -- ocr-items only segments the
+        # page now. Entity extraction is a separate, later, independent
+        # pass (transcribe/extract_terms.py, reads items.full_text once
+        # it's committed here) that reuses the exact same
+        # ingest_item_result._insert_mentions/upsert_entity path this
+        # used to call inline. See schema.sql v12 (items.terms_extracted_at)
+        # and CLAUDE.md for the full split.
         n += 1
     conn.commit()
     return n

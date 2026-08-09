@@ -10,22 +10,55 @@ session pauses mid-task for a reason a fresh session needs to know
 that a session starting cold can read this and `transcribe/work/experiments.jsonl`'s
 tail and reconstruct state without replaying a whole prior transcript.
 
-**OCR+LLM route (1980s+ issues) is built and stable** —
-`transcribe/ocr_llm.py` (render/OCR/cleanup/items pipeline, now with a
-`--workers` thread pool on `render-issue`), `.claude/agents/ocr-cleanup.md`
-+ `ocr-items.md` (Read-only, durable rules cached, `item_type` synced
-to the same 11-value taxonomy as `items-classifier.md`),
-`transcribe/routing.py` (1980 cutoff), `.claude/skills/ocr-transcribe-issue/SKILL.md`,
-`transcribe/workflows/ocr_llm_issue.js`. Validated end-to-end on
-2001-01-03 (12pp), 1994-01-05 (12pp), 1986-01-08 (18pp). Monitor at
-`transcribe/monitor.html`. Not yet done: `items_ocr_ext.item_hocr`/
-`full_text_markdown` unpopulated; no content-filter retry ladder.
+**OCR+LLM route (1980s+ issues) is built and stable, entity extraction
+split out 2026-08-09** — `transcribe/ocr_llm.py` (render/OCR/cleanup/
+items pipeline, `--workers` thread pool on `render-issue`) now covers
+Units 1-2 only (render+Tesseract, then `ocr-cleanup` + `ocr-items` —
+segmentation/`item_type` only, no entity fields, no `entity_candidates.json`
+— that ticket/schema/ingest code was removed, not just trimmed).
+Entity/term extraction is Unit 3, a separate, independent, decoupled
+pass: `transcribe/extract_terms.py` + `.claude/agents/term-extractor.md`
+(Haiku, text-only, reads `items.full_text`, no image, no candidate
+list, no dedup-matching attempt — same "batched, manually dispatched,
+corpus-wide, decoupled in time" shape as `classify_terms.py`, not
+wired into the per-page Workflow). Unit 4 (reconciliation) needed no
+new matching logic: `ingest_item_result.py`'s existing
+`upsert_entity`/`_insert_mentions` (normalised-key matching) is reused
+as-is, called from `extract_terms.py:ingest_assignments()` instead of
+inline from `ocr-items`'s own output — confirmed safe to call a second
+time for an already-segmented item (idempotent by construction,
+`INSERT OR IGNORE` keyed on `(item_id, entity_id, span_start)`).
+`items.terms_extracted_at` (schema v12) is Unit 3's readiness signal,
+scoped to `year >= 1980` so pre-1980 items (already handled by
+`items-classifier.md`'s own inline extraction, unchanged) don't show
+up as false positives. Verified end-to-end on a real batch (8 items,
+1997-07-16 p4): extraction ran clean, ingest added mentions without
+duplicating existing ones, re-ingest was a true no-op, and
+`terminology_cleanup.py duplicates` picked up 36 genuine near-
+duplicates from the batch (mostly organizations) — the expected,
+accepted cost of dropping the candidate list: spelling-variant
+reconciliation is now 100% that tier's job, not softened by
+extraction-time hinting. Reason for the split (previous design just
+trimmed the candidate list's wire format, which didn't hold up): see
+git history same date. `.claude/skills/ocr-transcribe-issue/SKILL.md`,
+`transcribe/workflows/ocr_llm_issue.js` (Units 1-2 only now),
+`transcribe/workflows/extract_terms.js` (Unit 3), `transcribe/routing.py`
+(1980 cutoff). Validated end-to-end pre-split on 2001-01-03 (12pp),
+1994-01-05 (12pp), 1986-01-08 (18pp) — not yet re-validated as a full
+issue post-split. Monitor at `transcribe/monitor.html`. Not yet done:
+`items_ocr_ext.item_hocr`/`full_text_markdown` unpopulated; no
+content-filter retry ladder; the 647 pre-existing OCR+LLM-route items
+(from before this split) are all `terms_extracted_at IS NULL` and
+will get picked up by the next `extract_terms build` run, including
+the ~639 not yet touched by today's 8-item verification batch.
 
 **Entity registry + taxonomy cleanup, substantial work 2026-08-09** —
 `people`/`organizations`/`places`/`products`/`events` carry
 `first_seen_date`/`last_seen_date` (schema v6+). `transcribe/entities.html`
 is the browsable table. `transcribe/merge_entity.py` is the one-line
-merge CLI. Curation patterns baked into `ocr-items.md`/`items-classifier.md`:
+merge CLI. Curation patterns baked into `items-classifier.md` (pre-1980
+route, inline extraction, unchanged) and `term-extractor.md` (OCR+LLM
+route, moved out of `ocr-items.md` in the 2026-08-09 split above):
 period-abbreviation expansion (Wm.→William etc, original in
 `mention_text`); products/events genericize `name` to the reusable
 category (brand/instance goes in `manufacturer`/`mention_text`);

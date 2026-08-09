@@ -326,8 +326,9 @@ near-identical variant of the name in front of you (e.g. "Royal
 Canadian Legion" and "Royal Canadian Legion, Arnprior" are very
 likely the same underlying organization referenced two ways; so are
 "Catholic District School Board of Eastern Ontario" and the same name
-with "(CDSBEO)" appended). When one plausibly is, reference that
-candidate's `id` rather than minting a near-duplicate — same "prefer
+with "(CDSBEO)" appended). When one plausibly is, reuse that
+candidate's exact name text rather than minting a near-duplicate — the
+corpus dedups by normalized name text, not by any id — same "prefer
 reuse" instinct already applied to `product_type`/`org_type`/etc.,
 just applied to the entity itself this time. This matters more than
 it might seem: an unresolved near-duplicate here is exactly the kind
