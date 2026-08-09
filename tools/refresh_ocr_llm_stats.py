@@ -21,6 +21,7 @@ editing a build_*.py file takes effect on the very next cycle, no
 
 Managed by ~/Library/LaunchAgents/com.mvtm.ocr_llm_stats.plist.
 """
+import datetime
 import subprocess
 import sys
 import time
@@ -41,15 +42,30 @@ BUILD_MODULES = [
 # deliberately-invoked (or separately-scheduled) pass -- see
 # transcribe/terminology_cleanup.py's docstring.
 
+
+def log(msg: str) -> None:
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    print(f"{stamp}  {msg}", flush=True)
+
+
 while True:
     for module in BUILD_MODULES:
         try:
-            subprocess.run(
+            result = subprocess.run(
                 [sys.executable, "-m", module],
                 cwd=REPO, check=True, capture_output=True, text=True, timeout=30,
             )
+            # capture_output swallows the child's own "wrote ..." print
+            # on success -- log it here, not just failures, or the log
+            # goes blind to normal operation and every read of it looks
+            # alarming (this exact confusion happened 2026-08-09: the
+            # log's last "wrote ..." line was hours stale even though
+            # the actual JSON files were being regenerated correctly
+            # every cycle -- there was nothing wrong with the refresh,
+            # only with what the log chose to record).
+            log(result.stdout.strip() or f"{module}: no output")
         except subprocess.CalledProcessError as e:
-            print(f"{module} refresh failed (exit {e.returncode}): {e.stderr}", flush=True)
+            log(f"{module} refresh FAILED (exit {e.returncode}): {e.stderr}")
         except subprocess.TimeoutExpired:
-            print(f"{module} refresh timed out after 30s", flush=True)
+            log(f"{module} refresh timed out after 30s")
     time.sleep(INTERVAL)
