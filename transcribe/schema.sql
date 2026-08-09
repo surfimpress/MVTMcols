@@ -406,10 +406,34 @@ CREATE INDEX IF NOT EXISTS idx_places_norm ON places (normalised_key);
 
 
 CREATE TABLE IF NOT EXISTS products (
-    id              TEXT PRIMARY KEY,
-    name            TEXT NOT NULL,
-    manufacturer    TEXT,
-    product_type    TEXT,
+    id                   TEXT PRIMARY KEY,
+    name                 TEXT NOT NULL,
+    manufacturer         TEXT,
+    product_type         TEXT,
+    -- External controlled-vocabulary cross-reference -- lets a museum
+    -- correlate a newspaper mention with objects it holds in its own
+    -- collection. Generic on purpose: today this only ever gets
+    -- populated from Nomenclature for Museum Cataloging
+    -- (nomenclature.info, see transcribe/nomenclature.py), but the
+    -- fields aren't named after it -- a future second vocabulary
+    -- (Getty AAT, ICONCLASS, whatever) reuses the same four columns
+    -- rather than getting its own set. external_terminology names
+    -- which vocabulary+edition was used (e.g. "Nomenclature 4.0" --
+    -- confirmed 2026-08-09 against nomenclature.info's own about page;
+    -- the live site is a continuously-updated superset of the 2015 4.0
+    -- print edition), external_category is the matched concept's own
+    -- label (e.g. "Documentary Objects"), external_uri its concept URI
+    -- for automated lookups, external_reference the bare catalog
+    -- number a museum registrar would actually cite (e.g. "13603" --
+    -- the URI's own last path segment, derived, never agent-supplied).
+    -- All four NULL means product_type is our own organic term, not
+    -- sourced externally -- expected for things Nomenclature doesn't
+    -- catalog (perishables/groceries; it's a museum-object vocabulary,
+    -- not a retail one).
+    external_terminology  TEXT,
+    external_category     TEXT,
+    external_uri          TEXT,
+    external_reference    TEXT,
     normalised_key  TEXT NOT NULL,
     first_seen_date TEXT,
     last_seen_date  TEXT,
@@ -577,7 +601,22 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 --                                    on people/organizations/places/
 --                                    products/events + decade index
 --   7 — OCR+LLM usage telemetry (2026-08-09): ocr_llm_runs, page_llm_calls
+--   8 — external-vocabulary cross-reference, v1 (2026-08-09):
+--                                    products.nomenclature_category,
+--                                    products.nomenclature_uri --
+--                                    superseded by v9's generic naming,
+--                                    see below; don't re-add these names
+--   9 — external-vocabulary cross-reference, generalized (2026-08-09):
+--                                    products.external_terminology,
+--                                    external_category, external_uri,
+--                                    external_reference -- vocabulary-
+--                                    agnostic naming so a future second
+--                                    external vocabulary (today only
+--                                    Nomenclature for Museum Cataloging
+--                                    populates these) reuses the same
+--                                    four columns instead of getting
+--                                    its own set
 INSERT OR IGNORE INTO schema_meta (key, value)
-    VALUES ('schema_version', '7');
+    VALUES ('schema_version', '9');
 INSERT OR IGNORE INTO schema_meta (key, value)
     VALUES ('created_at_iso', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));

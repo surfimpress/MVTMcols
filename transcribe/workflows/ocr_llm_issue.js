@@ -34,6 +34,10 @@ const CLEANUP_SCHEMA = {
   required: ['blocks'],
 }
 
+// mention_text and manufacturer were being silently dropped -- the agent
+// prompt (ocr-items.md) asks for them but this schema never declared
+// them, so structured-output validation stripped them before ingest ever
+// saw them. Fixed 2026-08-09 alongside the item_type enum sync below.
 const ENTITY_MENTION = {
   type: 'array',
   items: {
@@ -41,6 +45,8 @@ const ENTITY_MENTION = {
     properties: {
       id: { type: ['string', 'null'] },
       name: { type: 'string' },
+      mention_text: { type: 'string' },
+      manufacturer: { type: 'string' },
     },
     required: ['name'],
   },
@@ -55,7 +61,14 @@ const ITEMS_SCHEMA = {
         type: 'object',
         properties: {
           label: { type: 'string' },
-          type: { type: 'string', enum: ['article', 'photo', 'ad', 'notice', 'other'] },
+          // Synced 2026-08-09 to the same 11-value taxonomy as the
+          // pre-1980 route's items-classifier.md -- see CLAUDE.md and
+          // .claude/agents/ocr-items.md for the unification writeup.
+          type: {
+            type: 'string',
+            enum: ['article', 'display_ad', 'classified_ad', 'notice', 'masthead',
+                   'cartoon', 'letter', 'announcement', 'table', 'index', 'other'],
+          },
           bbox: {
             type: 'object',
             properties: {

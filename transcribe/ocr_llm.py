@@ -30,6 +30,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import concurrent.futures as _futures
 import io
 import json
 import os
@@ -67,11 +68,14 @@ _BBOX_RE = re.compile(r"bbox (\d+) (\d+) (\d+) (\d+)")
 _WCONF_RE = re.compile(r"x_wconf (\d+)")
 
 # LLM item type -> items.item_type. item_type is free TEXT (no CHECK
-# constraint) and the taxonomy already grows organically -- 'photo',
-# 'index', 'promo' are new values introduced by this route, not
-# remapped onto the pre-1980 vocabulary.
+# constraint). Synced 2026-08-09 to the same 11-value taxonomy as the
+# pre-1980 route's items-classifier.md -- ocr-items.md now asks for
+# these values, not the old 'photo'/'ad'/'promo' set (see CLAUDE.md
+# for the unification writeup). Anything outside this set silently
+# becomes 'other' at ingest -- see ingest_items_data() below.
 ITEM_TYPE_PASSTHROUGH = {
-    "article", "photo", "ad", "notice", "masthead", "index", "promo", "other",
+    "article", "display_ad", "classified_ad", "notice", "masthead",
+    "cartoon", "letter", "announcement", "table", "index", "other",
 }
 
 
@@ -682,10 +686,25 @@ def _cmd_render(args):
         conn.close()
 
 
-def _cmd_render_issue(args):
-    year, month, day = (int(x) for x in args.date.split("-"))
+def _render_one_page_own_connection(year: int, month: int, day: int, page: int) -> dict:
+    """Worker-pool entry point -- opens and closes its own connection
+    rather than sharing the caller's. sqlite3 connections aren't safe
+    to use from a thread other than the one that created them; each
+    page render gets its own, and WAL mode (see schema.sql) lets
+    concurrent writers serialize safely at the DB level rather than
+    corrupt anything -- a second writer just queues briefly behind
+    the first's commit."""
     conn = _db.open_connection(attach_mvtm=True)
     try:
+        return _render_one_page(conn, year, month, day, page)
+    finally:
+        conn.close()
+
+
+def _cmd_render_issue(args):
+    conn = _db.open_connection(attach_mvtm=True)
+    try:
+        year, month, day = (int(x) for x in args.date.split("-"))
         pages = enumerate_issue_pages(conn, year, month, day)
         if not pages:
             print(f"No pdf files found for {args.date} in mvtm.files")
@@ -696,25 +715,38 @@ def _cmd_render_issue(args):
                   f"(cutoff year {_routing.COLUMN_CUT_CUTOFF_YEAR}). "
                   f"Pass --force to render anyway.")
             return
-
-        results = []
-        for page in pages:
-            r = _render_one_page(conn, year, month, day, page)
-            status = "already rendered" if r["already_rendered"] else "rendered"
-            print(f"  page {page}: {status}, page_id={r['page_id']}")
-            results.append(r)
-
-        out_dir = _issue_work_dir(args.date)
-        args_path = os.path.join(out_dir, "workflow_args.json")
-        with open(args_path, "w") as f:
-            json.dump(results, f, indent=2)
-        print(f"\n{len(results)} pages ready. Workflow args written to:\n{args_path}")
-        print("Next: invoke Workflow with scriptPath="
-              "'transcribe/workflows/ocr_llm_issue.js' and this file's "
-              "contents as args, then save its result and run "
-              "'ingest-workflow-result'.")
     finally:
         conn.close()
+
+    # Render+OCR is CPU/IO-bound and page-independent -- a worker pool
+    # cuts issue-level wall-clock by roughly the pool width instead of
+    # rendering strictly one page at a time. Threads are fine despite
+    # the GIL: Tesseract runs as a subprocess (run_tesseract_hocr),
+    # which releases it for the duration of the OCR call.
+    results_by_page = {}
+    with _futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
+        futures = {
+            pool.submit(_render_one_page_own_connection, year, month, day, page): page
+            for page in pages
+        }
+        for fut in _futures.as_completed(futures):
+            page = futures[fut]
+            r = fut.result()
+            status = "already rendered" if r["already_rendered"] else "rendered"
+            print(f"  page {page}: {status}, page_id={r['page_id']}")
+            results_by_page[page] = r
+
+    results = [results_by_page[page] for page in pages]
+
+    out_dir = _issue_work_dir(args.date)
+    args_path = os.path.join(out_dir, "workflow_args.json")
+    with open(args_path, "w") as f:
+        json.dump(results, f, indent=2)
+    print(f"\n{len(results)} pages ready. Workflow args written to:\n{args_path}")
+    print("Next: invoke Workflow with scriptPath="
+          "'transcribe/workflows/ocr_llm_issue.js' and this file's "
+          "contents as args, then save its result and run "
+          "'ingest-workflow-result'.")
 
 
 def ingest_workflow_result_data(conn, pages: list[dict], model: str = "sonnet") -> dict:
@@ -916,6 +948,10 @@ def main():
     p_render_issue.add_argument(
         "--force", action="store_true",
         help="Render even if routing.py says this date belongs to the column-cut route")
+    p_render_issue.add_argument(
+        "--workers", type=int, default=4,
+        help="Parallel render+OCR worker threads (default 4; pages are "
+             "independent, so this is a straight wall-clock win up to core count)")
     p_render_issue.set_defaults(func=_cmd_render_issue)
 
     p_ingest_wf = sub.add_parser(

@@ -79,6 +79,24 @@ For each item, give:
   printed form, e.g. `{"name": "Baking Powder", "manufacturer":
   "White Swan", "mention_text": "White Swan Baking Powder"}`. This
   lets one generic product entity cover mentions of different brands.
+  `products` means a physical or consumable good, or a work being
+  sold/screened/performed — not a catch-all for any named thing that
+  isn't obviously a person/organization/place/event. A street,
+  subdivision, or building name (e.g. from a real-estate ad) is a
+  `places` mention, not a product. A named contest, sale event, or
+  campaign is an `events` mention. A book, movie, or play **is** a
+  product, but use the same generic-name pattern as branded goods:
+  `name` is "Book"/"Movie"/"Play" (never the specific title), and
+  `mention_text` carries the title as printed, e.g. `{"name": "Book",
+  "mention_text": "Prodigal Summer"}` — this keeps one "Book" entity
+  covering every book ever mentioned, instead of a one-off entity per
+  title. Legislation/bills, report or study titles, and trophy/award
+  names genuinely don't fit any of the five entity types — don't
+  force those into `products`; skip them entirely, same as the
+  "prefer to skip a marginal mention than invent one" rule for people
+  (confirmed 2026-08-09 after ~20% of one issue's product entities
+  turned out to be mis-bucketed non-products, mostly one-off book/
+  movie titles that needed genericizing, not dropping).
   Same idea for a recurring event type where each instance is a
   different pair/person/place ("Gilmour-McIntosh wedding") — use the
   generic type as `name` ("Marriage"), `mention_text` carries the
@@ -86,6 +104,33 @@ For each item, give:
   it applies to other recurring types (deaths, fires) without asking
   first — some may carry more individually-important distinguishing
   value than a marriage announcement does.
+
+**Prefer names that will recur.** An entity's value to this corpus
+comes from how many mentions across issues it accumulates — a `name`
+likely to appear again in some future issue is more useful than a
+one-off specific instance, even when the specific form is technically
+more precise. This is the same logic behind the products/events
+genericization above; apply it as a general instinct, not just to
+those two fields. It doesn't apply to people/places/organizations,
+where the specific identity is the point — but even there, the
+`org_type`/`place_type`/`product_type`/`event_type` taxonomy fields
+(see `items-classifier.md`'s "Type taxonomies" section — the same
+taxonomy applies here) give a one-off-sounding entity a reusable
+bucket, so they're worth getting right regardless.
+
+**Picking the right altitude for `name` (products/events).** The
+`_type` field already carries the broad category, so `name` should
+sit one level more specific than its own type — not repeat the
+type's job, and not descend into a one-off instance. Too generic:
+`name: "Grocery Item"` when `product_type: "groceries_and_provisions"`
+already says that. Too specific: `name: "White Swan Baking Powder"`
+or a book's own title as its own entity. Right altitude: `name:
+"Baking Powder"` — specific enough a researcher learns something
+concrete, general enough that many ads/brands/issues can share it.
+Quick check: strip `name` down to what its `_type` already tells you
+— if nothing's left, go more specific; if the result still looks like
+a one-off that won't reappear in a different ad/issue/year, go more
+general instead.
 
 **If leftover blocks are genuinely scattered** with no shared visual
 region (e.g. stray margin marks, isolated noise fragments in

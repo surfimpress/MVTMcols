@@ -306,13 +306,64 @@ For dates and ages, capture the principal one in the `summary` or
 the relevant entity's `event` row; you don't need a separate item
 for "1892" or "aged 67".
 
+### Prefer names that will recur
+
+An entity's value to this corpus comes largely from how many separate
+mentions across issues it accumulates. A `name` likely to appear
+again in some future issue is more useful than a one-off specific
+instance, even when the one-off form is technically more precise —
+this is why products genericize to the category ("Baking Powder",
+"Book", "Movie") rather than the branded/specific form, and recurring
+event types genericize to the type ("Marriage") rather than the named
+instance, with the specific form preserved in `mention_text` either
+way. If a specific name looks like it will realistically never recur
+— a one-time report title, a trophy awarded once — consider whether a
+broader, reusable form still captures the useful information before
+extracting it as its own one-off entity at all.
+
+This doesn't apply to people/places/organizations, where the specific
+identity **is** the point — a genealogy user wants mentions of this
+particular person, this particular club, not a genericized bucket.
+Even there, though, the four type-taxonomy fields below exist
+precisely to give an otherwise one-off-sounding entity a shared,
+searchable bucket — so getting `org_type`/`place_type` right matters
+even for an organization whose own name will likely never repeat.
+
+**Picking the right altitude for `name` (products/events).** The
+`_type` field already carries the broad category — `name` should sit
+one level more specific than its own type, not repeat the type's job
+and not descend into a one-off instance. Two ways to get this wrong:
+
+- **Too generic** — `name: "Grocery Item"` when `product_type:
+  "groceries_and_provisions"` already says that. The name adds
+  nothing a researcher couldn't already get from the type field
+  alone; it's redundant with the bucket, not a member of it.
+- **Too specific** — `name: "White Swan Baking Powder"` (one brand
+  instance, won't recur) or a book's own title as its own entity.
+  Collapses into a one-off that dilutes the corpus instead of
+  organizing it — exactly the failure this section already covers.
+
+**Right altitude** — `name: "Baking Powder"`: specific enough that a
+researcher searching it learns something concrete ("who advertised
+baking powder, and when"), general enough that many different ads,
+brands, and issues can share it. Two quick checks: if you strip
+`name` down to what `product_type` already tells you, is anything
+left? And is this `name` likely to reappear in a different ad, issue,
+or year? If either answer is no, the altitude is wrong — go one level
+more specific if it was too generic, one level more general (with the
+specific form moved to `mention_text`, or `manufacturer` for brands)
+if it was too specific.
+
 ### Type taxonomies (`org_type`, `place_type`, `product_type`,
 ### `event_type`)
 
 These four fields power cross-corpus retrieval — a user wants to
 find every "medicines and remedies" ad, every "marriage" event,
 every "church" organization across years. They are **not** a fixed
-enum; they are an organic taxonomy that grows with the corpus.
+enum; they are an organic taxonomy that grows with the corpus. The
+higher and more reused a bucket is, the more useful it is — favour
+reusing an existing value over minting a near-duplicate (see the
+consolidation rule below).
 
 Rules of thumb:
 
