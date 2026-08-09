@@ -73,30 +73,59 @@ end-to-end on a full issue via `Workflow`.
   on real data: "Almonte" correctly matched its existing 1912-12-27
   entity and extended `last_seen_date` to 2001-01-03 — an 89-year
   span, MIN/MAX working as designed.
-- **2001-01-03 fully processed, all 10 pages, via the real pipeline.**
-  167 items, 1,133 OCR blocks, 523 entity mentions (215 people, 162
-  orgs, 140 places, 6 events). Pages 5-10 ran through the actual
-  `Workflow`-orchestrated pipeline (not manual one-off dispatch) —
-  script at `transcribe/workflows/ocr_llm_issue.js`.
-  One real gap caught by a block-coverage check (not assumed clean):
-  page 9 had 4 blocks (idx 32-35, a health-insurance-adjacent ad
-  fragment) the item-markup pass never assigned to any item — added
-  as an honest raw catch-all item (matches the `page_display.png` p4
-  "Stray mark" precedent — no fabricated label) rather than left
-  orphaned or silently dropped.
+- **2001-01-03 fully processed, all 12 pages** (not 10 — `render-issue`
+  found 2 more pages beyond an earlier manual assumption; don't guess
+  an issue's page count, enumerate it from `mvtm.files`). 191 items,
+  1,312 OCR blocks, 0 uncovered blocks after a fix, 1,490 entity
+  mentions (708 people, 264 orgs, 404 places, 64 products, 50 events).
+  Ran through the actual `Workflow`-orchestrated pipeline across two
+  batches (pages 5-10, then 11-12) — script at
+  `transcribe/workflows/ocr_llm_issue.js`. One real gap caught by a
+  block-coverage check (not assumed clean): page 9 had 4 blocks (idx
+  32-35, a health-insurance-adjacent ad fragment) the item-markup pass
+  never assigned to any item — added as an honest raw catch-all item
+  (matches the p4 "Stray mark" precedent — no fabricated label) rather
+  than left orphaned or silently dropped.
+- **Full issue-level integration landed** (the two items this session
+  left open have both been built):
+  - `transcribe/routing.py` — `route_for_date(year)` /
+    `layout_class_for_date(year)`, hard cutoff at 1980 (matches this
+    project's actual reality: 1980s+ cutting/QA was never signed off,
+    so "column-cut done and QA'd" and "pre-1980" are the same
+    question as of this writing — see the module docstring for when
+    to override per-issue instead of moving the cutoff).
+  - `transcribe/ocr_llm.py` gained three CLI commands:
+    `render-issue DATE` (enumerates every page from `mvtm.files`,
+    renders+OCRs+tickets all of them, idempotent, writes a
+    Workflow-ready args file), `ingest-workflow-result PATH`
+    (ingests a whole Workflow run's result array, idempotent against
+    partial re-runs), `verify-coverage DATE` (the block-coverage check
+    that caught the page 9 gap, now a real command instead of an ad
+    hoc script).
+  - `.claude/skills/ocr-transcribe-issue/SKILL.md` documents the full
+    procedure end to end. Explicitly does NOT yet have
+    `transcribe-issue`'s content-filter escalation ladder,
+    Haiku/Sonnet comparison mode, or download cleanup — noted as
+    "not yet built" rather than silently absent.
+- **New monitor: `transcribe/ocr_llm_monitor.html`.** Own compiled-
+  stats store (`transcribe/ocr_llm_stats.json`, gitignored, generated)
+  built by `transcribe/build_ocr_llm_stats.py`. Zero DB access from
+  the monitor page itself — it only fetches the JSON, polling every
+  20s. The JSON is kept fresh by a new LaunchAgent,
+  `com.mvtm.ocr_llm_stats` (`tools/refresh_ocr_llm_stats.py` +
+  `tools/com.mvtm.ocr_llm_stats.plist`, installed and confirmed
+  running this session), on its own 60s loop — independent of
+  whatever Workflow is or isn't running, deliberately avoiding
+  `build_repair_stats.py`'s own documented past mistake (being
+  invoked on every page-completion event by a live loop). Live at
+  `https://mcmniintstdio.surfaceimpression.com/MVTM/transcribe/
+  ocr_llm_monitor.html` (behind the existing Cloudflare Access gate,
+  verified serving 200 after redirect, not just assumed from the
+  URL's past use).
 - **`transcribe/backfill_2001_ocr_llm.py`** (pages 1-3, an earlier
-  session-local one-off) is now superseded by the real pipeline above
-  for anything beyond historical record-keeping — don't extend it.
+  session-local one-off) is now fully superseded by the real pipeline
+  above — don't extend it.
 - **Not yet done / next session:**
-  - `transcribe/workflows/ocr_llm_issue.js` is not yet wired into a
-    `/`-invocable skill the way `transcribe-issue` wires up the
-    column-cut pipeline (today it's invoked directly with a
-    hand-built `args` array — the render/ticket-building step that
-    produces that array is still a manual Python call, not a single
-    command covering render-through-ingest for a whole issue).
-  - `layout_class` routing logic (which issues use this route vs the
-    column-cut pipeline) is still a manual judgment call, not encoded
-    anywhere.
   - `items_ocr_ext.item_hocr`/`full_text_markdown` columns exist but
     nothing populates them yet.
   - The `args` parameter to `Workflow` arrived as a non-array once
@@ -106,6 +135,9 @@ end-to-end on a full issue via `Workflow`.
   - `--user-words` custom dictionaries confirmed to have zero effect
     on the modern LSTM engine — don't revisit without a materially
     different angle.
+  - No content-filter-block retry ladder for `ocr-cleanup`/`ocr-items`
+    calls yet (see the skill's "Not yet built" section) — build it if
+    it actually recurs, not preemptively.
 
 ## `instructions/` is the durable knowledge base — keep it current
 

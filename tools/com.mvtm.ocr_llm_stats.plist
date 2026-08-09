@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent: keeps transcribe/ocr_llm_stats.json fresh for the OCR+LLM
+  route monitor (transcribe/ocr_llm_monitor.html), independent of any
+  transcription Workflow that is or isn't running. The monitor page itself
+  never queries the database -- only this refresher does, on its own
+  60s interval (see tools/refresh_ocr_llm_stats.py).
+
+  Install:   launchctl load -w ~/Library/LaunchAgents/com.mvtm.ocr_llm_stats.plist
+  Uninstall: launchctl unload ~/Library/LaunchAgents/com.mvtm.ocr_llm_stats.plist
+             rm ~/Library/LaunchAgents/com.mvtm.ocr_llm_stats.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mvtm.ocr_llm_stats</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/env</string>
+        <string>python3</string>
+        <string>/Users/peter/Projects/MVTM/tools/refresh_ocr_llm_stats.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/peter/Projects/MVTM</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/refresh_ocr_llm_stats.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/refresh_ocr_llm_stats.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+</dict>
+</plist>

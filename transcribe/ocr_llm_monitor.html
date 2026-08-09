@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OCR+LLM route monitor</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #6b6b6b;
+    --border: #e0e0e0;
+    --row-alt: #f7f7f7;
+    --accent: #2b6cb0;   /* blue */
+    --warn: #d9822b;     /* orange */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a;
+      --fg: #e8e8e8;
+      --muted: #9a9a9a;
+      --border: #2c2f33;
+      --row-alt: #1b1e21;
+      --accent: #5b9bd5;
+      --warn: #e6a45c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 1.5rem;
+    background: var(--bg); color: var(--fg);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    max-width: 960px; margin-inline: auto;
+  }
+  h1 { font-size: 1.3rem; margin: 0 0 0.2rem; }
+  .sub { color: var(--muted); font-size: 0.85rem; margin: 0 0 1.5rem; }
+  .sub.stale { color: var(--warn); }
+  .summary {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 0.75rem; margin-bottom: 1.75rem;
+  }
+  .summary .card {
+    border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem;
+  }
+  .summary .n { font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .summary .l { font-size: 0.78rem; color: var(--muted); }
+  h2 { font-size: 1rem; margin: 1.75rem 0 0.6rem; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  th, td {
+    text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
+  }
+  th { color: var(--muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  tbody tr:nth-child(even) { background: var(--row-alt); }
+  .warn { color: var(--warn); font-weight: 600; }
+  .ok { color: var(--muted); }
+  .empty { color: var(--muted); padding: 1.5rem 0; text-align: center; }
+  footer { margin-top: 2rem; color: var(--muted); font-size: 0.78rem; }
+  code { font-size: 0.85em; }
+</style>
+</head>
+<body>
+  <h1>OCR+LLM route monitor</h1>
+  <p class="sub" id="freshness">loading…</p>
+
+  <div class="summary" id="summary"></div>
+
+  <h2>Issues</h2>
+  <table id="issues-table">
+    <thead>
+      <tr><th>Date</th><th>Pages</th><th>Items</th><th>Blocks</th><th>Triaged</th><th>Noise</th><th>Uncovered</th></tr>
+    </thead>
+    <tbody id="issues-body"></tbody>
+  </table>
+
+  <h2>Entity mentions</h2>
+  <div class="summary" id="mentions"></div>
+
+  <h2>Recently rendered pages</h2>
+  <table id="recent-table">
+    <thead>
+      <tr><th>Date</th><th>Page</th><th>Rendered</th><th>Words</th><th>Mean conf</th></tr>
+    </thead>
+    <tbody id="recent-body"></tbody>
+  </table>
+
+  <footer>
+    Reads <code>ocr_llm_stats.json</code> only — never queries the database
+    directly. That file is refreshed on its own schedule by
+    <code>tools/refresh_ocr_llm_stats.py</code> (a LaunchAgent), independent
+    of any transcription run in progress. This page polls the file every 20s;
+    it does not need to be reloaded.
+  </footer>
+
+<script>
+(function() {
+  var POLL_MS = 20000;
+
+  function fmtAgo(iso) {
+    if (!iso) return '—';
+    var ms = Date.now() - new Date(iso + (iso.endsWith('Z') ? '' : 'Z')).getTime();
+    var s = Math.round(ms / 1000);
+    if (s < 60) return s + 's ago';
+    var m = Math.round(s / 60);
+    if (m < 60) return m + 'm ago';
+    var h = Math.round(m / 60);
+    if (h < 48) return h + 'h ago';
+    return Math.round(h / 24) + 'd ago';
+  }
+
+  function render(data) {
+    var freshness = document.getElementById('freshness');
+    var ageMs = Date.now() - new Date(data.generated_at).getTime();
+    freshness.textContent = 'stats snapshot generated ' + fmtAgo(data.generated_at);
+    freshness.className = 'sub' + (ageMs > 15 * 60 * 1000 ? ' stale' : '');
+
+    var summary = document.getElementById('summary');
+    var t = data.totals;
+    summary.innerHTML = [
+      ['pages', t.pages], ['blocks', t.blocks], ['items', t.items],
+      ['issues', data.issues.length],
+    ].map(function(p) {
+      return '<div class="card"><div class="n">' + p[1] + '</div><div class="l">' + p[0] + '</div></div>';
+    }).join('');
+
+    var issuesBody = document.getElementById('issues-body');
+    if (!data.issues.length) {
+      issuesBody.innerHTML = '<tr><td colspan="7" class="empty">No issues processed yet</td></tr>';
+    } else {
+      issuesBody.innerHTML = data.issues.map(function(iss) {
+        var uncoveredCls = iss.blocks_uncovered > 0 ? 'warn' : 'ok';
+        return '<tr>' +
+          '<td>' + iss.date + '</td>' +
+          '<td>' + iss.pages + '</td>' +
+          '<td>' + iss.items + '</td>' +
+          '<td>' + iss.blocks_total + '</td>' +
+          '<td>' + iss.blocks_triaged + '</td>' +
+          '<td>' + iss.blocks_noise + '</td>' +
+          '<td class="' + uncoveredCls + '">' + iss.blocks_uncovered + '</td>' +
+          '</tr>';
+      }).join('');
+    }
+
+    var mentions = document.getElementById('mentions');
+    mentions.innerHTML = Object.keys(data.mention_counts).map(function(k) {
+      return '<div class="card"><div class="n">' + data.mention_counts[k] + '</div><div class="l">' + k + '</div></div>';
+    }).join('');
+
+    var recentBody = document.getElementById('recent-body');
+    if (!data.recent_pages.length) {
+      recentBody.innerHTML = '<tr><td colspan="5" class="empty">No pages rendered yet</td></tr>';
+    } else {
+      recentBody.innerHTML = data.recent_pages.map(function(p) {
+        return '<tr>' +
+          '<td>' + p.date + '</td>' +
+          '<td>' + p.page + '</td>' +
+          '<td>' + fmtAgo(p.created_at) + '</td>' +
+          '<td>' + (p.hocr_word_count == null ? '—' : p.hocr_word_count) + '</td>' +
+          '<td>' + (p.hocr_mean_confidence == null ? '—' : p.hocr_mean_confidence) + '</td>' +
+          '</tr>';
+      }).join('');
+    }
+  }
+
+  function poll() {
+    fetch('ocr_llm_stats.json?_=' + Date.now())
+      .then(function(r) { return r.json(); })
+      .then(render)
+      .catch(function(e) {
+        document.getElementById('freshness').textContent = 'failed to load ocr_llm_stats.json: ' + e;
+        document.getElementById('freshness').className = 'sub stale';
+      });
+  }
+
+  poll();
+  setInterval(poll, POLL_MS);
+})();
+</script>
+</body>
+</html>

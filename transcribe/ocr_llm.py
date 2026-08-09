@@ -47,6 +47,7 @@ from . import db as _db
 from . import download as _dl
 from . import entity_candidates as _entity_candidates
 from . import ingest_item_result as _ingest_items
+from . import routing as _routing
 
 WORK_DIR = os.path.join(_db.REPO_ROOT, "transcribe", "work", "ocr_llm")
 TESSDATA_DIR = os.path.join(_db.REPO_ROOT, "transcribe", "work", "tessdata_best")
@@ -117,8 +118,25 @@ def resolve_pdf_path(conn, year: int, month: int, day: int, page: int) -> str:
     return dest
 
 
+def enumerate_issue_pages(conn, year: int, month: int, day: int) -> list[int]:
+    """All page numbers this issue has a source PDF for, per mvtm.db.
+    `conn` must be opened with attach_mvtm=True."""
+    rows = conn.execute(
+        "SELECT DISTINCT page FROM mvtm.files "
+        "WHERE year=? AND month=? AND day=? AND file_type='pdf' ORDER BY page",
+        (year, month, day),
+    ).fetchall()
+    return [r["page"] for r in rows]
+
+
 def _page_work_dir(date_str: str, page: int) -> str:
     out_dir = os.path.join(WORK_DIR, date_str, f"p{page}")
+    os.makedirs(out_dir, exist_ok=True)
+    return out_dir
+
+
+def _issue_work_dir(date_str: str) -> str:
+    out_dir = os.path.join(WORK_DIR, date_str)
     os.makedirs(out_dir, exist_ok=True)
     return out_dir
 
@@ -251,10 +269,16 @@ def parse_hocr(hocr_path: str) -> dict:
 
 def write_page_and_blocks(conn, year: int, month: int, day: int, page: int,
                            pdf_path: str, render: dict, hocr_path: str,
-                           parsed: dict, layout_class: str = "modular"
+                           parsed: dict, layout_class: str | None = None
                            ) -> tuple[str, dict]:
     """Insert the pages row and one page_ocr_blocks row per Tesseract
-    block. Returns (page_id, {block_idx: page_ocr_blocks.id})."""
+    block. Returns (page_id, {block_idx: page_ocr_blocks.id}).
+
+    layout_class defaults to routing.layout_class_for_date(year) --
+    pass it explicitly only to override the corpus-wide default for a
+    specific issue (see routing.py's docstring)."""
+    if layout_class is None:
+        layout_class = _routing.layout_class_for_date(year)
     blocks, words = parsed["blocks"], parsed["words"]
     confs = [w["conf"] for w in words] if words else [b["avg_conf"] for b in blocks]
     hocr_mean_conf = round(sum(confs) / len(confs), 2) if confs else None
@@ -548,32 +572,164 @@ def ingest_items_result(conn, page_id: str, result_path: str,
 # CLI
 # --------------------------------------------------------------------
 
-def _cmd_render(args):
-    year, month, day = (int(x) for x in args.date.split("-"))
-    date_str = args.date
-    conn = _db.open_connection(attach_mvtm=True)
-    try:
-        pdf_path = resolve_pdf_path(conn, year, month, day, args.page)
-        print(f"pdf: {pdf_path}")
-
-        render = render_page(pdf_path, date_str, args.page)
-        print(f"rendered: full={render['page_px_w']}x{render['page_px_h']} "
-              f"display={render['display_w']}x{render['display_h']}")
-
+def _render_one_page(conn, year: int, month: int, day: int, page: int) -> dict:
+    """Render + OCR + write DB rows + build both LLM tickets for one
+    page. Returns {page_id, cleanup_prompt, items_prompt}. Shared by
+    the single-page `render` command and the issue-wide `render-issue`
+    command below -- skips work already done (idempotent) the same
+    way both callers need."""
+    existing = conn.execute(
+        "SELECT id FROM pages WHERE year=? AND month=? AND day=? AND page=?",
+        (year, month, day, page),
+    ).fetchone()
+    if existing:
+        page_id = existing["id"]
+    else:
+        pdf_path = resolve_pdf_path(conn, year, month, day, page)
+        date_str = f"{year:04d}-{month:02d}-{day:02d}"
+        render = render_page(pdf_path, date_str, page)
         tessdata_dir = ensure_tessdata_best()
         hocr_base = os.path.join(render["out_dir"], "page")
         hocr_path = run_tesseract_hocr(render["full_png"], hocr_base, tessdata_dir)
         parsed = parse_hocr(hocr_path)
-        print(f"ocr: {len(parsed['blocks'])} blocks, {len(parsed['words'])} words")
-
         page_id, _ = write_page_and_blocks(
-            conn, year, month, day, args.page, pdf_path, render, hocr_path, parsed)
-        print(f"page_id: {page_id}")
+            conn, year, month, day, page, pdf_path, render, hocr_path, parsed)
 
-        cleanup_ticket = build_cleanup_ticket(conn, page_id)
-        items_ticket = build_items_ticket(conn, page_id)
-        print(f"cleanup_ticket: {cleanup_ticket}")
-        print(f"items_ticket: {items_ticket}")
+    cleanup_ticket = build_cleanup_ticket(conn, page_id)
+    items_ticket = build_items_ticket(conn, page_id)
+    return {
+        "page_id": page_id, "page": page,
+        "cleanup_prompt": json.load(open(cleanup_ticket))["prompt"],
+        "items_prompt": json.load(open(items_ticket))["prompt"],
+        "already_rendered": bool(existing),
+    }
+
+
+def _cmd_render(args):
+    year, month, day = (int(x) for x in args.date.split("-"))
+    conn = _db.open_connection(attach_mvtm=True)
+    try:
+        result = _render_one_page(conn, year, month, day, args.page)
+        print(f"page_id: {result['page_id']}"
+              f" ({'already rendered' if result['already_rendered'] else 'rendered'})")
+    finally:
+        conn.close()
+
+
+def _cmd_render_issue(args):
+    year, month, day = (int(x) for x in args.date.split("-"))
+    conn = _db.open_connection(attach_mvtm=True)
+    try:
+        pages = enumerate_issue_pages(conn, year, month, day)
+        if not pages:
+            print(f"No pdf files found for {args.date} in mvtm.files")
+            return
+        route = _routing.route_for_date(year)
+        if route != "ocr_llm" and not args.force:
+            print(f"{args.date} routes to '{route}', not 'ocr_llm' "
+                  f"(cutoff year {_routing.COLUMN_CUT_CUTOFF_YEAR}). "
+                  f"Pass --force to render anyway.")
+            return
+
+        results = []
+        for page in pages:
+            r = _render_one_page(conn, year, month, day, page)
+            status = "already rendered" if r["already_rendered"] else "rendered"
+            print(f"  page {page}: {status}, page_id={r['page_id']}")
+            results.append(r)
+
+        out_dir = _issue_work_dir(args.date)
+        args_path = os.path.join(out_dir, "workflow_args.json")
+        with open(args_path, "w") as f:
+            json.dump(results, f, indent=2)
+        print(f"\n{len(results)} pages ready. Workflow args written to:\n{args_path}")
+        print("Next: invoke Workflow with scriptPath="
+              "'transcribe/workflows/ocr_llm_issue.js' and this file's "
+              "contents as args, then save its result and run "
+              "'ingest-workflow-result'.")
+    finally:
+        conn.close()
+
+
+def ingest_workflow_result_data(conn, pages: list[dict], model: str = "sonnet") -> dict:
+    """Ingest a whole Workflow run's result array
+    ([{page_id, page, cleanup, items}, ...]). Skips any page that
+    already has items ingested (idempotent -- safe to re-run against
+    a partially-ingested batch, e.g. after a crash mid-loop)."""
+    ingested, skipped = [], []
+    for p in pages:
+        page_id = p["page_id"]
+        existing = conn.execute(
+            "SELECT count(*) AS n FROM items i JOIN pages pg "
+            "ON i.year=pg.year AND i.month=pg.month AND i.day=pg.day "
+            "AND i.page=pg.page WHERE pg.id=?", (page_id,),
+        ).fetchone()["n"]
+        if existing:
+            skipped.append(p["page"])
+            continue
+        n_blocks = ingest_cleanup_data(conn, page_id, p.get("cleanup") or [], model)
+        n_items = ingest_items_data(conn, page_id, p.get("items") or [], model)
+        ingested.append({"page": p["page"], "blocks": n_blocks, "items": n_items})
+    return {"ingested": ingested, "skipped_already_done": skipped}
+
+
+def verify_block_coverage(conn, year: int, month: int, day: int) -> list[dict]:
+    """Per page: every page_ocr_blocks row should be claimed by
+    exactly one item_ocr_block_spans row. Returns only pages with a
+    gap -- an item-markup pass can legitimately drop blocks (see the
+    2001-01-03 p9 case, 4 blocks never assigned to any item), and this
+    is how that gets caught rather than assumed away."""
+    pages = conn.execute(
+        "SELECT id, page FROM pages WHERE year=? AND month=? AND day=? ORDER BY page",
+        (year, month, day),
+    ).fetchall()
+    gaps = []
+    for pg in pages:
+        all_blocks = {r["block_idx"]: r["id"] for r in conn.execute(
+            "SELECT block_idx, id FROM page_ocr_blocks WHERE page_id=?", (pg["id"],))}
+        if not all_blocks:
+            continue
+        covered = {r[0] for r in conn.execute(
+            "SELECT DISTINCT page_ocr_block_id FROM item_ocr_block_spans "
+            "WHERE page_ocr_block_id IN ({})".format(",".join("?" * len(all_blocks))),
+            list(all_blocks.values()),
+        )}
+        missing = sorted(idx for idx, bid in all_blocks.items() if bid not in covered)
+        if missing:
+            gaps.append({"page": pg["page"], "page_id": pg["id"],
+                         "missing_block_idx": missing, "total_blocks": len(all_blocks)})
+    return gaps
+
+
+def _cmd_ingest_workflow_result(args):
+    with open(args.result_json) as f:
+        data = json.load(f)
+    # accept either the bare result array or a TaskOutput-style
+    # {"result": [...]} wrapper -- both have shown up on disk this
+    # session depending on how the file was saved.
+    pages = data["result"] if isinstance(data, dict) and "result" in data else data
+    conn = _db.open_connection()
+    try:
+        summary = ingest_workflow_result_data(conn, pages, args.model)
+        for row in summary["ingested"]:
+            print(f"  page {row['page']}: ingested {row['blocks']} blocks, {row['items']} items")
+        if summary["skipped_already_done"]:
+            print(f"  skipped (already done): pages {summary['skipped_already_done']}")
+    finally:
+        conn.close()
+
+
+def _cmd_verify_coverage(args):
+    year, month, day = (int(x) for x in args.date.split("-"))
+    conn = _db.open_connection()
+    try:
+        gaps = verify_block_coverage(conn, year, month, day)
+        if not gaps:
+            print(f"{args.date}: full block coverage on every rendered page")
+            return
+        for g in gaps:
+            print(f"  page {g['page']}: {len(g['missing_block_idx'])}/{g['total_blocks']} "
+                  f"blocks unclaimed -- idx {g['missing_block_idx']}")
     finally:
         conn.close()
 
@@ -604,6 +760,28 @@ def main():
     p_render.add_argument("date", help="YYYY-MM-DD")
     p_render.add_argument("--page", type=int, required=True)
     p_render.set_defaults(func=_cmd_render)
+
+    p_render_issue = sub.add_parser(
+        "render-issue",
+        help="Render + OCR every page of an issue, write a Workflow-ready args file")
+    p_render_issue.add_argument("date", help="YYYY-MM-DD")
+    p_render_issue.add_argument(
+        "--force", action="store_true",
+        help="Render even if routing.py says this date belongs to the column-cut route")
+    p_render_issue.set_defaults(func=_cmd_render_issue)
+
+    p_ingest_wf = sub.add_parser(
+        "ingest-workflow-result",
+        help="Ingest a whole ocr_llm_issue.js Workflow run's result JSON")
+    p_ingest_wf.add_argument("result_json")
+    p_ingest_wf.add_argument("--model", default="sonnet")
+    p_ingest_wf.set_defaults(func=_cmd_ingest_workflow_result)
+
+    p_verify = sub.add_parser(
+        "verify-coverage",
+        help="Check every page_ocr_blocks row is claimed by exactly one item")
+    p_verify.add_argument("date", help="YYYY-MM-DD")
+    p_verify.set_defaults(func=_cmd_verify_coverage)
 
     p_cleanup = sub.add_parser("ingest-cleanup", help="Ingest a cleanup-pass result JSON")
     p_cleanup.add_argument("page_id")
