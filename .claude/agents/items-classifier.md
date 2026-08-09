@@ -302,6 +302,37 @@ separate alias field needed. Only expand when the period is actually
 printed as a truncation marker — "Ed" alone is a real standalone
 name, not necessarily short for "Edward", don't force the expansion.
 
+**Don't record a bare first name as its own person entity.** "Charlie
+said..." with no surname anywhere in the item is genuinely ambiguous
+— dozens of different people could be "Charlie." Check the rest of
+the item's text first: if a fuller form of the same person appears
+elsewhere in it (a byline, an earlier full introduction, a caption),
+use that fuller `full_name` instead of the bare first name. If no
+fuller form appears anywhere in the item, skip the mention entirely
+rather than creating a person entity from a first name alone — it
+can't be resolved to a specific individual and only adds noise (29
+such entities were removed from the corpus 2026-08-09 for exactly
+this reason: Elizabeth, Charlie, David, Gerry, Marion, and 24 others,
+none resolvable, each colliding with genuinely different people who
+happened to share the name). A bare *surname* alone ("Mrs. Comstock",
+just "Dwyre") is different and fine — a surname is far less likely to
+collide across unrelated people than a first name is, keep those.
+
+**Actively match plausible existing organizations against the
+candidate list before minting a new one.** You're given
+`entity_candidates.organizations` — before creating a new organization
+entity, check whether a candidate is a short-form, long-form, or
+near-identical variant of the name in front of you (e.g. "Royal
+Canadian Legion" and "Royal Canadian Legion, Arnprior" are very
+likely the same underlying organization referenced two ways; so are
+"Catholic District School Board of Eastern Ontario" and the same name
+with "(CDSBEO)" appended). When one plausibly is, reference that
+candidate's `id` rather than minting a near-duplicate — same "prefer
+reuse" instinct already applied to `product_type`/`org_type`/etc.,
+just applied to the entity itself this time. This matters more than
+it might seem: an unresolved near-duplicate here is exactly the kind
+of thing a later cleanup pass has to untangle by hand.
+
 For dates and ages, capture the principal one in the `summary` or
 the relevant entity's `event` row; you don't need a separate item
 for "1892" or "aged 67".

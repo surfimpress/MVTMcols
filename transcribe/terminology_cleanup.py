@@ -82,14 +82,51 @@ def _existing_open_pair(conn, entity_type: str, id_a: str, id_b: str) -> bool:
     return row is not None
 
 
+def _known_place_names(conn) -> set:
+    return {_normalize_for_dedup(r["name"])
+            for r in conn.execute("SELECT name FROM places").fetchall()}
+
+
+def _recurs_as_first_word(conn, token: str) -> int:
+    """How many *other* people have `token` as the first word of their
+    full_name. Tested against the live corpus 2026-08-09: known first
+    names (David, Gerry, Charlie, Betty, Marion, Richard) all scored
+    3-8; known bare surnames (Harris, Rogers, Robinson, Pierce, Cochran,
+    Kirby, Dunlop, Morton) all scored 0. A first name recurs across many
+    different people; a surname essentially never opens someone else's
+    full name. Data-driven, no maintained name list, self-updating as
+    the corpus grows."""
+    rows = conn.execute(
+        "SELECT 1 FROM people WHERE full_name LIKE ? AND full_name != ?",
+        (f"{token} %", token),
+    ).fetchall()
+    return len(rows)
+
+
 def find_duplicates(conn, table: str) -> list[dict]:
     """Bucketed by normalized-name first character to keep this well
     under O(n^2) at this corpus's scale -- true duplicates almost
-    always share a first character after stopword-stripping."""
+    always share a first character after stopword-stripping.
+
+    Two exclusion filters on the substring-containment tier, both
+    added 2026-08-09 after a human review round flagged the tier as
+    "too crude" -- bare first names and short town names swamped it
+    with obviously-wrong candidates:
+      - a single-token shorter side that recurs as the first word of
+        multiple different people (see _recurs_as_first_word) is a
+        first name, not a truncated alias -- never propose it, for any
+        table (a first name can equally muddy an organizations match:
+        "Charlie" isn't a truncation of "Charlie's Autobody" either).
+      - a shorter side that's already a known place (exact match in
+        the places table) is excluded from every table, not just
+        places-vs-places -- "Ottawa" isn't a truncated "Ottawa Valley"
+        any more than it's a truncated "Ottawa Board of Trade".
+    """
     namecol = NAME_COL[table]
     rows = conn.execute(f"SELECT id, {namecol} AS name FROM {table}").fetchall()
     normed = [(r["id"], r["name"], _normalize_for_dedup(r["name"])) for r in rows]
     normed = [t for t in normed if t[2]]
+    place_names = _known_place_names(conn)
 
     buckets: dict[str, list] = {}
     for entry in normed:
@@ -105,16 +142,11 @@ def find_duplicates(conn, table: str) -> list[dict]:
                     kind, confidence = "exact_normalized_match", 0.9
                 elif len(norm_a) >= 4 and len(norm_b) >= 4 and (
                         norm_a in norm_b or norm_b in norm_a):
-                    # Genuinely low-precision: tested against the live
-                    # corpus 2026-08-09 and confirmed noisy -- a bare
-                    # given name, surname, or place-name prefix ("Elizabeth",
-                    # "Naismith", "Lanark") is a substring of many real,
-                    # unrelated longer entities, not a truncated alias of
-                    # any one of them. No cheap mechanical filter found
-                    # that reliably separates that from real cases (Bell/
-                    # Bell Canada). Low confidence is the honest signal;
-                    # this tier needs real human judgment, not a rubber
-                    # stamp -- never auto-apply from this kind alone.
+                    shorter = norm_a if len(norm_a) <= len(norm_b) else norm_b
+                    if shorter in place_names:
+                        continue
+                    if " " not in shorter and _recurs_as_first_word(conn, shorter) >= 2:
+                        continue
                     kind, confidence = "substring_containment", 0.3
                 else:
                     continue

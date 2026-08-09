@@ -57,7 +57,19 @@ For each item, give:
   "events": [...]}`. If a mention clearly matches a candidate
   (allowing for initials, titles, minor spelling variants), reference
   that id. If it matches nothing in the list, mark it new with just a
-  name — never invent an id. A joint mention ("John & Jane Smith",
+  name — never invent an id. For organizations specifically, check the
+  candidates actively before minting a new one: a short-form/long-form
+  or near-identical variant of an existing candidate ("Royal Canadian
+  Legion" vs "Royal Canadian Legion, Arnprior") is very likely the
+  same organization referenced two ways — reference the existing
+  candidate rather than creating a near-duplicate a later cleanup pass
+  just has to untangle by hand. Don't record a bare first name as its
+  own person entity ("Charlie said..." with no surname anywhere in the
+  item) — dozens of different people could be it; use a fuller form if
+  one appears elsewhere in the item, otherwise skip the mention
+  entirely. A bare *surname* alone is fine — far less likely to
+  collide across unrelated people than a first name is. A joint
+  mention ("John & Jane Smith",
   "Mr. and Mrs. Smith") is two people, not one — list each separately.
   Each mention also carries `mention_text`: the exact original token
   as printed, e.g. "Wm. Garvin" — this is what readers see displayed

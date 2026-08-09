@@ -39,6 +39,7 @@ import sqlite3
 import sys
 
 from . import db as _db
+from . import entity_candidates as _entity_candidates
 
 
 WORK_DIR = os.path.join(_db.REPO_ROOT, "transcribe", "work", "items")
@@ -114,6 +115,7 @@ def build_ticket(*, year: int, month: int, day: int, page: int,
                  page_layout: dict, page_geom: dict | None,
                  column_rows: list[dict], ad_rows: list[dict],
                  h_rules: list[dict],
+                 entity_candidates: dict,
                  prompt_template_text: str,
                  chash: str) -> dict:
     """Assemble the per-page items ticket."""
@@ -168,6 +170,7 @@ def build_ticket(*, year: int, month: int, day: int, page: int,
         "columns": columns,
         "ads": ads,
         "h_rules": h_rules,
+        "entity_candidates": entity_candidates,
     }
 
     ticket = dict(context)
@@ -258,6 +261,7 @@ def claim_for_page(conn: sqlite3.Connection,
         (year, month, day, page)).fetchone()
 
     h_rules = load_h_rules_for_page(date_str, page)
+    candidates = _entity_candidates.build_candidate_lists(conn, year)
 
     ticket = build_ticket(
         year=year, month=month, day=day, page=page,
@@ -266,6 +270,7 @@ def claim_for_page(conn: sqlite3.Connection,
         column_rows=columns_dedup,
         ad_rows=ads_dedup,
         h_rules=h_rules,
+        entity_candidates=candidates,
         prompt_template_text=prompt_template_text,
         chash=chash)
 
