@@ -44,7 +44,21 @@
     background: var(--bg); color: var(--muted); font-size: 0.8rem; cursor: pointer;
   }
   .chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-  .count { color: var(--muted); font-size: 0.82rem; margin-bottom: 0.6rem; }
+  .count-row {
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.6rem;
+  }
+  .count { color: var(--muted); font-size: 0.82rem; }
+  .pager { display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: var(--muted); }
+  .pager select {
+    padding: 0.25rem 0.4rem; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--fg); font-size: 0.82rem;
+  }
+  .pager button {
+    padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--fg); font-size: 0.82rem; cursor: pointer;
+  }
+  .pager button:disabled { opacity: 0.4; cursor: default; }
   table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
   th, td {
     text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border);
@@ -74,7 +88,19 @@
     <button class="chip" data-type="events">Events</button>
   </div>
 
-  <p class="count" id="count"></p>
+  <div class="count-row">
+    <p class="count" id="count"></p>
+    <div class="pager">
+      <label>Rows: <select id="pagesize">
+        <option value="250">250</option>
+        <option value="500">500</option>
+        <option value="1000">1000</option>
+      </select></label>
+      <button id="prev-page">&larr; Prev</button>
+      <span id="page-label"></span>
+      <button id="next-page">Next &rarr;</button>
+    </div>
+  </div>
 
   <table id="entities-table">
     <thead>
@@ -94,11 +120,17 @@
 <script>
 (function() {
   var POLL_MS = 30000;
-  var state = { type: 'all', q: '', sortKey: 'mentions', sortDir: -1, data: null };
+  var PAGE_SIZES = [250, 500, 1000];
+  var state = { type: 'all', q: '', sortKey: 'mentions', sortDir: -1, data: null,
+                pageSize: 250, page: 0 };
 
   var params = new URLSearchParams(location.search);
   if (params.get('type')) state.type = params.get('type');
   if (params.get('q')) state.q = params.get('q');
+  if (params.get('pageSize') && PAGE_SIZES.indexOf(Number(params.get('pageSize'))) !== -1) {
+    state.pageSize = Number(params.get('pageSize'));
+  }
+  if (params.get('page')) state.page = Math.max(0, (Number(params.get('page')) || 1) - 1);
 
   function fmtAgo(iso) {
     if (!iso) return '—';
@@ -129,7 +161,18 @@
       return 0;
     });
 
-    document.getElementById('count').textContent = rows.length + ' entities';
+    var total = rows.length;
+    var pageCount = Math.max(1, Math.ceil(total / state.pageSize));
+    if (state.page >= pageCount) state.page = pageCount - 1;
+    if (state.page < 0) state.page = 0;
+    var start = state.page * state.pageSize;
+    var pageRows = rows.slice(start, start + state.pageSize);
+
+    document.getElementById('count').textContent = total + ' entities';
+    document.getElementById('page-label').textContent =
+      total ? 'Page ' + (state.page + 1) + ' of ' + pageCount : '';
+    document.getElementById('prev-page').disabled = state.page <= 0;
+    document.getElementById('next-page').disabled = state.page >= pageCount - 1;
 
     document.querySelectorAll('#entities-table th').forEach(function(th) {
       th.classList.toggle('sorted', th.dataset.key === state.sortKey);
@@ -140,7 +183,7 @@
       body.innerHTML = '<tr><td colspan="5" class="empty">No matching entities</td></tr>';
       return;
     }
-    body.innerHTML = rows.slice(0, 500).map(function(e) {
+    body.innerHTML = pageRows.map(function(e) {
       return '<tr>' +
         '<td>' + e.name.replace(/</g, '&lt;') + '</td>' +
         '<td class="type-tag">' + e.type + '</td>' +
@@ -148,9 +191,7 @@
         '<td>' + (e.first_seen || '—') + '</td>' +
         '<td>' + (e.last_seen || '—') + '</td>' +
         '</tr>';
-    }).join('') + (rows.length > 500
-      ? '<tr><td colspan="5" class="empty">showing first 500 of ' + rows.length + ' — narrow your search</td></tr>'
-      : '');
+    }).join('');
   }
 
   function poll() {
@@ -171,6 +212,8 @@
     var p = new URLSearchParams();
     if (state.type !== 'all') p.set('type', state.type);
     if (state.q) p.set('q', state.q);
+    if (state.pageSize !== 250) p.set('pageSize', state.pageSize);
+    if (state.page > 0) p.set('page', state.page + 1);
     var qs = p.toString();
     var url = location.pathname + (qs ? '?' + qs : '');
     history.replaceState(null, '', url);
@@ -179,6 +222,7 @@
   document.getElementById('search').value = state.q;
   document.getElementById('search').addEventListener('input', function(e) {
     state.q = e.target.value;
+    state.page = 0;
     syncUrl();
     render();
   });
@@ -192,6 +236,7 @@
       document.querySelectorAll('.chip').forEach(function(c) { c.classList.remove('active'); });
       chip.classList.add('active');
       state.type = chip.dataset.type;
+      state.page = 0;
       syncUrl();
       render();
     });
@@ -205,8 +250,30 @@
         state.sortKey = th.dataset.key;
         state.sortDir = th.dataset.key === 'mentions' ? -1 : 1;
       }
+      state.page = 0;
+      syncUrl();
       render();
     });
+  });
+
+  var pagesizeEl = document.getElementById('pagesize');
+  pagesizeEl.value = state.pageSize;
+  pagesizeEl.addEventListener('change', function(e) {
+    state.pageSize = Number(e.target.value);
+    state.page = 0;
+    syncUrl();
+    render();
+  });
+
+  document.getElementById('prev-page').addEventListener('click', function() {
+    state.page = Math.max(0, state.page - 1);
+    syncUrl();
+    render();
+  });
+  document.getElementById('next-page').addEventListener('click', function() {
+    state.page = state.page + 1;
+    syncUrl();
+    render();
   });
 
   poll();
