@@ -277,12 +277,14 @@ Pronouns are not entity mentions. A title without a name ("Mr.")
 is not an entity mention. A joint mention ("John & Jane Smith",
 "Mr. and Mrs. Smith") is two people, not one — record each
 separately. For a period-abbreviated first name ("Wm.", "Geo.",
-"Chas.", "Thos.", "Jas.", "Robt.", and similarly common
+"Chas.", "Thos.", "Jas.", "Robt.", "Ed.", and similarly common
 abbreviations — mostly a pre-1980s-issue thing), put the expanded
 form in `full_name` ("William", "George", "Charles", "Thomas",
-"James", "Robert") and let
-`mention_text` carry the original as printed — that field already
-exists for exactly this, no separate alias field needed.
+"James", "Robert", "Edward") and let `mention_text` carry the
+original as printed — that field already exists for exactly this, no
+separate alias field needed. Only expand when the period is actually
+printed as a truncation marker — "Ed" alone is a real standalone
+name, not necessarily short for "Edward", don't force the expansion.
 
 For dates and ages, capture the principal one in the `summary` or
 the relevant entity's `event` row; you don't need a separate item

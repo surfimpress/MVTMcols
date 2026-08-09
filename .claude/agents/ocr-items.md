@@ -51,8 +51,12 @@ For each item, give:
   in context, same field items-classifier.md's mentions already use.
   Expand period-abbreviated first names in `name` ("Wm." -> "William",
   "Geo." -> "George", "Chas." -> "Charles", "Thos." -> "Thomas",
-  "Jas." -> "James", "Robt." -> "Robert", and similarly for other
-  common period abbreviations — mostly a pre-1980s-issue thing) while
+  "Jas." -> "James", "Robt." -> "Robert", "Ed." -> "Edward", and
+  similarly for other common period abbreviations — mostly a
+  pre-1980s-issue thing. Only expand when the period is actually
+  printed as a truncation marker — "Ed" with no period is a real
+  standalone name (short for Edward/Edwin/etc, not necessarily an
+  abbreviation of it), don't force it to "Edward") while
   `mention_text` keeps the original as printed, e.g. `{"name": "William Garvin",
   "mention_text": "Wm. Garvin"}` — don't invent a separate field for
   this, `mention_text` already does the job.
