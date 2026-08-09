@@ -1,5 +1,76 @@
 # MVTM project notes
 
+## Current status — read this first, keep it current
+
+**Last updated: 2026-08-08.** This section is a live pointer, not a
+durable rule — overwrite it (don't append to it) whenever the active
+work changes materially: a campaign finishes, a new one starts, or a
+session pauses mid-task for a reason a fresh session needs to know
+(subagent cap, content-filter block, waiting on the user). The goal is
+that a session starting cold can read this and `transcribe/work/experiments.jsonl`'s
+tail and reconstruct state without replaying a whole prior transcript.
+
+**Active work (as of this session): OCR+LLM route for 1980s+ issues.**
+Pre-1980 column-transcription production continues on the existing
+path — see `transcribe/PLAYBOOK.md` for that procedure and its own
+live status section (1% of the corpus done: 57/5,666 issues, 452/
+44,826 pages; two review-agent bugs confirmed but not yet fixed —
+`quality_flags.adjacent_text_visible` over-triggers at 83.5%, and
+`subdivide_slice.py`'s `assemble` step drops `confidence` on Tier-4
+reconstructed slices. Both still open, see the playbook for detail).
+
+This session's new thread, prompted by the 1980s+ issues' resistance
+to column detection (a dead end, not just a discount — see
+`layout_observations.md`): built and validated a whole-page
+**Tesseract OCR + LLM correction** alternative that bypasses column
+cutting entirely.
+
+- **Validated on 2001-01-03, pages 1-3** (a real modular/non-grid
+  layout). Pipeline: Tesseract 5.5.3, `tessdata_best`, Sauvola local-
+  adaptive thresholding (fixes grey-sidebar/fold-shadow blackout —
+  recovers ~70% more words vs default Otsu) → confidence-triage
+  text-only LLM cleanup (only blocks below conf 85 sent) → LLM item
+  segmentation from the page image + block list. `effort: "low"` +
+  triage together bring page cost to ~70-75K tokens vs ~123K
+  unoptimized. Full writeup + tap-to-inspect artifact:
+  `transcribe/comparison_tesseract_2001-01-03.html`.
+- **Schema extended for this route** (schema.sql version 4, additive
+  only — no changes to existing tables/columns): new peer tables
+  `pages` (page-level OCR/render facts — didn't exist before, page
+  was just an int column everywhere), `page_ocr_blocks` (peer of
+  `column_transcripts` — one row per Tesseract block), `items_ocr_ext`
+  (1:1 extension of `items`, OCR-route-only fields: `item_hocr`,
+  `full_text_markdown`, `media_paths_json` — its existence for an
+  item_id *is* the provenance marker), `item_ocr_block_spans` (peer
+  of `item_column_spans`). DB backed up first to
+  `transcribe/data/transcribe.db.pre-ocr-llm-schema_20260808.bak`.
+- **This issue's test data is now live in the DB**, not just the
+  artifact: 3 pages, 332 OCR blocks, 38 items, all cross-checked
+  (block-reference coverage, FK integrity, bbox ranges). One real bug
+  caught during backfill and fixed in the DB the same way it was
+  fixed in the artifact: a stray `{` character block had Tesseract
+  confidence 88 (above the 85 triage threshold) despite being noise,
+  so it slipped the LLM cleanup pass untouched — the *threshold*
+  isn't foolproof against confident garbage, worth remembering if the
+  triage cutoff gets tuned later. See `transcribe/
+  backfill_2001_ocr_llm.py` — kept as a historical record of the
+  exact mapping (block-id indexing, display-px vs full-page-px
+  coordinate spaces), **not a repeatable tool** (its source paths
+  were this session's /tmp files).
+- **Not yet done / next session:** generalize the backfill into an
+  actual repeatable ingestion path (today it's bespoke to one issue's
+  session-local files); decide `layout_class` routing logic for which
+  issues use this route vs the column-cut pipeline; the item-markup
+  prompt should get a one-line addition telling the LLM not to merge
+  scattered/noise blocks into a single page-spanning bbox (root cause
+  of a tap-target bug already fixed in the artifact — see the
+  `buildItemLayer` z-order fix in the HTML for the symptom, the
+  prompt-side fix itself is not yet written into `hocr_econ_test.js`
+  or wherever the production item-markup prompt ends up living).
+  `--user-words` custom dictionaries confirmed to have zero effect on
+  the modern LSTM engine — don't revisit without a materially
+  different angle.
+
 ## `instructions/` is the durable knowledge base — keep it current
 
 Three files in `instructions/` document things that don't live in the code,

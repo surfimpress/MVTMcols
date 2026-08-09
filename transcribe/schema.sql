@@ -198,6 +198,94 @@ CREATE TABLE IF NOT EXISTS item_ad_associations (
 );
 
 
+-- OCR+LLM route: page-level OCR ---------------------------------------
+-- An alternate route to pass-1/2, for eras where the classical column-
+-- cut pipeline doesn't apply (1980s+ modular layouts that resisted
+-- column detection -- see instructions/layout_observations.md). Starts
+-- from a whole-page Tesseract hOCR pass instead of cut column images.
+-- `pages` anchors page-level OCR/render facts (doesn't exist for the
+-- classical route -- page is just an int column there). `page_ocr_blocks`
+-- is the peer of column_transcripts: one row per Tesseract text block.
+-- `items_ocr_ext` is a 1:1 extension of items, populated only for items
+-- produced this way -- its mere existence for an item_id is the
+-- provenance marker, so items itself needs no new column. `item_ocr_
+-- block_spans` is the peer of item_column_spans: block membership
+-- instead of char-offset spans into a column transcript.
+
+CREATE TABLE IF NOT EXISTS pages (
+    id                    TEXT PRIMARY KEY,
+    year                  INTEGER NOT NULL,
+    month                 INTEGER NOT NULL,
+    day                   INTEGER NOT NULL,
+    page                  INTEGER NOT NULL,
+    pdf_path              TEXT,
+    page_raw_path         TEXT,
+    render_dpi            INTEGER,
+    ocr_engine            TEXT,              -- e.g. 'tesseract 5.5.3'
+    ocr_trained_data      TEXT,              -- 'tessdata_fast'|'tessdata'|'tessdata_best'
+    thresholding_method   TEXT,              -- 'otsu'|'sauvola'
+    hocr_path             TEXT,
+    hocr_word_count       INTEGER,
+    hocr_mean_confidence  REAL,
+    layout_class          TEXT,              -- 'column_grid'|'modular' -- routing hint
+    created_at            TEXT NOT NULL,
+    notes                 TEXT,
+    UNIQUE (year, month, day, page)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pages_issue ON pages (year, month, day);
+
+
+CREATE TABLE IF NOT EXISTS page_ocr_blocks (
+    id                TEXT PRIMARY KEY,
+    page_id           TEXT NOT NULL,
+    block_idx         INTEGER NOT NULL,     -- 0-based, Tesseract's own block order
+    bbox_left_pct     REAL NOT NULL,
+    bbox_top_pct      REAL NOT NULL,
+    bbox_right_pct    REAL NOT NULL,
+    bbox_bottom_pct   REAL NOT NULL,
+    conf              REAL,                 -- Tesseract's own avg block confidence, 0-100
+    n_words           INTEGER,
+    raw_text          TEXT,
+    cleaned_text      TEXT,
+    cleanup_status    TEXT,                 -- 'clean'|'corrected'|'noise'|NULL (untriaged, trusted as-is)
+    triaged           INTEGER NOT NULL DEFAULT 0,
+    model             TEXT,
+    prompt_hash       TEXT,
+    tokens_in         INTEGER,
+    tokens_out        INTEGER,
+    cost_usd          REAL,
+    created_at        TEXT NOT NULL,
+    notes             TEXT,
+    FOREIGN KEY (page_id) REFERENCES pages(id),
+    UNIQUE (page_id, block_idx)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ocr_blocks_page ON page_ocr_blocks (page_id);
+
+
+CREATE TABLE IF NOT EXISTS items_ocr_ext (
+    item_id             TEXT PRIMARY KEY,
+    item_hocr           TEXT,              -- LLM-tidied, item-scoped hOCR fragment
+    full_text_markdown  TEXT,              -- markdown companion to items.full_text
+    media_paths_json    TEXT,              -- escape valve for item-specific derivatives
+    created_at          TEXT NOT NULL,
+    notes               TEXT,
+    FOREIGN KEY (item_id) REFERENCES items(id)
+);
+
+
+CREATE TABLE IF NOT EXISTS item_ocr_block_spans (
+    item_id           TEXT NOT NULL,
+    page_ocr_block_id TEXT NOT NULL,
+    role              TEXT NOT NULL DEFAULT 'body',   -- 'body'|'caption'
+    sequence          INTEGER NOT NULL,
+    PRIMARY KEY (item_id, page_ocr_block_id, role),
+    FOREIGN KEY (item_id)           REFERENCES items(id),
+    FOREIGN KEY (page_ocr_block_id) REFERENCES page_ocr_blocks(id)
+);
+
+
 -- Entities -----------------------------------------------------------
 -- Each entity has a normalised_key for first-pass loose dedup
 -- (lowercased, punctuation-stripped). Cross-corpus disambiguation
@@ -403,7 +491,9 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 --   2 — pass-3 additions (2026-05-06): items.geometry_polygon_json,
 --                                      items.derived_from_item_ids
 --   3 — dedup audit trail (2026-07-30): column_transcripts.transcript_text_raw
+--   4 — OCR+LLM route (2026-08-08): pages, page_ocr_blocks, items_ocr_ext,
+--                                    item_ocr_block_spans
 INSERT OR IGNORE INTO schema_meta (key, value)
-    VALUES ('schema_version', '3');
+    VALUES ('schema_version', '4');
 INSERT OR IGNORE INTO schema_meta (key, value)
     VALUES ('created_at_iso', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
