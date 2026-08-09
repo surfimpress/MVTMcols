@@ -60,17 +60,25 @@
     margin-bottom: 1.5rem;
   }
   .run-card h3 { margin: 0 0 0.5rem; font-size: 0.95rem; }
-  .run-bar-track { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; margin-bottom: 0.7rem; }
+  .run-bar-track { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; margin-bottom: 0.9rem; }
   .run-bar-fill { height: 100%; background: var(--accent); }
-  .run-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
-    gap: 0.4rem; font-size: 0.78rem;
+  .run-matrix { display: grid; grid-auto-rows: minmax(1.3rem, auto); gap: 2px; width: 100%; }
+  .run-matrix .rowlabel {
+    font-size: 0.72rem; color: var(--muted); display: flex; align-items: center;
+    padding-right: 0.3rem; white-space: nowrap;
   }
-  .run-grid .cell { border: 1px solid var(--border); border-radius: 6px; padding: 0.3rem 0.4rem; text-align: center; }
-  .run-grid .p { font-weight: 600; margin-bottom: 0.2rem; }
-  .run-grid .stage { display: block; color: var(--muted); }
-  .run-grid .stage.done { color: var(--accent); font-weight: 600; }
-  .run-grid .stage.running { color: var(--warn); font-weight: 600; }
+  .run-matrix .collabel {
+    font-size: 0.6rem; color: var(--muted); writing-mode: vertical-rl;
+    text-orientation: mixed; display: flex; align-items: flex-end; justify-content: center;
+    padding-bottom: 2px; min-width: 0; overflow: hidden;
+  }
+  .run-matrix .cell {
+    border-radius: 3px; min-width: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 0.68rem; color: #fff; line-height: 1;
+  }
+  .run-matrix .cell.done { background: var(--accent); }
+  .run-matrix .cell.running { background: var(--warn); }
+  .run-matrix .cell.pending { background: var(--border); }
   footer { margin-top: 2rem; color: var(--muted); font-size: 0.78rem; }
   code { font-size: 0.85em; }
 </style>
@@ -168,16 +176,27 @@
     } else {
       activeEl.innerHTML = data.active_runs.map(function(run) {
         var pct = run.total_agents ? Math.round(100 * run.completed / run.total_agents) : 0;
-        var grid = run.pages.map(function(p) {
-          return '<div class="cell"><div class="p">p' + p.page + '</div>' +
-            '<span class="stage ' + p.cleanup + '">clean ' + p.cleanup + '</span>' +
-            '<span class="stage ' + p.items + '">items ' + p.items + '</span></div>';
+        var n = run.pages.length;
+        var cols = '3rem repeat(' + n + ', minmax(0,1fr))';
+        var icon = { done: '✓', running: '…', pending: '' };
+
+        var labelRow = '<div class="rowlabel"></div>' + run.pages.map(function(p) {
+          return '<div class="collabel">p' + p.page + '</div>';
         }).join('');
+        var cleanRow = '<div class="rowlabel">Clean</div>' + run.pages.map(function(p) {
+          return '<div class="cell ' + p.cleanup + '">' + icon[p.cleanup] + '</div>';
+        }).join('');
+        var itemsRow = '<div class="rowlabel">Items</div>' + run.pages.map(function(p) {
+          return '<div class="cell ' + p.items + '">' + icon[p.items] + '</div>';
+        }).join('');
+
         return '<div class="run-card">' +
-          '<h3>In progress — ' + run.completed + '/' + run.total_agents + ' calls done</h3>' +
+          '<h3>In progress — ' + (run.date || 'unknown date') + ' — ' +
+          run.completed + '/' + run.total_agents + ' calls done</h3>' +
           '<div class="run-bar-track"><div class="run-bar-fill" style="width:' + pct + '%"></div></div>' +
-          '<div class="run-grid">' + grid + '</div>' +
-          '</div>';
+          '<div class="run-matrix" style="grid-template-columns:' + cols + '">' +
+          labelRow + cleanRow + itemsRow +
+          '</div></div>';
       }).join('');
     }
 

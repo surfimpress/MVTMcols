@@ -31,6 +31,7 @@ import re
 import time
 
 _PAGE_RE = re.compile(r"page (\d+)\b")
+_DATE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
 
 # Path shape: ~/.claude/projects/<project>/<session-id>/subagents/
 # workflows/wf_<run-id>/ -- two levels between "projects/" and
@@ -137,19 +138,21 @@ def extract_agent_usage(run_dir: str) -> list[dict]:
     return results
 
 
-def _page_from_transcript(run_dir: str, agent_id: str) -> int | None:
+def _page_and_date_from_transcript(run_dir: str, agent_id: str) -> tuple[int | None, str | None]:
     transcript_path = os.path.join(run_dir, f"agent-{agent_id}.jsonl")
     if not os.path.isfile(transcript_path):
-        return None
+        return None, None
     try:
         with open(transcript_path) as f:
             first_line = f.readline()
         entry = json.loads(first_line)
         text = _extract_text(entry.get("message", {}).get("content"))
-        m = _PAGE_RE.search(text)
-        return int(m.group(1)) if m else None
+        page_m = _PAGE_RE.search(text)
+        date_m = _DATE_RE.search(text)
+        return (int(page_m.group(1)) if page_m else None,
+                date_m.group(1) if date_m else None)
     except (json.JSONDecodeError, OSError):
-        return None
+        return None, None
 
 
 def find_active_runs(max_age_s: int = ACTIVE_RUN_MAX_AGE_S) -> list[dict]:
@@ -193,13 +196,16 @@ def find_active_runs(max_age_s: int = ACTIVE_RUN_MAX_AGE_S) -> list[dict]:
                     result_ids.add(agent_id)
 
         pages = {}
+        date = None
         for agent_id, meta in meta_by_id.items():
             agent_type = meta.get("agentType", "")
             kind = ("cleanup" if "cleanup" in agent_type
                     else "items" if "items" in agent_type else None)
             if kind is None:
                 continue
-            page = _page_from_transcript(run_dir, agent_id)
+            page, agent_date = _page_and_date_from_transcript(run_dir, agent_id)
+            if agent_date and date is None:
+                date = agent_date
             if page is None:
                 continue
             status = ("done" if agent_id in result_ids
@@ -208,6 +214,7 @@ def find_active_runs(max_age_s: int = ACTIVE_RUN_MAX_AGE_S) -> list[dict]:
 
         runs.append({
             "run_dir": run_dir,
+            "date": date,
             "total_agents": len(meta_by_id),
             "started": len(started_ids),
             "completed": len(result_ids),
