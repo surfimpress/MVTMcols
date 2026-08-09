@@ -68,9 +68,8 @@
     padding-right: 0.3rem; white-space: nowrap;
   }
   .run-matrix .collabel {
-    font-size: 0.6rem; color: var(--muted); writing-mode: vertical-rl;
-    text-orientation: mixed; display: flex; align-items: flex-end; justify-content: center;
-    padding-bottom: 2px; min-width: 0; overflow: hidden;
+    font-size: 0.65rem; color: var(--muted); display: flex;
+    align-items: center; justify-content: center; min-width: 0; overflow: hidden;
   }
   .run-matrix .cell {
     border-radius: 3px; min-width: 0; display: flex; align-items: center; justify-content: center;
@@ -181,7 +180,7 @@
         var icon = { done: '✓', running: '…', pending: '' };
 
         var labelRow = '<div class="rowlabel"></div>' + run.pages.map(function(p) {
-          return '<div class="collabel">p' + p.page + '</div>';
+          return '<div class="collabel">' + p.page + '</div>';
         }).join('');
         var cleanRow = '<div class="rowlabel">Clean</div>' + run.pages.map(function(p) {
           return '<div class="cell ' + p.cleanup + '">' + icon[p.cleanup] + '</div>';
