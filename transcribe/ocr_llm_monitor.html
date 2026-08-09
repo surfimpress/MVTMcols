@@ -93,13 +93,7 @@
     <tbody id="calls-body"></tbody>
   </table>
 
-  <footer>
-    Reads <code>ocr_llm_stats.json</code> only — never queries the database
-    directly. That file is refreshed on its own schedule by
-    <code>tools/refresh_ocr_llm_stats.py</code> (a LaunchAgent), independent
-    of any transcription run in progress. This page polls the file every 20s;
-    it does not need to be reloaded.
-  </footer>
+  <footer>Auto-refreshes every 20s. No reload needed.</footer>
 
 <script>
 (function() {
