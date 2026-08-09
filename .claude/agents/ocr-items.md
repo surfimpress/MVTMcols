@@ -66,6 +66,13 @@ For each item, give:
   printed form, e.g. `{"name": "Baking Powder", "manufacturer":
   "White Swan", "mention_text": "White Swan Baking Powder"}`. This
   lets one generic product entity cover mentions of different brands.
+  Same idea for a recurring event type where each instance is a
+  different pair/person/place ("Gilmour-McIntosh wedding") — use the
+  generic type as `name` ("Marriage"), `mention_text` carries the
+  specific instance as printed. Confirmed for marriages; don't assume
+  it applies to other recurring types (deaths, fires) without asking
+  first — some may carry more individually-important distinguishing
+  value than a marriage announcement does.
 
 **If leftover blocks are genuinely scattered** with no shared visual
 region (e.g. stray margin marks, isolated noise fragments in

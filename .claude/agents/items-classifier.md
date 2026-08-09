@@ -275,7 +275,15 @@ Type-specific fields:
   category (e.g. "grocery_provisions"), one level up from `name`.
 - **events**: `name` (required), `year_known`, `date_known` (ISO
   date), `event_type` (e.g. "marriage", "death", "fire", "fair",
-  "election").
+  "election"). For a recurring event type where each instance is a
+  different pair/person/place ("Gilmour-McIntosh wedding",
+  "Horne-McInnes marriage"), use the generic type as `name`
+  ("Marriage") rather than naming the specific instance — `mention_text`
+  already carries the specific couple/place as printed. Confirmed for
+  marriages this session; ask before extending the same treatment to
+  other recurring types (deaths, fires) rather than assuming it applies
+  uniformly — a death notice may carry more individually-important
+  distinguishing value than a marriage announcement does.
 
 **Mention discipline.** This is genealogy data — quality matters more
 than recall. Prefer to skip a marginal mention than to invent one.
