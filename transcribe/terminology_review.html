@@ -68,7 +68,8 @@
   }
   .card.decided-approve { background: var(--approve-bg); border-color: var(--approve-border); }
   .card.decided-ignore { background: var(--ignore-bg); border-color: var(--ignore-border); opacity: 0.75; }
-  .card-top { display: flex; justify-content: space-between; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; }
+  .card-top { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+  .card-top-eyebrow { display: flex; align-items: baseline; gap: 0.5rem; }
   .kind-tag {
     font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.03em;
     color: var(--accent); font-weight: 600;
@@ -93,9 +94,11 @@
   footer { margin-top: 1.5rem; color: var(--muted); font-size: 0.78rem; }
 
   .context-btn {
-    font: inherit; font-size: 0.78rem; color: var(--accent); background: none;
-    border: none; cursor: pointer; padding: 0; margin-top: 0.5rem; text-decoration: underline;
+    font: inherit; font-size: 0.78rem; color: var(--accent); background: var(--bg);
+    border: 1px solid var(--accent); border-radius: 6px; cursor: pointer;
+    padding: 0.25rem 0.6rem; margin-left: auto; white-space: nowrap;
   }
+  .context-btn:hover { background: var(--approve-bg); }
 
   dialog#context-dialog {
     max-width: 900px; width: 92vw; max-height: 80vh;
@@ -231,16 +234,18 @@
         : '';
       var hasContext = (r.context_a && r.context_a.length) || (r.context_b && r.context_b.length);
       var contextBtn = hasContext
-        ? '<button class="context-btn" data-context-id="' + r.id + '">Show mentions in context</button>'
+        ? '<button class="context-btn" data-context-id="' + r.id + '">Show mentions</button>'
         : '';
       return '<div class="' + cardClass + '" data-id="' + r.id + '">' +
         '<div class="card-top">' +
-          '<span class="kind-tag">' + r.review_kind.replace(/_/g, ' ') + '</span>' +
-          '<span class="' + confClass + '">confidence ' + conf + '</span>' +
+          '<span class="card-top-eyebrow">' +
+            '<span class="kind-tag">' + r.review_kind.replace(/_/g, ' ') + '</span>' +
+            '<span class="' + confClass + '">confidence ' + conf + '</span>' +
+          '</span>' +
+          contextBtn +
         '</div>' +
         '<p class="desc">' + (r.description || '').replace(/</g, '&lt;') + '</p>' +
         '<p class="meta">' + r.entity_type + ' · raised ' + fmtAgo(r.raised_at) + ' by ' + r.raised_by + '</p>' +
-        contextBtn +
         '<div class="card-actions">' +
           '<div class="action-group">' +
             '<span class="group-label">This match:</span>' +
