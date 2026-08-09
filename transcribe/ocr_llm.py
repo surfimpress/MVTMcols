@@ -30,6 +30,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import re
@@ -38,10 +39,11 @@ import sys
 import urllib.request
 import xml.etree.ElementTree as ET
 
+import fitz
 from PIL import Image
 
 import coordinates as _coords
-from pdf_utils import get_full_pixmap
+from pdf_utils import get_full_pixmap, try_embedded_bitmap_pil
 
 from . import db as _db
 from . import download as _dl
@@ -142,21 +144,78 @@ def _issue_work_dir(date_str: str) -> str:
     return out_dir
 
 
+def _extract_native_page_image(pdf_path: str, page_number: int = 0):
+    """Extract the page's single embedded image byte-for-byte (decode
+    only, no MuPDF re-render/resample), or return (None, None) if the
+    page doesn't have exactly one embedded image.
+
+    Complements pdf_utils.try_embedded_bitmap_pil, which is gated to
+    bpc==1 bilevel scans (the pre-1980s corpus's JBIG2 masters) --
+    this handles the later-era grayscale/color JPEG/PNG scans that
+    fast path doesn't cover. Confirmed empirically 2026-08-09: a fixed
+    300dpi MuPDF render would have upsampled a 1994 test page (native
+    200dpi DeviceGray JPEG, no real detail gained) and downsampled a
+    1986 test page (native ~521dpi ICCBased PNG, real detail lost) --
+    exactly the "re-rendered at multiple DPIs, throwing away the
+    source's native resolution" anti-pattern this project's cutting
+    pipeline already spent real effort eliminating (see instructions/
+    rasterisation_pipeline.md).
+
+    Returns (PIL.Image, native_dpi) -- native_dpi is a round number
+    computed from the image's own pixel dimensions against the page's
+    point size, for accurate record-keeping (not a chosen target)."""
+    doc = fitz.open(pdf_path)
+    try:
+        page_obj = doc[page_number]
+        imgs = page_obj.get_images(full=True)
+        if len(imgs) != 1:
+            return None, None
+        xref = imgs[0][0]
+        info = doc.extract_image(xref)
+        img = Image.open(io.BytesIO(info["image"]))
+        img.load()
+        bbox = page_obj.get_image_bbox(imgs[0])
+        if bbox.width <= 0 or bbox.height <= 0:
+            return None, None
+        dpi_w = img.width / (bbox.width / 72.0)
+        dpi_h = img.height / (bbox.height / 72.0)
+        return img, round((dpi_w + dpi_h) / 2)
+    finally:
+        doc.close()
+
+
 def render_page(pdf_path: str, date_str: str, page: int) -> dict:
-    """Render the page's PDF at RENDER_DPI (full-res, OCR's own
-    coordinate space) plus a downscaled display copy (what the
-    item-markup LLM pass sees). Returns paths + pixel dimensions for
-    both rasters."""
+    """Full-res OCR raster (native embedded image where the page has
+    exactly one -- see _extract_native_page_image -- else a
+    RENDER_DPI MuPDF render as a fallback for composite/vector pages)
+    plus a downscaled display copy (what the item-markup LLM pass
+    sees). Returns paths + pixel dimensions for both rasters + which
+    path was used."""
     out_dir = _page_work_dir(date_str, page)
-    pix = get_full_pixmap(pdf_path, 0, RENDER_DPI)
-    img = Image.frombytes("RGB", (pix.w, pix.h), pix.samples)
+
+    native_img, native_dpi = _extract_native_page_image(pdf_path, 0)
+    if native_img is not None:
+        img = native_img
+        actual_dpi = native_dpi
+        source = "native"
+    else:
+        bilevel_img = try_embedded_bitmap_pil(pdf_path, 0)
+        if bilevel_img is not None:
+            img = bilevel_img
+            actual_dpi = None  # page-shaped canvas at the bitmap's own native PPI; not tracked here
+            source = "bilevel_fast_path"
+        else:
+            pix = get_full_pixmap(pdf_path, 0, RENDER_DPI)
+            img = Image.frombytes("RGB", (pix.w, pix.h), pix.samples)
+            actual_dpi = RENDER_DPI
+            source = f"rendered@{RENDER_DPI}dpi"
 
     full_png = os.path.join(out_dir, "page_full.png")
     img.save(full_png)
 
-    scale = DISPLAY_MAX_W / pix.w
-    display_h = round(pix.h * scale)
-    display_img = img.resize((DISPLAY_MAX_W, display_h), Image.LANCZOS)
+    scale = DISPLAY_MAX_W / img.width
+    display_h = round(img.height * scale)
+    display_img = img.convert("RGB").resize((DISPLAY_MAX_W, display_h), Image.LANCZOS)
     display_png = os.path.join(out_dir, "page_display.png")
     display_img.save(display_png)
 
@@ -164,10 +223,12 @@ def render_page(pdf_path: str, date_str: str, page: int) -> dict:
         "out_dir": out_dir,
         "full_png": full_png,
         "display_png": display_png,
-        "page_px_w": pix.w,
-        "page_px_h": pix.h,
+        "page_px_w": img.width,
+        "page_px_h": img.height,
         "display_w": DISPLAY_MAX_W,
         "display_h": display_h,
+        "render_dpi": actual_dpi,
+        "render_source": source,
     }
 
 
@@ -200,15 +261,18 @@ def _find_hocr_config() -> str:
 
 
 def run_tesseract_hocr(image_path: str, output_base: str,
-                        tessdata_dir: str) -> str:
+                        tessdata_dir: str, dpi: int | None = None) -> str:
     """Run Tesseract with Sauvola local-adaptive thresholding (fixes
     grey-sidebar/fold-shadow blackout on greyscale scans -- see
-    comparison_tesseract_2001-01-03.html) and tessdata_best. Returns
-    the .hocr file path."""
+    comparison_tesseract_2001-01-03.html) and tessdata_best. `dpi`
+    should be the image's real resolution (Tesseract uses it as a hint
+    for stroke-width assumptions) -- falls back to RENDER_DPI only
+    when the real figure isn't known (the bilevel fast path's
+    page-shaped canvas doesn't track one). Returns the .hocr path."""
     subprocess.run(
         [
             "tesseract", image_path, output_base,
-            "--dpi", str(RENDER_DPI),
+            "--dpi", str(dpi or RENDER_DPI),
             "--psm", "3",
             "--oem", "1",
             "-c", "thresholding_method=2",
@@ -292,14 +356,14 @@ def write_page_and_blocks(conn, year: int, month: int, day: int, page: int,
             render_dpi, ocr_engine, ocr_trained_data, thresholding_method,
             hocr_path, hocr_word_count, hocr_mean_confidence, layout_class,
             display_image_path, display_width_px, display_height_px,
-            created_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            created_at, notes
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             page_id, year, month, day, page, pdf_path, render["full_png"],
-            RENDER_DPI, OCR_ENGINE, "tessdata_best", "sauvola",
+            render["render_dpi"], OCR_ENGINE, "tessdata_best", "sauvola",
             hocr_path, len(words), hocr_mean_conf, layout_class,
             render["display_png"], render["display_w"], render["display_h"],
-            now,
+            now, f"render_source={render['render_source']}",
         ),
     )
 
@@ -591,7 +655,8 @@ def _render_one_page(conn, year: int, month: int, day: int, page: int) -> dict:
         render = render_page(pdf_path, date_str, page)
         tessdata_dir = ensure_tessdata_best()
         hocr_base = os.path.join(render["out_dir"], "page")
-        hocr_path = run_tesseract_hocr(render["full_png"], hocr_base, tessdata_dir)
+        hocr_path = run_tesseract_hocr(render["full_png"], hocr_base, tessdata_dir,
+                                        dpi=render["render_dpi"])
         parsed = parse_hocr(hocr_path)
         page_id, _ = write_page_and_blocks(
             conn, year, month, day, page, pdf_path, render, hocr_path, parsed)
