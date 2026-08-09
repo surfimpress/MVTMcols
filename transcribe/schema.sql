@@ -585,6 +585,35 @@ CREATE INDEX IF NOT EXISTS idx_terminology_reviews_status ON terminology_reviews
 CREATE INDEX IF NOT EXISTS idx_terminology_reviews_kind ON terminology_reviews (review_kind);
 
 
+-- Terminology rules -----------------------------------------------------
+-- "Always" decisions from terminology_review.html -- permanent, name-
+-- keyed (not entity-id-keyed like terminology_reviews.status='dismissed'
+-- already is) so a rule survives an entity getting deleted/recreated
+-- (a merge, a data rebuild) and so a future *different* entity pair
+-- that happens to match the same names is covered too, not just the
+-- exact row pair that existed when the human decided.
+--
+-- 'ignore' rules make terminology_cleanup.py skip raising a review at
+-- all for a matching case. 'approve' rules make it apply the fix
+-- directly and record the review as already 'applied' -- no human
+-- click needed for something already decided once. Because 'approve
+-- always' auto-applies future matches unattended, terminology_review
+-- .html gates creating one behind a confirm() -- see its Save handler.
+
+CREATE TABLE IF NOT EXISTS terminology_rules (
+    id                TEXT PRIMARY KEY,
+    entity_type       TEXT NOT NULL,
+    review_kind       TEXT NOT NULL,
+    match_key         TEXT NOT NULL,              -- normalized name (single-entity kinds) or
+                                                    -- sorted "name_a|name_b" (duplicate_candidate)
+    decision          TEXT NOT NULL,              -- 'approve'|'ignore'
+    proposed_fix_json TEXT,                       -- for 'approve': what to apply (mirrors terminology_reviews)
+    created_at        TEXT NOT NULL,
+    notes             TEXT,
+    UNIQUE (entity_type, review_kind, match_key)
+);
+
+
 -- Telemetry ----------------------------------------------------------
 -- One row per orchestrator invocation. Optional but useful for
 -- throughput tuning and tracking which models were used in initial
@@ -651,7 +680,12 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 --                                    separate from repairs (transcript/
 --                                    cutting domain) -- raised by
 --                                    transcribe/terminology_cleanup.py
+--  11 — terminology_rules (2026-08-09): permanent, name-keyed
+--                                    "always" decisions from
+--                                    terminology_review.html -- survive
+--                                    entity id changes, unlike
+--                                    terminology_reviews.status alone
 INSERT OR IGNORE INTO schema_meta (key, value)
-    VALUES ('schema_version', '10');
+    VALUES ('schema_version', '11');
 INSERT OR IGNORE INTO schema_meta (key, value)
     VALUES ('created_at_iso', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));

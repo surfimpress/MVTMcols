@@ -41,6 +41,7 @@ sibling note in CLAUDE.md.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 
 from . import db as _db
@@ -65,6 +66,52 @@ def _normalize_for_dedup(name: str) -> str:
     s = re.sub(r"[.,'\"()]", "", s)
     words = [w for w in s.split() if w not in _STOPWORDS]
     return " ".join(words).strip()
+
+
+# --------------------------------------------------------------------
+# Permanent rules -- "always" decisions from terminology_review.html.
+# Name-keyed (match_key), not entity-id-keyed, so a rule survives an
+# entity being deleted and recreated (a merge, a data rebuild) and
+# covers a future *different* entity pair with the same names too --
+# see schema.sql's comment on terminology_rules for the full reasoning.
+# --------------------------------------------------------------------
+
+def rule_match_key(review_kind: str, name_a: str, name_b: str | None = None) -> str:
+    if review_kind == "duplicate_candidate":
+        a, b = _normalize_for_dedup(name_a), _normalize_for_dedup(name_b)
+        return "|".join(sorted([a, b]))
+    return _normalize_for_dedup(name_a)
+
+
+def find_rule(conn, entity_type: str, review_kind: str, match_key: str) -> dict | None:
+    row = conn.execute(
+        "SELECT decision, proposed_fix_json FROM terminology_rules "
+        "WHERE entity_type=? AND review_kind=? AND match_key=?",
+        (entity_type, review_kind, match_key),
+    ).fetchone()
+    if row is None:
+        return None
+    fix = json.loads(row["proposed_fix_json"]) if row["proposed_fix_json"] else None
+    return {"decision": row["decision"], "proposed_fix": fix}
+
+
+def upsert_rule(conn, entity_type: str, review_kind: str, match_key: str,
+                decision: str, proposed_fix: dict | None = None,
+                notes: str | None = None) -> None:
+    conn.execute(
+        """INSERT INTO terminology_rules
+           (id, entity_type, review_kind, match_key, decision, proposed_fix_json,
+            created_at, notes)
+           VALUES (?,?,?,?,?,?,?,?)
+           ON CONFLICT(entity_type, review_kind, match_key)
+           DO UPDATE SET decision=excluded.decision,
+                         proposed_fix_json=excluded.proposed_fix_json,
+                         notes=excluded.notes""",
+        (_db.new_uuid(), entity_type, review_kind, match_key, decision,
+         json.dumps(proposed_fix) if proposed_fix is not None else None,
+         _db.now_iso(), notes),
+    )
+    conn.commit()
 
 
 # --------------------------------------------------------------------
@@ -94,6 +141,28 @@ def _already_reviewed_pair(conn, entity_type: str, id_a: str, id_b: str) -> bool
 def _known_place_names(conn) -> set:
     return {_normalize_for_dedup(r["name"])
             for r in conn.execute("SELECT name FROM places").fetchall()}
+
+
+def _record_applied_review(conn, *, entity_type: str, review_kind: str,
+                           entity_id: str | None, other_entity_id: str | None,
+                           description: str, notes: str) -> str:
+    """Like db.raise_terminology_review, but records a review that's
+    already resolved -- for the 'approve always' auto-apply path,
+    where there's no open decision to make, only a record to keep for
+    visibility/audit (so terminology_review.html and stats still show
+    what happened, even though no one clicked anything this time)."""
+    new_id = _db.new_uuid()
+    now = _db.now_iso()
+    conn.execute(
+        """INSERT INTO terminology_reviews
+           (id, entity_type, entity_id, other_entity_id, review_kind,
+            description, status, raised_by, raised_at, resolved_at, notes)
+           VALUES (?,?,?,?,?,?, 'applied', ?, ?, ?, ?)""",
+        (new_id, entity_type, entity_id, other_entity_id, review_kind,
+         description, RAISED_BY, now, now, notes),
+    )
+    conn.commit()
+    return new_id
 
 
 def _recurs_as_first_word(conn, token: str) -> int:
@@ -161,6 +230,27 @@ def find_duplicates(conn, table: str) -> list[dict]:
                     continue
                 if _already_reviewed_pair(conn, table, id_a, id_b):
                     continue
+
+                key = rule_match_key("duplicate_candidate", name_a, name_b)
+                rule = find_rule(conn, table, "duplicate_candidate", key)
+                if rule and rule["decision"] == "ignore":
+                    continue
+                if rule and rule["decision"] == "approve":
+                    fix = rule["proposed_fix"] or {}
+                    keep_name, drop_name = fix.get("keep", name_a), fix.get("drop", name_b)
+                    if not ({keep_name, drop_name} <= {name_a, name_b}):
+                        keep_name, drop_name = name_a, name_b  # rule's names don't line up cleanly; best-effort order
+                    try:
+                        _merge_entity.merge_entity(conn, table, keep_name, drop_name, alias=True)
+                        _record_applied_review(
+                            conn, entity_type=table, review_kind="duplicate_candidate",
+                            entity_id=id_a, other_entity_id=id_b,
+                            description=f"{kind}: {name_a!r} / {name_b!r}",
+                            notes=f"auto-applied via 'approve always' rule ({key})")
+                    except ValueError:
+                        pass  # already merged via this or another rule this run
+                    continue
+
                 review_id = _db.raise_terminology_review(
                     conn, entity_type=table, review_kind="duplicate_candidate",
                     entity_id=id_a, other_entity_id=id_b, confidence=confidence,
@@ -233,6 +323,37 @@ def nomenclature_gaps(conn) -> dict:
             ).fetchone()
             if existing:
                 continue
+
+            fix = {
+                "product_type": category_value,
+                "external_category": category_label,
+                "external_uri": match["uri"],
+                "external_reference": reference,
+                "external_terminology": _nomenclature.TERMINOLOGY_NAME,
+            }
+            key = rule_match_key("nomenclature_gap", r["name"])
+            rule = find_rule(conn, "products", "nomenclature_gap", key)
+            if rule and rule["decision"] == "ignore":
+                continue
+            if rule and rule["decision"] == "approve":
+                rule_fix = rule["proposed_fix"] or fix
+                conn.execute(
+                    "UPDATE products SET product_type=?, external_category=?, "
+                    "external_uri=?, external_reference=?, external_terminology=? "
+                    "WHERE id=?",
+                    (rule_fix["product_type"], rule_fix["external_category"],
+                     rule_fix["external_uri"], rule_fix["external_reference"],
+                     rule_fix["external_terminology"], r["id"]),
+                )
+                conn.commit()
+                _record_applied_review(
+                    conn, entity_type="products", review_kind="nomenclature_gap",
+                    entity_id=r["id"], other_entity_id=None,
+                    description=f"{r['name']!r} -> product_type={rule_fix['product_type']!r}",
+                    notes=f"auto-applied via 'approve always' rule ({key})")
+                applied += 1
+                continue
+
             _db.raise_terminology_review(
                 conn, entity_type="products", review_kind="nomenclature_gap",
                 entity_id=r["id"], confidence=0.5,
@@ -241,13 +362,7 @@ def nomenclature_gaps(conn) -> dict:
                     f"Nomenclature suggests {category_value!r} "
                     f"({match['label']!r}, {match['uri']})"),
                 raised_by=RAISED_BY,
-                proposed_fix={
-                    "product_type": category_value,
-                    "external_category": category_label,
-                    "external_uri": match["uri"],
-                    "external_reference": reference,
-                    "external_terminology": _nomenclature.TERMINOLOGY_NAME,
-                },
+                proposed_fix=fix,
                 suggested_cli=(
                     f"python3 -m transcribe.terminology_cleanup apply-nomenclature "
                     f"{r['id']} {match['uri']!r}"),
@@ -332,6 +447,24 @@ def check_generic_names(conn, table: str = "products") -> list[dict]:
         ).fetchone()
         if existing:
             continue
+
+        key = rule_match_key("name_too_specific", name)
+        rule = find_rule(conn, "products", "name_too_specific", key)
+        if rule and rule["decision"] == "ignore":
+            continue
+        if rule and rule["decision"] == "approve":
+            rule_fix = rule["proposed_fix"] or {"new_name": stripped}
+            try:
+                apply_genericize(conn, "products", name, rule_fix["new_name"])
+                _record_applied_review(
+                    conn, entity_type="products", review_kind="name_too_specific",
+                    entity_id=r["id"], other_entity_id=None,
+                    description=f"genericized {name!r} -> {rule_fix['new_name']!r}",
+                    notes=f"auto-applied via 'approve always' rule ({key})")
+            except ValueError:
+                pass
+            continue
+
         review_id = _db.raise_terminology_review(
             conn, entity_type="products", review_kind="name_too_specific",
             entity_id=r["id"], confidence=0.7,

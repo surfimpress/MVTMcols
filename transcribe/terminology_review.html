@@ -77,13 +77,18 @@
   .confidence.low { color: var(--warn); }
   .desc { margin: 0.4rem 0; }
   .meta { font-size: 0.76rem; color: var(--muted); margin-top: 0.4rem; }
-  .card-actions { display: flex; gap: 0.5rem; margin-top: 0.6rem; }
+  .card-actions { display: flex; gap: 1rem; margin-top: 0.6rem; flex-wrap: wrap; }
+  .action-group { display: flex; gap: 0.4rem; align-items: center; }
+  .action-group .group-label { font-size: 0.72rem; color: var(--muted); margin-right: 0.1rem; }
   .card-actions button {
     font: inherit; font-size: 0.8rem; border-radius: 6px; padding: 0.3rem 0.7rem;
     cursor: pointer; border: 1px solid var(--border); background: var(--bg); color: var(--fg);
   }
+  .card-actions button.always { border-style: dashed; }
   .card-actions button.on.approve { background: var(--approve-border); color: #fff; border-color: var(--approve-border); }
   .card-actions button.on.ignore { background: var(--ignore-border); color: #fff; border-color: var(--ignore-border); }
+  .card-actions button.on.always { border-style: solid; box-shadow: 0 0 0 2px var(--warn) inset; }
+  .scope-note { font-size: 0.72rem; color: var(--warn); margin-top: 0.3rem; }
   .empty { color: var(--muted); padding: 2rem 0; text-align: center; }
   footer { margin-top: 1.5rem; color: var(--muted); font-size: 0.78rem; }
 </style>
@@ -123,8 +128,15 @@
   var state = { kind: 'all', data: null, decisions: loadDecisions() };
 
   function loadDecisions() {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
+    var raw;
+    try { raw = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
     catch (e) { return {}; }
+    // Migrate pre-scope format ({id: 'approve'|'ignore'}) to the current
+    // {id: {decision, scope}} shape, defaulting old entries to 'once'.
+    Object.keys(raw).forEach(function(id) {
+      if (typeof raw[id] === 'string') raw[id] = { decision: raw[id], scope: 'once' };
+    });
+    return raw;
   }
   function saveDecisionsLocal() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state.decisions));
@@ -163,10 +175,19 @@
       return;
     }
     container.innerHTML = rows.map(function(r) {
-      var decision = state.decisions[r.id];
+      var d = state.decisions[r.id]; // {decision:'approve'|'ignore', scope:'once'|'always'} | undefined
       var conf = r.confidence == null ? '' : r.confidence.toFixed(2);
       var confClass = (r.confidence != null && r.confidence < 0.5) ? 'confidence low' : 'confidence';
-      var cardClass = 'card' + (decision === 'approve' ? ' decided-approve' : decision === 'ignore' ? ' decided-ignore' : '');
+      var cardClass = 'card' + (d && d.decision === 'approve' ? ' decided-approve' : d && d.decision === 'ignore' ? ' decided-ignore' : '');
+      function btn(decision, scope, label) {
+        var isOn = d && d.decision === decision && d.scope === scope;
+        var cls = decision + (scope === 'always' ? ' always' : '') + (isOn ? ' on' : '');
+        return '<button class="act-btn ' + cls + '" data-decision="' + decision + '" data-scope="' + scope + '">' + label + '</button>';
+      }
+      var scopeNote = (d && d.scope === 'always')
+        ? '<p class="scope-note">Permanent rule — future matches like this one will be ' +
+          (d.decision === 'approve' ? 'auto-applied' : 'auto-skipped') + ' without review.</p>'
+        : '';
       return '<div class="' + cardClass + '" data-id="' + r.id + '">' +
         '<div class="card-top">' +
           '<span class="kind-tag">' + r.review_kind.replace(/_/g, ' ') + '</span>' +
@@ -175,19 +196,40 @@
         '<p class="desc">' + (r.description || '').replace(/</g, '&lt;') + '</p>' +
         '<p class="meta">' + r.entity_type + ' · raised ' + fmtAgo(r.raised_at) + ' by ' + r.raised_by + '</p>' +
         '<div class="card-actions">' +
-          '<button class="approve-btn' + (decision === 'approve' ? ' on approve' : '') + '">Approve</button>' +
-          '<button class="ignore-btn' + (decision === 'ignore' ? ' on ignore' : '') + '">Ignore</button>' +
+          '<div class="action-group">' +
+            '<span class="group-label">This match:</span>' +
+            btn('approve', 'once', 'Approve') + btn('ignore', 'once', 'Ignore') +
+          '</div>' +
+          '<div class="action-group">' +
+            '<span class="group-label">Always:</span>' +
+            btn('approve', 'always', 'Approve always') + btn('ignore', 'always', 'Ignore always') +
+          '</div>' +
         '</div>' +
+        scopeNote +
         '</div>';
     }).join('');
 
     container.querySelectorAll('.card').forEach(function(card) {
       var id = card.dataset.id;
-      card.querySelector('.approve-btn').addEventListener('click', function() {
-        setDecision(id, state.decisions[id] === 'approve' ? null : 'approve');
-      });
-      card.querySelector('.ignore-btn').addEventListener('click', function() {
-        setDecision(id, state.decisions[id] === 'ignore' ? null : 'ignore');
+      card.querySelectorAll('.act-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var decision = btn.dataset.decision, scope = btn.dataset.scope;
+          var current = state.decisions[id];
+          if (current && current.decision === decision && current.scope === scope) {
+            setDecision(id, null);
+            return;
+          }
+          if (scope === 'always') {
+            var verb = decision === 'approve' ? 'auto-apply' : 'auto-skip';
+            var ok = window.confirm(
+              'This makes a PERMANENT rule: every future match like this one will ' + verb +
+              ' automatically, with no review. This is harder to walk back than a ' +
+              'one-off decision. Are you sure?'
+            );
+            if (!ok) return;
+          }
+          setDecision(id, { decision: decision, scope: scope });
+        });
       });
     });
   }
@@ -236,14 +278,16 @@
     var approved = [], ignored = [];
     Object.keys(state.decisions).forEach(function(id) {
       var r = byId[id];
-      if (!r) return;
+      var d = state.decisions[id];
+      if (!r || !d) return;
       var entry = {
         id: r.id, review_kind: r.review_kind, entity_type: r.entity_type,
         entity_id: r.entity_id, other_entity_id: r.other_entity_id,
         description: r.description, suggested_cli: r.suggested_cli,
+        scope: d.scope,
       };
-      if (state.decisions[id] === 'approve') approved.push(entry);
-      else if (state.decisions[id] === 'ignore') ignored.push(entry);
+      if (d.decision === 'approve') approved.push(entry);
+      else if (d.decision === 'ignore') ignored.push(entry);
     });
     var payload = {
       saved_at: new Date().toISOString(),
