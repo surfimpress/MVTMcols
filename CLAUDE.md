@@ -11,45 +11,95 @@ that a session starting cold can read this and `transcribe/work/experiments.json
 tail and reconstruct state without replaying a whole prior transcript.
 
 **OCR+LLM route (1980s+ issues) is built and stable** —
-`transcribe/ocr_llm.py` (render/OCR/cleanup/items pipeline),
-`.claude/agents/ocr-cleanup.md` + `ocr-items.md` (Read-only, durable
-rules cached), `transcribe/routing.py` (1980 cutoff),
-`.claude/skills/ocr-transcribe-issue/SKILL.md`,
+`transcribe/ocr_llm.py` (render/OCR/cleanup/items pipeline, now with a
+`--workers` thread pool on `render-issue`), `.claude/agents/ocr-cleanup.md`
++ `ocr-items.md` (Read-only, durable rules cached, `item_type` synced
+to the same 11-value taxonomy as `items-classifier.md`),
+`transcribe/routing.py` (1980 cutoff), `.claude/skills/ocr-transcribe-issue/SKILL.md`,
 `transcribe/workflows/ocr_llm_issue.js`. Validated end-to-end on
 2001-01-03 (12pp), 1994-01-05 (12pp), 1986-01-08 (18pp). Monitor at
-`transcribe/ocr_llm_monitor.html` (own JSON store, LaunchAgent-
-refreshed, zero DB load from viewing). Not yet done:
-`items_ocr_ext.item_hocr`/`full_text_markdown` unpopulated; no
-content-filter retry ladder. Full detail in git log around
-2026-08-09, not repeated here.
+`transcribe/ocr_llm_monitor.html`. Not yet done: `items_ocr_ext.item_hocr`/
+`full_text_markdown` unpopulated; no content-filter retry ladder.
 
-**Entity registry is now real** — `people`/`organizations`/`places`/
-`products`/`events` carry `first_seen_date`/`last_seen_date` (MIN/MAX
-per mention, schema v6+), `transcribe/entity_candidates.py` prefetches
-candidates for the LLM to match against (decade-windowed for people),
-`transcribe/merge_entity.py` is the one-line CLI for merging
-duplicates (`python3 -m transcribe.merge_entity <type> <keep> <drop>
-[--alias]`). `transcribe/entities.html` is the browsable table
-(search/filter/sort/paginate, URL-synced). Established curation
-patterns this session, now also baked into `ocr-items.md` /
-`items-classifier.md` for future extraction:
-  - Period abbreviations (Wm./Geo./Chas./Thos./Jas./Robt./Ed.)
-    expand to full names; original stays in `mention_text`, not a
-    separate field — that field already existed for exactly this.
-  - Products: `name` is the generic category ("Baking Powder"), brand
-    goes in `manufacturer`, `mention_text` keeps the branded form as
-    printed.
-  - Recurring event types where each instance differs only by
-    who/where (marriages) genericize to one `name` ("Marriage");
-    **deaths were explicitly left alone** — don't extend the pattern
-    there without asking, a death may carry more individually-
-    important distinguishing value than a marriage announcement.
-  - When splitting/merging changes the date range, merge outright on
-    identical ranges; for people, a large date gap argues against
-    same-identity (ask); for products/events as generic categories, a
-    date gap doesn't argue against merging (a category legitimately
-    spans decades) — different reasoning for different entity kinds,
-    don't apply one rule uniformly.
+**Entity registry + taxonomy cleanup, substantial work 2026-08-09** —
+`people`/`organizations`/`places`/`products`/`events` carry
+`first_seen_date`/`last_seen_date` (schema v6+). `transcribe/entities.html`
+is the browsable table. `transcribe/merge_entity.py` is the one-line
+merge CLI. Curation patterns baked into `ocr-items.md`/`items-classifier.md`:
+period-abbreviation expansion (Wm.→William etc, original in
+`mention_text`); products/events genericize `name` to the reusable
+category (brand/instance goes in `manufacturer`/`mention_text`);
+**"prefer names that will recur" and "picking the right altitude for
+`name`"** are now explicit sections in both agent docs — a name should
+sit one level more specific than its own `_type`, not repeat the
+type's job (too generic) and not be a one-off brand/instance (too
+specific) — distilled from real misses found today (Book/Movie/Play
+had briefly landed in `gifts_and_novelties`, a bad reuse of an
+existing bucket rather than a genuine fit).
+
+**Nomenclature for Museum Cataloging integration** — `transcribe/nomenclature.py`
+is a SPARQL client (`https://nomenclature.info/sparql/rest/sparql/nom`,
+no auth) that grounds `product_type` in an external, museum-curated
+vocabulary where a term obviously matches (schema v9:
+`products.external_terminology`/`external_category`/`external_uri`/
+`external_reference` — vocabulary-agnostic naming, not Nomenclature-
+specific, so a second future vocabulary reuses the same four columns).
+`external_reference` (the bare catalog number, e.g. "13603") is what
+lets the museum correlate a newspaper mention with objects in its own
+collection — always derived from the URI in Python, never agent-
+supplied. **Precision lesson, don't reintroduce:** an early version of
+`nomenclature.search_terms()` had a CONTAINS-on-first-word fallback
+that produced confident-looking wrong matches ("Coal Oil"→"charcoal",
+"Comfort Soap"→"comfort station") when tested against the live corpus
+in an unattended batch run — removed; exact-match-plus-singular-form
+only now, precision over recall by design.
+
+**Independent term-classification queue** —
+`transcribe/classify_terms.py` + `transcribe/workflows/classify_terms.js`
++ `.claude/agents/term-classifier.md` (Haiku, text-only, no image)
+backfill `org_type`/`place_type`/`product_type`/`event_type`
+corpus-wide, decoupled from the render/cleanup/items pipeline —
+doesn't matter which issue or when an entity was extracted. Run via
+`python3 -m transcribe.classify_terms build` then dispatch the
+Workflow, or fold into `terminology_cleanup.py run-all` (below).
+
+**Terminology cleanup process (new 2026-08-09)** —
+`transcribe/terminology_cleanup.py`, ad hoc today
+(`python3 -m transcribe.terminology_cleanup run-all`), a LaunchAgent
+template exists but isn't installed yet (`tools/com.mvtm.terminology_cleanup.plist`
+— "if we can get productivity up" per the user, i.e. once the review
+queue's signal-to-noise is trusted over a few ad hoc runs). Writes to
+its own `terminology_reviews` table — **deliberately separate from
+`repairs`**, which is the transcript/cutting-pipeline domain, not
+entity/terminology. Review queue is `transcribe/terminology_review.html`
+(own JSON store, refreshed by the same fast LaunchAgent loop as
+`entities.html`/`ocr_llm_monitor.html`; the cleanup *passes* themselves
+are NOT in that fast loop — they make live external SPARQL calls and
+take real time, so they're a separate, slower invocation). Three
+passes, tested against the live corpus:
+  - `duplicates` — cheap heuristic (stopword-strip + exact/substring
+    match, bucketed by first char). Exact-normalized matches are
+    reliable (0.9 confidence); substring-containment is **known
+    noisy** (0.3 confidence, flagged as such in its own description)
+    — a bare given name/surname/place-name prefix ("Elizabeth",
+    "Naismith", "Lanark") is a substring of many real, unrelated
+    longer entities, not a truncated alias of any one of them. No
+    cheap mechanical filter found that separates that from real cases
+    (Bell/Bell Canada) — this tier needs real human judgment, never
+    auto-apply from it.
+  - `nomenclature-gaps` — safe enrichment auto-applies (fills
+    `external_*` when the match already equals the current
+    `product_type`, changing nothing); a match that would actually
+    change `product_type` raises a review instead.
+  - `generic-names` — mechanical-only check (manufacturer still
+    embedded in a product's own name, word-boundary match only, not a
+    bare substring — a looser version flagged the patent-medicine
+    exception "Dr. Pierce's Favorite Prescription" and would have
+    mangled it). Currently finds nothing, which is correct — today's
+    known cases were already fixed by hand.
+  - Nothing in this module ever auto-merges or auto-renames; every
+    non-enrichment finding gets a `suggested_cli` in `terminology_reviews`
+    for a human to run after confirming it.
 
 **Pre-1980 items/entities: only 1912-12-27 is actually done**
 (1,133→ wait, 160 items, 718 distinct terms). 59 other pre-1980 issues

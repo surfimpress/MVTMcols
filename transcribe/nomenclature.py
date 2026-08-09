@@ -30,7 +30,6 @@ Usage::
 from __future__ import annotations
 
 import json
-import re
 import urllib.parse
 import urllib.request
 
@@ -89,24 +88,28 @@ def broader_chain(uri: str, max_depth: int = 6) -> list[str]:
 
 def search_terms(name: str, limit: int = 5) -> list[dict]:
     """Find Nomenclature concepts whose prefLabel plausibly matches
-    `name`. Tries an exact (case-insensitive) match first, falls back
-    to a substring search on the first significant word if nothing
-    exact hits -- `name` here is already our own genericized product
-    name ("Baking Powder", "Book"), not a raw OCR string, so it's
-    usually short and this stays cheap.
+    `name`. Exact (case-insensitive) match only, with a singular-form
+    fallback ("Snowshoes" -> "snowshoe") since Nomenclature prefers
+    singular labels and our product names are often plural.
+
+    Deliberately does NOT fall back to a substring/CONTAINS search.
+    An earlier version tried a first-significant-word CONTAINS
+    fallback; tested against the live corpus 2026-08-09 in an
+    unattended batch run and it was a real precision failure --
+    "Coal Oil" matched "charcoal", "Comfort Soap" matched "comfort
+    station" (a washroom), "Honey" matched "honey extractor" (a tool).
+    A shared word is not a shared meaning. Precision over recall here:
+    returning nothing for a name Nomenclature doesn't have an exact
+    term for is the correct, expected outcome (see module docstring
+    on perishables/groceries), not a gap to paper over with a fuzzy
+    guess.
 
     Returns [{"uri", "label", "top_category", "path"}, ...] -- `path`
     is the full broader-chain from search_terms' single extra query
     per candidate, root-first; `top_category` is path[0] when present.
-    Empty list means no plausible match -- expected and fine for
-    anything Nomenclature doesn't catalog (see module docstring).
     """
     stripped = name.strip()
     candidates_to_try = [stripped]
-    # Nomenclature prefers singular labels ("skate", not "Skates") --
-    # our product names are often plural. Naive singularization is
-    # good enough here: the exact-match query only fires on these if
-    # they produce a real hit, so a wrong guess just falls through.
     if stripped.lower().endswith("es") and len(stripped) > 4:
         candidates_to_try.append(stripped[:-2])
     if stripped.lower().endswith("s") and not stripped.lower().endswith("ss"):
@@ -124,17 +127,6 @@ def search_terms(name: str, limit: int = 5) -> list[dict]:
         """)
         if rows:
             break
-    if not rows:
-        word = re.split(r"\s+", name.strip())[0] if name.strip() else ""
-        if len(word) >= 4:  # skip trying to substring-match on short/generic words
-            word_esc = _escape_literal(word)
-            rows = _query(f"""
-                SELECT DISTINCT ?s ?label WHERE {{
-                  ?s skos:prefLabel ?label .
-                  FILTER(LANG(?label) = "en")
-                  FILTER(CONTAINS(LCASE(STR(?label)), LCASE("{word_esc}")))
-                }} LIMIT {limit}
-            """)
 
     out = []
     for r in rows:

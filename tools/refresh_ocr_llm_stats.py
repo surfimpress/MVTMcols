@@ -23,6 +23,14 @@ if REPO not in sys.path:
 
 from transcribe.build_ocr_llm_stats import main as build_ocr_llm_stats
 from transcribe.build_entities_stats import main as build_entities_stats
+from transcribe.build_terminology_review_stats import main as build_terminology_review_stats
+
+# Note: this only rebuilds terminology_review.json from whatever's
+# already in terminology_reviews (a cheap local query) -- it does NOT
+# run transcribe.terminology_cleanup itself, which makes live SPARQL
+# calls against nomenclature.info and takes ~45s. That's a separate,
+# deliberately-invoked (or separately-scheduled) pass -- see
+# transcribe/terminology_cleanup.py's docstring.
 
 while True:
     try:
@@ -33,4 +41,8 @@ while True:
         build_entities_stats()
     except Exception as e:
         print(f"entities_stats refresh failed: {e!r}", flush=True)
+    try:
+        build_terminology_review_stats()
+    except Exception as e:
+        print(f"terminology_review_stats refresh failed: {e!r}", flush=True)
     time.sleep(INTERVAL)

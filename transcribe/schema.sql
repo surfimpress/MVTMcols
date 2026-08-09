@@ -555,6 +555,36 @@ CREATE TABLE IF NOT EXISTS repairs (
 CREATE INDEX IF NOT EXISTS idx_repairs_status ON repairs (status);
 
 
+-- Terminology reviews -------------------------------------------------
+-- Deliberately separate from `repairs`: repairs are about transcript/
+-- cutting-pipeline problems tied to a page/column/ad; this table is
+-- about the entity registry (people/organizations/places/products/
+-- events) and its taxonomies -- a different domain, a different
+-- lifecycle, raised by transcribe/terminology_cleanup.py rather than
+-- the transcription passes. Same non-mutating philosophy as repairs
+-- though: this table only ever proposes (via suggested_cli or
+-- proposed_fix_json), a human or an explicit apply step executes.
+
+CREATE TABLE IF NOT EXISTS terminology_reviews (
+    id                TEXT PRIMARY KEY,
+    entity_type       TEXT NOT NULL,              -- 'people'|'organizations'|'places'|'products'|'events'
+    entity_id         TEXT,                       -- primary/only entity this review is about
+    other_entity_id   TEXT,                       -- second entity, for duplicate_candidate reviews
+    review_kind       TEXT NOT NULL,              -- 'duplicate_candidate'|'nomenclature_gap'|'name_too_specific'|'type_near_duplicate'
+    description       TEXT,
+    confidence        REAL,                       -- 0-1, heuristic or agent-assigned
+    proposed_fix_json TEXT,
+    suggested_cli     TEXT,
+    status            TEXT NOT NULL DEFAULT 'open', -- 'open'|'applied'|'dismissed'
+    raised_by         TEXT,                       -- 'terminology_cleanup' pass name, or model name
+    raised_at         TEXT NOT NULL,
+    resolved_at       TEXT,
+    notes             TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_terminology_reviews_status ON terminology_reviews (status);
+CREATE INDEX IF NOT EXISTS idx_terminology_reviews_kind ON terminology_reviews (review_kind);
+
+
 -- Telemetry ----------------------------------------------------------
 -- One row per orchestrator invocation. Optional but useful for
 -- throughput tuning and tracking which models were used in initial
@@ -616,7 +646,12 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 --                                    populates these) reuses the same
 --                                    four columns instead of getting
 --                                    its own set
+--  10 — terminology_reviews (2026-08-09): entity-registry cleanup
+--                                    review queue, deliberately
+--                                    separate from repairs (transcript/
+--                                    cutting domain) -- raised by
+--                                    transcribe/terminology_cleanup.py
 INSERT OR IGNORE INTO schema_meta (key, value)
-    VALUES ('schema_version', '9');
+    VALUES ('schema_version', '10');
 INSERT OR IGNORE INTO schema_meta (key, value)
     VALUES ('created_at_iso', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));

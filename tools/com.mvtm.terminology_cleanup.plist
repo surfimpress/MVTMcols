@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent: daily terminology_cleanup run-all.
+
+  NOT installed by default -- transcribe/terminology_cleanup.py is
+  meant to run ad hoc first (`python3 -m transcribe.terminology_cleanup
+  run-all`) until its review queue's signal-to-noise has been checked
+  over a few runs. Install once that's established via:
+
+    cp tools/com.mvtm.terminology_cleanup.plist ~/Library/LaunchAgents/
+    launchctl load -w ~/Library/LaunchAgents/com.mvtm.terminology_cleanup.plist
+
+  Only raises/updates terminology_reviews and does safe additive
+  Nomenclature enrichment (see the module docstring) -- never merges
+  or renames anything unattended. terminology_review.html stays fresh
+  independently via tools/refresh_ocr_llm_stats.py's fast loop; this
+  plist only needs to run the slower discovery pass.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mvtm.terminology_cleanup</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>-m</string>
+        <string>transcribe.terminology_cleanup</string>
+        <string>run-all</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/peter/Projects/MVTM</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StartInterval</key>
+    <integer>86400</integer>
+
+    <key>KeepAlive</key>
+    <false/>
+
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/terminology_cleanup.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/terminology_cleanup.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+</dict>
+</plist>

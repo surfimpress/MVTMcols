@@ -363,6 +363,40 @@ def raise_repair(conn: sqlite3.Connection,
     return new_id
 
 
+# -------- terminology reviews ---------------------------------------
+# Deliberately separate from repairs -- see schema.sql's comment on
+# terminology_reviews. Same non-mutating philosophy: this only
+# proposes, transcribe/terminology_cleanup.py's apply-* subcommands
+# (or a human reading suggested_cli) do the actual mutation.
+
+def raise_terminology_review(conn: sqlite3.Connection,
+                             *,
+                             entity_type: str,
+                             review_kind: str,
+                             description: str,
+                             raised_by: str,
+                             entity_id: str | None = None,
+                             other_entity_id: str | None = None,
+                             confidence: float | None = None,
+                             proposed_fix: dict | None = None,
+                             suggested_cli: str | None = None,
+                             notes: str | None = None) -> str:
+    new_id = new_uuid()
+    conn.execute(
+        """INSERT INTO terminology_reviews
+           (id, entity_type, entity_id, other_entity_id, review_kind,
+            description, confidence, proposed_fix_json, suggested_cli,
+            status, raised_by, raised_at, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)""",
+        (new_id, entity_type, entity_id, other_entity_id, review_kind,
+         description, confidence,
+         json.dumps(proposed_fix, sort_keys=True) if proposed_fix is not None else None,
+         suggested_cli, raised_by, now_iso(), notes),
+    )
+    conn.commit()
+    return new_id
+
+
 # -------- agent file helpers ---------------------------------------
 
 def read_agent_default_model(agent_file_path: str) -> str | None:
