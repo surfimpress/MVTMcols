@@ -292,12 +292,30 @@
     });
   }
 
+  function escapeHtml(s) {
+    return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // Wraps the mention's own term (mention_text -- the exact original
+  // token as it appeared, e.g. "Big Brothers / Big Sisters") in <mark>
+  // wherever it appears in the excerpt, so the source of the term is
+  // visible at a glance instead of needing to read the whole excerpt.
+  function highlightTerm(excerpt, term) {
+    var escExcerpt = escapeHtml(excerpt);
+    if (!term) return escExcerpt;
+    var escTerm = escapeHtml(term);
+    var idx = escExcerpt.toLowerCase().indexOf(escTerm.toLowerCase());
+    if (idx === -1) return escExcerpt;
+    return escExcerpt.slice(0, idx) + '<mark>' + escExcerpt.slice(idx, idx + escTerm.length) +
+      '</mark>' + escExcerpt.slice(idx + escTerm.length);
+  }
+
   function mentionCard(m) {
     var date = m.year ? (m.year + '-' + String(m.month).padStart(2, '0') + '-' + String(m.day).padStart(2, '0')) : '';
     var loc = [date, m.headline, m.page ? ('p' + m.page) : null].filter(Boolean).join(' · ');
     return '<div class="mention-item">' +
-      '<div class="mention-meta">' + loc.replace(/</g, '&lt;') + '</div>' +
-      '<div class="mention-excerpt">' + (m.excerpt || '').replace(/</g, '&lt;') + '</div>' +
+      '<div class="mention-meta">' + escapeHtml(loc) + '</div>' +
+      '<div class="mention-excerpt">' + highlightTerm(m.excerpt, m.mention_text) + '</div>' +
       '</div>';
   }
 
@@ -305,6 +323,15 @@
     var dialog = document.getElementById('context-dialog');
     var title = document.getElementById('context-dialog-title');
     var body = document.getElementById('context-dialog-body');
+
+    // Defensive: if a dialog is already open (e.g. a prior close()
+    // didn't fully settle, or showModal() is called again before the
+    // browser finishes the last paint), force a real close first --
+    // mutating an already-open <dialog>'s content has shown stale-
+    // content symptoms (title updates, body doesn't) that a clean
+    // close-then-reopen sidesteps regardless of the exact cause.
+    if (dialog.open) dialog.close();
+
     title.textContent = (r.description || '').replace(/_/g, ' ');
 
     var colA = '<div class="context-col"><h3>' + (r.entity_type || '') + ' A</h3>' +
