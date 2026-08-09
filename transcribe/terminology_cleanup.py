@@ -71,10 +71,19 @@ def _normalize_for_dedup(name: str) -> str:
 # Duplicates
 # --------------------------------------------------------------------
 
-def _existing_open_pair(conn, entity_type: str, id_a: str, id_b: str) -> bool:
+def _already_reviewed_pair(conn, entity_type: str, id_a: str, id_b: str) -> bool:
+    """True if this exact pair has ANY prior review, regardless of
+    status. A 'dismissed' review IS the permanent record of "not a
+    duplicate" (e.g. "Municipal Nomination Meeting" / "Municipal
+    Nomination" -- deliberately distinct, confirmed 2026-08-09) --
+    re-raising it on every run because it isn't 'open' anymore would
+    make Ignore worthless. An 'applied' review means one of the two
+    entities no longer exists, so this pair can't be raised again
+    regardless -- included here for the same one-query simplicity,
+    not because it's load-bearing."""
     row = conn.execute(
         """SELECT 1 FROM terminology_reviews
-           WHERE entity_type=? AND review_kind='duplicate_candidate' AND status='open'
+           WHERE entity_type=? AND review_kind='duplicate_candidate'
              AND ((entity_id=? AND other_entity_id=?) OR (entity_id=? AND other_entity_id=?))
            LIMIT 1""",
         (entity_type, id_a, id_b, id_b, id_a),
@@ -150,7 +159,7 @@ def find_duplicates(conn, table: str) -> list[dict]:
                     kind, confidence = "substring_containment", 0.3
                 else:
                     continue
-                if _existing_open_pair(conn, table, id_a, id_b):
+                if _already_reviewed_pair(conn, table, id_a, id_b):
                     continue
                 review_id = _db.raise_terminology_review(
                     conn, entity_type=table, review_kind="duplicate_candidate",
@@ -211,6 +220,19 @@ def nomenclature_gaps(conn) -> dict:
             conn.commit()
             applied += 1
         else:
+            # Any prior review (not just 'open') -- a dismissed match
+            # (e.g. a wrong-looking Nomenclature suggestion the human
+            # rejected) is a permanent "no", not a retry candidate.
+            # external_uri stays NULL either way, so without this check
+            # the same product gets re-flagged on every run forever.
+            existing = conn.execute(
+                """SELECT 1 FROM terminology_reviews
+                   WHERE entity_type='products' AND review_kind='nomenclature_gap'
+                     AND entity_id=?""",
+                (r["id"],),
+            ).fetchone()
+            if existing:
+                continue
             _db.raise_terminology_review(
                 conn, entity_type="products", review_kind="nomenclature_gap",
                 entity_id=r["id"], confidence=0.5,
@@ -299,10 +321,13 @@ def check_generic_names(conn, table: str = "products") -> list[dict]:
         stripped = re.sub(r"\s+", " ", stripped)
         if not stripped or stripped.lower() == name.lower():
             continue
+        # Any prior review (not just 'open') -- a dismissed one is a
+        # permanent "no" (see _already_reviewed_pair's docstring for
+        # the same reasoning applied to duplicate_candidate).
         existing = conn.execute(
             """SELECT 1 FROM terminology_reviews
                WHERE entity_type='products' AND review_kind='name_too_specific'
-                 AND status='open' AND entity_id=?""",
+                 AND entity_id=?""",
             (r["id"],),
         ).fetchone()
         if existing:
