@@ -2,7 +2,7 @@
 
 ## Current status — read this first, keep it current
 
-**Last updated: 2026-08-08.** This section is a live pointer, not a
+**Last updated: 2026-08-09.** This section is a live pointer, not a
 durable rule — overwrite it (don't append to it) whenever the active
 work changes materially: a campaign finishes, a new one starts, or a
 session pauses mid-task for a reason a fresh session needs to know
@@ -10,66 +10,102 @@ session pauses mid-task for a reason a fresh session needs to know
 that a session starting cold can read this and `transcribe/work/experiments.jsonl`'s
 tail and reconstruct state without replaying a whole prior transcript.
 
-**Active work (as of this session): OCR+LLM route for 1980s+ issues.**
-Pre-1980 column-transcription production continues on the existing
-path — see `transcribe/PLAYBOOK.md` for that procedure and its own
-live status section (1% of the corpus done: 57/5,666 issues, 452/
-44,826 pages; two review-agent bugs confirmed but not yet fixed —
-`quality_flags.adjacent_text_visible` over-triggers at 83.5%, and
-`subdivide_slice.py`'s `assemble` step drops `confidence` on Tier-4
-reconstructed slices. Both still open, see the playbook for detail).
+**Active work: OCR+LLM route for 1980s+ issues — pipeline built,
+repeatable, and Workflow-orchestrated.** Pre-1980 column-transcription
+production continues unchanged on its own path — see
+`transcribe/PLAYBOOK.md` for that procedure and its own live status
+section (1% of the corpus done: 57/5,666 issues, 452/44,826 pages;
+two review-agent bugs confirmed but not yet fixed — `quality_flags.
+adjacent_text_visible` over-triggers at 83.5%, and `subdivide_slice.
+py`'s `assemble` step drops `confidence` on Tier-4 reconstructed
+slices. Both still open, see the playbook for detail).
 
-This session's new thread, prompted by the 1980s+ issues' resistance
-to column detection (a dead end, not just a discount — see
-`layout_observations.md`): built and validated a whole-page
-**Tesseract OCR + LLM correction** alternative that bypasses column
-cutting entirely.
+This session's thread, prompted by the 1980s+ issues' resistance to
+column detection (a dead end, not just a discount — see
+`layout_observations.md`): built a whole-page **Tesseract OCR + LLM
+correction** route that bypasses column cutting entirely, took it from
+one-off exploration to a real repeatable pipeline, and ran it
+end-to-end on a full issue via `Workflow`.
 
-- **Validated on 2001-01-03, pages 1-3** (a real modular/non-grid
-  layout). Pipeline: Tesseract 5.5.3, `tessdata_best`, Sauvola local-
-  adaptive thresholding (fixes grey-sidebar/fold-shadow blackout —
-  recovers ~70% more words vs default Otsu) → confidence-triage
-  text-only LLM cleanup (only blocks below conf 85 sent) → LLM item
-  segmentation from the page image + block list. `effort: "low"` +
-  triage together bring page cost to ~70-75K tokens vs ~123K
-  unoptimized. Full writeup + tap-to-inspect artifact:
-  `transcribe/comparison_tesseract_2001-01-03.html`.
-- **Schema extended for this route** (schema.sql version 4, additive
-  only — no changes to existing tables/columns): new peer tables
-  `pages` (page-level OCR/render facts — didn't exist before, page
-  was just an int column everywhere), `page_ocr_blocks` (peer of
-  `column_transcripts` — one row per Tesseract block), `items_ocr_ext`
-  (1:1 extension of `items`, OCR-route-only fields: `item_hocr`,
-  `full_text_markdown`, `media_paths_json` — its existence for an
-  item_id *is* the provenance marker), `item_ocr_block_spans` (peer
-  of `item_column_spans`). DB backed up first to
-  `transcribe/data/transcribe.db.pre-ocr-llm-schema_20260808.bak`.
-- **This issue's test data is now live in the DB**, not just the
-  artifact: 3 pages, 332 OCR blocks, 38 items, all cross-checked
-  (block-reference coverage, FK integrity, bbox ranges). One real bug
-  caught during backfill and fixed in the DB the same way it was
-  fixed in the artifact: a stray `{` character block had Tesseract
-  confidence 88 (above the 85 triage threshold) despite being noise,
-  so it slipped the LLM cleanup pass untouched — the *threshold*
-  isn't foolproof against confident garbage, worth remembering if the
-  triage cutoff gets tuned later. See `transcribe/
-  backfill_2001_ocr_llm.py` — kept as a historical record of the
-  exact mapping (block-id indexing, display-px vs full-page-px
-  coordinate spaces), **not a repeatable tool** (its source paths
-  were this session's /tmp files).
-- **Not yet done / next session:** generalize the backfill into an
-  actual repeatable ingestion path (today it's bespoke to one issue's
-  session-local files); decide `layout_class` routing logic for which
-  issues use this route vs the column-cut pipeline; the item-markup
-  prompt should get a one-line addition telling the LLM not to merge
-  scattered/noise blocks into a single page-spanning bbox (root cause
-  of a tap-target bug already fixed in the artifact — see the
-  `buildItemLayer` z-order fix in the HTML for the symptom, the
-  prompt-side fix itself is not yet written into `hocr_econ_test.js`
-  or wherever the production item-markup prompt ends up living).
-  `--user-words` custom dictionaries confirmed to have zero effect on
-  the modern LSTM engine — don't revisit without a materially
-  different angle.
+- **Full pipeline module: `transcribe/ocr_llm.py`.** Deterministic
+  parts only (render at 300dpi via `pdf_utils`, Tesseract with Sauvola
+  thresholding + `tessdata_best`, hOCR parsing at `ocr_carea` block
+  granularity — confirmed empirically to match Tesseract's own block
+  count, not assumed), DB writes, ticket/prompt construction. Never
+  calls an LLM itself — mirrors the column-cut pipeline's
+  claim/dispatch/ingest split. CLI: `python3 -m transcribe.ocr_llm
+  render <date> --page N`, then `ingest-cleanup` / `ingest-items`
+  after the two LLM passes run. `ensure_tessdata_best()` and the
+  entity-candidate prefetch (see below) are the two "reliably
+  slow-moving, pre-compute once" pieces — neither re-fetches per page.
+- **Two dedicated agent types** replace generic Agent-tool dispatch:
+  `.claude/agents/ocr-cleanup.md` (text-only correction, `tools:
+  Read`) and `.claude/agents/ocr-items.md` (item segmentation + entity
+  tagging, `tools: Read`). Durable task rules live in these files, not
+  resent every call — per-call prompts in `ocr_llm.py` now carry only
+  the variable bits (date/page/file paths), mirroring
+  `column-transcriber`'s already-validated split. New agent `.md`
+  files are **not** picked up mid-session — confirmed twice this
+  session (registry only refreshed after a session boundary). Use the
+  documented fallback (general-purpose + sonnet, told to Read the
+  agent file itself) if you need one before a fresh session starts.
+- **Geometry-first item-markup fix, measured not assumed.** The first
+  real item-markup run did exhaustive pixel-level border verification
+  on every item: 100,949 tokens, **40 tool calls**, 590s. The prompt
+  now says derive item boundaries from block adjacency/column
+  x-position first, use the image only for genuinely ambiguous
+  regions, and explicitly says not to pixel-verify every box. Re-run
+  on the same page: **3-4 tool calls**, 395-414s. Token count didn't
+  drop (~105-110K) because that same call now also does entity
+  extraction (real new output, not overhead) — the fix's win is
+  tool-calls/time, not tokens, and that's the honest way to state it.
+- **Entity registry: first_seen_date/last_seen_date landed** (schema
+  v6, additive — see version history in `schema.sql`). `upsert_entity`
+  in `ingest_item_result.py` now does MIN/MAX on every mention, not
+  just first-write; backfilled from existing `item_*_mentions` history
+  (450/522 people etc. got real dates — the rest have zero linked
+  mentions, a pre-existing gap, left NULL rather than fabricated).
+  `transcribe/entity_candidates.py` does the token-efficient lookup:
+  one bulk query per page (not per-mention), people filtered to a
+  ±40yr window around the issue's date via the decade-bucketed
+  `idx_people_decade` expression index, organizations/places/products/
+  events unfiltered (small tables, persist across decades). Verified
+  on real data: "Almonte" correctly matched its existing 1912-12-27
+  entity and extended `last_seen_date` to 2001-01-03 — an 89-year
+  span, MIN/MAX working as designed.
+- **2001-01-03 fully processed, all 10 pages, via the real pipeline.**
+  167 items, 1,133 OCR blocks, 523 entity mentions (215 people, 162
+  orgs, 140 places, 6 events). Pages 5-10 ran through the actual
+  `Workflow`-orchestrated pipeline (not manual one-off dispatch) —
+  script at `transcribe/workflows/ocr_llm_issue.js`.
+  One real gap caught by a block-coverage check (not assumed clean):
+  page 9 had 4 blocks (idx 32-35, a health-insurance-adjacent ad
+  fragment) the item-markup pass never assigned to any item — added
+  as an honest raw catch-all item (matches the `page_display.png` p4
+  "Stray mark" precedent — no fabricated label) rather than left
+  orphaned or silently dropped.
+- **`transcribe/backfill_2001_ocr_llm.py`** (pages 1-3, an earlier
+  session-local one-off) is now superseded by the real pipeline above
+  for anything beyond historical record-keeping — don't extend it.
+- **Not yet done / next session:**
+  - `transcribe/workflows/ocr_llm_issue.js` is not yet wired into a
+    `/`-invocable skill the way `transcribe-issue` wires up the
+    column-cut pipeline (today it's invoked directly with a
+    hand-built `args` array — the render/ticket-building step that
+    produces that array is still a manual Python call, not a single
+    command covering render-through-ingest for a whole issue).
+  - `layout_class` routing logic (which issues use this route vs the
+    column-cut pipeline) is still a manual judgment call, not encoded
+    anywhere.
+  - `items_ocr_ext.item_hocr`/`full_text_markdown` columns exist but
+    nothing populates them yet.
+  - The `args` parameter to `Workflow` arrived as a non-array once
+    this session (crashed `pipeline()` before any agent ran) — worked
+    around defensively in the script (`Array.isArray(args) ? args :
+    JSON.parse(args)`), root cause not diagnosed. Watch for a repeat.
+  - `--user-words` custom dictionaries confirmed to have zero effect
+    on the modern LSTM engine — don't revisit without a materially
+    different angle.
 
 ## `instructions/` is the durable knowledge base — keep it current
 

@@ -219,7 +219,7 @@ CREATE TABLE IF NOT EXISTS pages (
     day                   INTEGER NOT NULL,
     page                  INTEGER NOT NULL,
     pdf_path              TEXT,
-    page_raw_path         TEXT,
+    page_raw_path         TEXT,              -- full-res render at render_dpi, OCR's own coordinate space
     render_dpi            INTEGER,
     ocr_engine            TEXT,              -- e.g. 'tesseract 5.5.3'
     ocr_trained_data      TEXT,              -- 'tessdata_fast'|'tessdata'|'tessdata_best'
@@ -228,6 +228,15 @@ CREATE TABLE IF NOT EXISTS pages (
     hocr_word_count       INTEGER,
     hocr_mean_confidence  REAL,
     layout_class          TEXT,              -- 'column_grid'|'modular' -- routing hint
+    -- Downscaled PNG shown to the item-markup LLM pass (token/size
+    -- reasons) -- a distinct raster from page_raw_path, so item bboxes
+    -- (given by that pass in this image's pixel space) need their own
+    -- dimensions to convert to page-pct. Without these an item bbox is
+    -- ambiguous: which of two differently-sized rasters is it measured
+    -- against.
+    display_image_path   TEXT,
+    display_width_px     INTEGER,
+    display_height_px    INTEGER,
     created_at            TEXT NOT NULL,
     notes                 TEXT,
     UNIQUE (year, month, day, page)
@@ -291,6 +300,15 @@ CREATE TABLE IF NOT EXISTS item_ocr_block_spans (
 -- (lowercased, punctuation-stripped). Cross-corpus disambiguation
 -- is a later pass, not done at ingest.
 
+-- first_seen_date/last_seen_date (ISO date of the earliest/latest
+-- *mention* ingested, not a biographical fact) let a candidate-list
+-- prefetch filter to entities plausible for a given issue's date
+-- without a per-mention DB lookup -- see transcribe/entity_candidates.py.
+-- Maintained by upsert_entity() (MIN/MAX on every mention, not just
+-- first-write). The decade index buckets by the first 3 digits of the
+-- year (e.g. '193' = 1930s) -- coarse on purpose, a candidate-list
+-- prefilter, not a precise range query.
+
 CREATE TABLE IF NOT EXISTS people (
     id              TEXT PRIMARY KEY,
     first_name      TEXT,
@@ -299,12 +317,16 @@ CREATE TABLE IF NOT EXISTS people (
     title           TEXT,                         -- Mr/Mrs/Dr/Rev/Hon/...
     suffix          TEXT,                         -- Jr/Sr/III/...
     normalised_key  TEXT NOT NULL,
+    first_seen_date TEXT,
+    last_seen_date  TEXT,
     created_at      TEXT NOT NULL,
     notes           TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_people_norm ON people (normalised_key);
 CREATE INDEX IF NOT EXISTS idx_people_last_first
     ON people (last_name, first_name);
+CREATE INDEX IF NOT EXISTS idx_people_decade
+    ON people (substr(first_seen_date, 1, 3));
 
 
 CREATE TABLE IF NOT EXISTS organizations (
@@ -312,6 +334,8 @@ CREATE TABLE IF NOT EXISTS organizations (
     name            TEXT NOT NULL,
     org_type        TEXT,
     normalised_key  TEXT NOT NULL,
+    first_seen_date TEXT,
+    last_seen_date  TEXT,
     created_at      TEXT NOT NULL,
     notes           TEXT
 );
@@ -324,6 +348,8 @@ CREATE TABLE IF NOT EXISTS places (
     place_type       TEXT,                        -- city/town/region/...
     parent_place_id  TEXT,                        -- nullable FK
     normalised_key   TEXT NOT NULL,
+    first_seen_date  TEXT,
+    last_seen_date   TEXT,
     created_at       TEXT NOT NULL,
     notes            TEXT,
     FOREIGN KEY (parent_place_id) REFERENCES places(id)
@@ -337,6 +363,8 @@ CREATE TABLE IF NOT EXISTS products (
     manufacturer    TEXT,
     product_type    TEXT,
     normalised_key  TEXT NOT NULL,
+    first_seen_date TEXT,
+    last_seen_date  TEXT,
     created_at      TEXT NOT NULL,
     notes           TEXT
 );
@@ -350,6 +378,8 @@ CREATE TABLE IF NOT EXISTS events (
     date_known      TEXT,                         -- nullable, ISO date
     event_type      TEXT,
     normalised_key  TEXT NOT NULL,
+    first_seen_date TEXT,
+    last_seen_date  TEXT,
     created_at      TEXT NOT NULL,
     notes           TEXT
 );
@@ -493,7 +523,12 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 --   3 — dedup audit trail (2026-07-30): column_transcripts.transcript_text_raw
 --   4 — OCR+LLM route (2026-08-08): pages, page_ocr_blocks, items_ocr_ext,
 --                                    item_ocr_block_spans
+--   5 — OCR+LLM display raster (2026-08-08): pages.display_image_path,
+--                                    display_width_px, display_height_px
+--   6 — entity temporal index (2026-08-08): first_seen_date/last_seen_date
+--                                    on people/organizations/places/
+--                                    products/events + decade index
 INSERT OR IGNORE INTO schema_meta (key, value)
-    VALUES ('schema_version', '4');
+    VALUES ('schema_version', '6');
 INSERT OR IGNORE INTO schema_meta (key, value)
     VALUES ('created_at_iso', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));

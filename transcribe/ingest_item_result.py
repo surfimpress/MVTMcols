@@ -557,13 +557,19 @@ def upsert_entity(conn: sqlite3.Connection,
                   table: str,
                   *,
                   name: str,
-                  extra_cols: dict | None = None) -> str:
+                  extra_cols: dict | None = None,
+                  mention_date: str | None = None) -> str:
     """Find-or-insert. Returns entity id.
 
     ``extra_cols`` carries the type-specific columns (first_name,
     last_name, title etc.) that get filled in on insert. On lookup,
     we use ``normalised_key`` only — first-write-wins on the rich
     columns; later mentions inherit the existing canonical row.
+
+    ``mention_date`` (ISO 'YYYY-MM-DD', the issue date this mention
+    came from) widens first_seen_date/last_seen_date via MIN/MAX on
+    every call, insert or lookup-hit alike — unlike the rich columns,
+    these track the full span of mentions seen, not just the first.
     """
     nk = normalise_key(name)
     if not nk:
@@ -573,6 +579,14 @@ def upsert_entity(conn: sqlite3.Connection,
         f"SELECT id FROM {table} WHERE normalised_key=? LIMIT 1",
         (nk,)).fetchone()
     if row is not None:
+        if mention_date:
+            conn.execute(
+                f"UPDATE {table} SET "
+                f"first_seen_date = min(coalesce(first_seen_date, ?), ?), "
+                f"last_seen_date  = max(coalesce(last_seen_date, ?), ?) "
+                f"WHERE id=?",
+                (mention_date, mention_date, mention_date, mention_date,
+                 row["id"]))
         return row["id"]
 
     new_id = _db.new_uuid()
@@ -584,6 +598,10 @@ def upsert_entity(conn: sqlite3.Connection,
     else:
         cols.append("name")
         vals.append(name)
+
+    if mention_date:
+        cols += ["first_seen_date", "last_seen_date"]
+        vals += [mention_date, mention_date]
 
     if extra_cols:
         for k, v in extra_cols.items():
@@ -636,7 +654,8 @@ def _insert_mentions(conn: sqlite3.Connection,
                      entity_table: str,
                      junction_table: str,
                      junction_fk_col: str,
-                     name_keys: tuple[str, ...]) -> int:
+                     name_keys: tuple[str, ...],
+                     mention_date: str | None = None) -> int:
     """Insert a list of mentions into the appropriate junction table,
     upserting the entity by normalised name. Returns the count
     inserted. ``name_keys`` is the ordered list of candidate name
@@ -681,7 +700,8 @@ def _insert_mentions(conn: sqlite3.Connection,
                 extra["event_type"] = m["event_type"]
 
         eid = upsert_entity(conn, entity_table,
-                            name=name, extra_cols=extra)
+                            name=name, extra_cols=extra,
+                            mention_date=mention_date)
 
         span_start = int(m.get("span_start") or 0)
         span_end   = m.get("span_end")
@@ -830,40 +850,46 @@ def ingest(page_id: str,
                 ad_assocs_inserted += 1
 
             # Entity mentions
+            mention_date = f"{year:04d}-{month:02d}-{day:02d}"
             mentions_inserted += _insert_mentions(
                 conn, item_id=item_id,
                 mentions=item.get("people", []),
                 entity_table="people",
                 junction_table="item_people_mentions",
                 junction_fk_col="person_id",
-                name_keys=("full_name", "name"))
+                name_keys=("full_name", "name"),
+                mention_date=mention_date)
             mentions_inserted += _insert_mentions(
                 conn, item_id=item_id,
                 mentions=item.get("organizations", []),
                 entity_table="organizations",
                 junction_table="item_organizations_mentions",
                 junction_fk_col="organization_id",
-                name_keys=("name", "full_name"))
+                name_keys=("name", "full_name"),
+                mention_date=mention_date)
             mentions_inserted += _insert_mentions(
                 conn, item_id=item_id,
                 mentions=item.get("places", []),
                 entity_table="places",
                 junction_table="item_places_mentions",
                 junction_fk_col="place_id",
-                name_keys=("name", "full_name"))
+                name_keys=("name", "full_name"),
+                mention_date=mention_date)
             mentions_inserted += _insert_mentions(
                 conn, item_id=item_id,
                 mentions=item.get("products", []),
                 entity_table="products",
                 junction_table="item_products_mentions",
                 junction_fk_col="product_id",
-                name_keys=("name", "full_name"))
+                name_keys=("name", "full_name"),
+                mention_date=mention_date)
             mentions_inserted += _insert_mentions(
                 conn, item_id=item_id,
                 mentions=item.get("events", []),
                 entity_table="events",
                 junction_table="item_events_mentions",
                 junction_fk_col="event_id",
+                mention_date=mention_date,
                 name_keys=("name", "full_name"))
 
             if item.get("repair_needed"):
