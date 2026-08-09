@@ -13,7 +13,6 @@
     --row-alt: #f7f7f7;
     --accent: #2b6cb0;
     --warn: #d9822b;
-    --code-bg: #f2f2f2;
     --approve-bg: #2b6cb033;
     --approve-border: #2b6cb0;
     --ignore-bg: #6b6b6b22;
@@ -28,7 +27,6 @@
       --row-alt: #1b1e21;
       --accent: #5b9bd5;
       --warn: #e6a45c;
-      --code-bg: #1f2326;
       --approve-bg: #5b9bd533;
       --approve-border: #5b9bd5;
       --ignore-bg: #9a9a9a22;
@@ -78,12 +76,6 @@
   .confidence { font-size: 0.78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
   .confidence.low { color: var(--warn); }
   .desc { margin: 0.4rem 0; }
-  .cli {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem;
-    background: var(--code-bg); border-radius: 6px; padding: 0.5rem 0.7rem;
-    overflow-x: auto; white-space: pre; cursor: pointer;
-  }
-  .cli:hover { outline: 1px solid var(--accent); }
   .meta { font-size: 0.76rem; color: var(--muted); margin-top: 0.4rem; }
   .card-actions { display: flex; gap: 0.5rem; margin-top: 0.6rem; }
   .card-actions button {
@@ -121,9 +113,7 @@
     Reads terminology_review.json only — nothing on this page writes to the
     database directly. Approve/Ignore is saved in this browser only, until
     you click "Save decisions", which downloads one JSON file. Hand that
-    file to Claude (path or contents) to actually apply it:
-    <code>python3 -m transcribe.apply_terminology_decisions &lt;path&gt;</code>.
-    Click a command to copy it if you'd rather run one yourself directly.
+    file to Claude to actually apply it.
   </footer>
 
 <script>
@@ -176,10 +166,6 @@
       var decision = state.decisions[r.id];
       var conf = r.confidence == null ? '' : r.confidence.toFixed(2);
       var confClass = (r.confidence != null && r.confidence < 0.5) ? 'confidence low' : 'confidence';
-      var cliBlock = r.suggested_cli
-        ? '<div class="cli" data-cli="' + r.suggested_cli.replace(/"/g, '&quot;') + '">' +
-          r.suggested_cli.replace(/</g, '&lt;') + '</div>'
-        : '';
       var cardClass = 'card' + (decision === 'approve' ? ' decided-approve' : decision === 'ignore' ? ' decided-ignore' : '');
       return '<div class="' + cardClass + '" data-id="' + r.id + '">' +
         '<div class="card-top">' +
@@ -187,7 +173,6 @@
           '<span class="' + confClass + '">confidence ' + conf + '</span>' +
         '</div>' +
         '<p class="desc">' + (r.description || '').replace(/</g, '&lt;') + '</p>' +
-        cliBlock +
         '<p class="meta">' + r.entity_type + ' · raised ' + fmtAgo(r.raised_at) + ' by ' + r.raised_by + '</p>' +
         '<div class="card-actions">' +
           '<button class="approve-btn' + (decision === 'approve' ? ' on approve' : '') + '">Approve</button>' +
@@ -195,16 +180,6 @@
         '</div>' +
         '</div>';
     }).join('');
-
-    container.querySelectorAll('.cli').forEach(function(el) {
-      el.addEventListener('click', function() {
-        navigator.clipboard.writeText(el.dataset.cli).then(function() {
-          var prev = el.textContent;
-          el.textContent = 'copied to clipboard';
-          setTimeout(function() { el.textContent = prev; }, 900);
-        });
-      });
-    });
 
     container.querySelectorAll('.card').forEach(function(card) {
       var id = card.dataset.id;
