@@ -295,6 +295,54 @@ CREATE TABLE IF NOT EXISTS item_ocr_block_spans (
 );
 
 
+-- Usage telemetry for the OCR+LLM route's two LLM passes.
+-- `ocr_llm_runs` is one row per Workflow invocation (or per manual
+-- single-agent dispatch, run_id NULL on the calling side in that
+-- case) -- total_tokens here is the harness's own reported aggregate
+-- for the run, trusted as exact.
+-- `page_llm_calls` is the per-page/per-kind breakdown, recovered by
+-- parsing each agent's raw transcript after the fact (see
+-- transcribe/workflow_usage.py) -- useful for relative
+-- page-to-page comparison, but does NOT reconcile exactly to the
+-- parent run's total_tokens (~70-80% of it in the two runs checked
+-- 2026-08-09; the harness's aggregation formula isn't fully
+-- understood). Don't sum this table and expect it to match
+-- ocr_llm_runs.total_tokens -- display both, don't paper over the gap.
+
+CREATE TABLE IF NOT EXISTS ocr_llm_runs (
+    id              TEXT PRIMARY KEY,
+    year            INTEGER NOT NULL,
+    month           INTEGER NOT NULL,
+    day             INTEGER NOT NULL,
+    pages_json      TEXT,              -- JSON list of page numbers this run covered
+    agent_count     INTEGER,
+    total_tokens    INTEGER,           -- harness-reported aggregate, trusted exact
+    total_tool_calls INTEGER,
+    duration_ms     INTEGER,           -- wall-clock for the whole run
+    started_at      TEXT,
+    ended_at        TEXT NOT NULL,
+    notes           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ocr_llm_runs_issue ON ocr_llm_runs (year, month, day);
+
+
+CREATE TABLE IF NOT EXISTS page_llm_calls (
+    id            TEXT PRIMARY KEY,
+    run_id        TEXT,               -- nullable FK; NULL for manual single-agent dispatches
+    page_id       TEXT NOT NULL,
+    kind          TEXT NOT NULL,      -- 'cleanup'|'items'
+    model         TEXT,
+    tokens_in     INTEGER,
+    tokens_out    INTEGER,
+    tool_calls    INTEGER,
+    duration_ms   INTEGER,
+    created_at    TEXT NOT NULL,
+    FOREIGN KEY (run_id)  REFERENCES ocr_llm_runs(id),
+    FOREIGN KEY (page_id) REFERENCES pages(id)
+);
+CREATE INDEX IF NOT EXISTS idx_page_llm_calls_page ON page_llm_calls (page_id);
+
+
 -- Entities -----------------------------------------------------------
 -- Each entity has a normalised_key for first-pass loose dedup
 -- (lowercased, punctuation-stripped). Cross-corpus disambiguation
@@ -528,7 +576,8 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 --   6 — entity temporal index (2026-08-08): first_seen_date/last_seen_date
 --                                    on people/organizations/places/
 --                                    products/events + decade index
+--   7 — OCR+LLM usage telemetry (2026-08-09): ocr_llm_runs, page_llm_calls
 INSERT OR IGNORE INTO schema_meta (key, value)
-    VALUES ('schema_version', '6');
+    VALUES ('schema_version', '7');
 INSERT OR IGNORE INTO schema_meta (key, value)
     VALUES ('created_at_iso', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));

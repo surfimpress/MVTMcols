@@ -70,6 +70,26 @@ def build_stats(conn) -> dict:
             (y, m, d),
         ).fetchone()["n"]
 
+        # Trusted token/time totals: sum of Workflow runs' own harness-
+        # reported aggregates, plus manual single-agent dispatches
+        # (run_id IS NULL) added on top since they aren't part of any
+        # run. See schema.sql's comment on page_llm_calls -- this is
+        # deliberately NOT a sum of page_llm_calls for run-covered
+        # pages, because that reconstruction doesn't reconcile exactly
+        # to the runs' own reported totals.
+        run_usage = conn.execute(
+            "SELECT coalesce(sum(total_tokens),0) AS tokens, "
+            "coalesce(sum(duration_ms),0) AS ms FROM ocr_llm_runs "
+            "WHERE year=? AND month=? AND day=?", (y, m, d),
+        ).fetchone()
+        manual_usage = conn.execute(
+            "SELECT coalesce(sum(coalesce(tokens_in,0)+coalesce(tokens_out,0)),0) AS tokens, "
+            "coalesce(sum(duration_ms),0) AS ms FROM page_llm_calls c "
+            "JOIN pages p ON c.page_id=p.id "
+            "WHERE c.run_id IS NULL AND p.year=? AND p.month=? AND p.day=?",
+            (y, m, d),
+        ).fetchone()
+
         issue_rows.append({
             "date": f"{y:04d}-{m:02d}-{d:02d}",
             "pages": iss["pages"],
@@ -78,6 +98,8 @@ def build_stats(conn) -> dict:
             "blocks_triaged": blocks["triaged"] or 0,
             "blocks_noise": blocks["noise"] or 0,
             "blocks_uncovered": uncovered,
+            "llm_tokens": run_usage["tokens"] + manual_usage["tokens"],
+            "llm_duration_ms": run_usage["ms"] + manual_usage["ms"],
             "first_rendered": iss["first_rendered"],
             "last_rendered": iss["last_rendered"],
         })
@@ -98,15 +120,28 @@ def build_stats(conn) -> dict:
         "hocr_mean_confidence FROM pages ORDER BY created_at DESC LIMIT 20"
     ).fetchall()
 
+    recent_llm_calls = conn.execute(
+        "SELECT p.year, p.month, p.day, p.page, c.kind, c.tokens_in, c.tokens_out, "
+        "c.tool_calls, c.duration_ms, c.created_at FROM page_llm_calls c "
+        "JOIN pages p ON c.page_id=p.id ORDER BY c.created_at DESC LIMIT 20"
+    ).fetchall()
+
     totals = conn.execute(
         "SELECT (SELECT count(*) FROM pages) AS pages, "
         "(SELECT count(*) FROM page_ocr_blocks) AS blocks, "
         "(SELECT count(*) FROM items WHERE id IN (SELECT item_id FROM items_ocr_ext)) AS items"
     ).fetchone()
+    llm_totals = conn.execute(
+        "SELECT (SELECT coalesce(sum(total_tokens),0) FROM ocr_llm_runs) "
+        "+ (SELECT coalesce(sum(coalesce(tokens_in,0)+coalesce(tokens_out,0)),0) "
+        "   FROM page_llm_calls WHERE run_id IS NULL) AS tokens, "
+        "(SELECT coalesce(sum(duration_ms),0) FROM ocr_llm_runs) "
+        "+ (SELECT coalesce(sum(duration_ms),0) FROM page_llm_calls WHERE run_id IS NULL) AS duration_ms"
+    ).fetchone()
 
     return {
         "generated_at": _db.now_iso(),
-        "totals": dict(totals),
+        "totals": {**dict(totals), **dict(llm_totals)},
         "mention_counts": mention_counts,
         "issues": issue_rows,
         "recent_pages": [
@@ -118,6 +153,23 @@ def build_stats(conn) -> dict:
                 "hocr_mean_confidence": r["hocr_mean_confidence"],
             }
             for r in recent_pages
+        ],
+        # Per-page/per-kind breakdown, reconstructed from agent
+        # transcripts -- useful for relative page-to-page comparison
+        # but does NOT sum exactly to `totals.tokens` (confirmed
+        # 2026-08-09: reconstructed sums ran ~70-80% of the harness's
+        # own reported run totals across two checked runs; formula
+        # not fully understood). The monitor must caption this, not
+        # present it as the authoritative total.
+        "recent_llm_calls": [
+            {
+                "date": f"{r['year']:04d}-{r['month']:02d}-{r['day']:02d}",
+                "page": r["page"], "kind": r["kind"],
+                "tokens": (r["tokens_in"] or 0) + (r["tokens_out"] or 0),
+                "tool_calls": r["tool_calls"],
+                "duration_ms": r["duration_ms"],
+            }
+            for r in recent_llm_calls
         ],
     }
 

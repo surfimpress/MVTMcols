@@ -67,12 +67,21 @@ job is to glue these together and verify the result.
    its `result` array to a file (e.g.
    `transcribe/work/ocr_llm/YYYY-MM-DD/workflow_result.json`) and run:
    ```
-   python3 -m transcribe.ocr_llm ingest-workflow-result <path> [--model sonnet]
+   python3 -m transcribe.ocr_llm ingest-workflow-result <path> \
+     --run-dir <the run's transcript dir, from the Workflow tool's own output> \
+     --date YYYY-MM-DD --total-tokens <N> --agent-count <N> --duration-ms <N>
    ```
-   Idempotent -- pages that already have items ingested are skipped
-   and reported separately, so re-running against a partially-ingested
-   batch (e.g. after ingesting some pages by hand mid-session) is
-   safe.
+   The last four come straight from the completion notification's own
+   `<usage>` block -- pass them through, don't recompute them (the
+   token/duration total there is the harness's own trusted figure; a
+   per-page reconstruction from the transcripts runs ~70-80% of it, for
+   reasons not fully understood -- see `page_llm_calls` in `schema.sql`).
+   `--run-dir`/`--date`/`--total-tokens`/`--agent-count`/`--duration-ms`
+   are all optional as a group -- omit them to ingest results without
+   usage telemetry. Idempotent either way -- pages that already have
+   items ingested are skipped and reported separately, so re-running
+   against a partially-ingested batch (e.g. after ingesting some pages
+   by hand mid-session) is safe.
 
 5. **Verify block coverage.** Run:
    ```

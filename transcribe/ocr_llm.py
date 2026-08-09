@@ -48,6 +48,7 @@ from . import download as _dl
 from . import entity_candidates as _entity_candidates
 from . import ingest_item_result as _ingest_items
 from . import routing as _routing
+from . import workflow_usage as _wf_usage
 
 WORK_DIR = os.path.join(_db.REPO_ROOT, "transcribe", "work", "ocr_llm")
 TESSDATA_DIR = os.path.join(_db.REPO_ROOT, "transcribe", "work", "tessdata_best")
@@ -673,6 +674,74 @@ def ingest_workflow_result_data(conn, pages: list[dict], model: str = "sonnet") 
     return {"ingested": ingested, "skipped_already_done": skipped}
 
 
+def ingest_run_usage(conn, year: int, month: int, day: int, run_dir: str,
+                      total_tokens: int, agent_count: int, duration_ms: int,
+                      ended_at: str, started_at: str | None = None,
+                      notes: str | None = None) -> str:
+    """Write one ocr_llm_runs row (the harness-reported aggregate,
+    trusted exact) plus the per-page/per-kind breakdown recovered from
+    the run's transcripts (best-effort -- see schema.sql's comment on
+    why this doesn't reconcile exactly to total_tokens). `total_tokens`,
+    `agent_count`, `duration_ms`, `ended_at` come from the Workflow
+    completion notification's own <usage> block -- pass them through
+    as reported, don't recompute them."""
+    page_id_by_num = {
+        r["page"]: r["id"] for r in conn.execute(
+            "SELECT page, id FROM pages WHERE year=? AND month=? AND day=?",
+            (year, month, day))
+    }
+    per_agent = _wf_usage.extract_agent_usage(run_dir)
+    pages_covered = sorted({u["page"] for u in per_agent if u["page"] is not None})
+
+    run_id = _db.new_uuid()
+    now = _db.now_iso()
+    conn.execute(
+        """INSERT INTO ocr_llm_runs (
+            id, year, month, day, pages_json, agent_count, total_tokens,
+            total_tool_calls, duration_ms, started_at, ended_at, notes
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (run_id, year, month, day, json.dumps(pages_covered), agent_count,
+         total_tokens, sum(u["tool_calls"] for u in per_agent), duration_ms,
+         started_at, ended_at, notes),
+    )
+
+    for u in per_agent:
+        page_id = page_id_by_num.get(u["page"])
+        if page_id is None:
+            continue
+        conn.execute(
+            """INSERT INTO page_llm_calls (
+                id, run_id, page_id, kind, model, tokens_in, tokens_out,
+                tool_calls, duration_ms, created_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (_db.new_uuid(), run_id, page_id, u["kind"], u["model"],
+             u["tokens_in"], u["tokens_out"], u["tool_calls"],
+             u["duration_ms"], now),
+        )
+    conn.commit()
+    return run_id
+
+
+def ingest_manual_call_usage(conn, page_id: str, kind: str, model: str,
+                              tokens_in: int, tokens_out: int, tool_calls: int,
+                              duration_ms: int) -> str:
+    """Record usage for a single manual Agent-tool dispatch (not part
+    of a Workflow run) -- e.g. the general-purpose-fallback dispatches
+    used when a new .claude/agents/*.md type isn't in the session's
+    registry yet. run_id stays NULL."""
+    call_id = _db.new_uuid()
+    conn.execute(
+        """INSERT INTO page_llm_calls (
+            id, run_id, page_id, kind, model, tokens_in, tokens_out,
+            tool_calls, duration_ms, created_at
+        ) VALUES (?,NULL,?,?,?,?,?,?,?,?)""",
+        (call_id, page_id, kind, model, tokens_in, tokens_out,
+         tool_calls, duration_ms, _db.now_iso()),
+    )
+    conn.commit()
+    return call_id
+
+
 def verify_block_coverage(conn, year: int, month: int, day: int) -> list[dict]:
     """Per page: every page_ocr_blocks row should be claimed by
     exactly one item_ocr_block_spans row. Returns only pages with a
@@ -715,6 +784,20 @@ def _cmd_ingest_workflow_result(args):
             print(f"  page {row['page']}: ingested {row['blocks']} blocks, {row['items']} items")
         if summary["skipped_already_done"]:
             print(f"  skipped (already done): pages {summary['skipped_already_done']}")
+
+        if args.run_dir:
+            if not args.date or args.total_tokens is None or args.agent_count is None or args.duration_ms is None:
+                print("  --run-dir given but --date/--total-tokens/--agent-count/"
+                      "--duration-ms missing -- skipping usage ingest")
+            elif not pages:
+                print("  no usage recorded: empty result array")
+            else:
+                year, month, day = (int(x) for x in args.date.split("-"))
+                run_id = ingest_run_usage(
+                    conn, year, month, day, args.run_dir,
+                    total_tokens=args.total_tokens, agent_count=args.agent_count,
+                    duration_ms=args.duration_ms, ended_at=_db.now_iso())
+                print(f"  usage recorded: ocr_llm_runs.id={run_id}")
     finally:
         conn.close()
 
@@ -775,6 +858,15 @@ def main():
         help="Ingest a whole ocr_llm_issue.js Workflow run's result JSON")
     p_ingest_wf.add_argument("result_json")
     p_ingest_wf.add_argument("--model", default="sonnet")
+    p_ingest_wf.add_argument(
+        "--run-dir",
+        help="Workflow run's transcript dir, to also record usage telemetry "
+             "(requires --date, --total-tokens, --agent-count, --duration-ms "
+             "from the completion notification's own <usage> block)")
+    p_ingest_wf.add_argument("--date", help="YYYY-MM-DD, required with --run-dir")
+    p_ingest_wf.add_argument("--total-tokens", type=int)
+    p_ingest_wf.add_argument("--agent-count", type=int)
+    p_ingest_wf.add_argument("--duration-ms", type=int)
     p_ingest_wf.set_defaults(func=_cmd_ingest_workflow_result)
 
     p_verify = sub.add_parser(

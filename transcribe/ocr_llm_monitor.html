@@ -68,7 +68,7 @@
   <h2>Issues</h2>
   <table id="issues-table">
     <thead>
-      <tr><th>Date</th><th>Pages</th><th>Items</th><th>Blocks</th><th>Triaged</th><th>Noise</th><th>Uncovered</th></tr>
+      <tr><th>Date</th><th>Pages</th><th>Items</th><th>Blocks</th><th>Triaged</th><th>Noise</th><th>Uncovered</th><th>Tokens</th><th>LLM time</th></tr>
     </thead>
     <tbody id="issues-body"></tbody>
   </table>
@@ -82,6 +82,20 @@
       <tr><th>Date</th><th>Page</th><th>Rendered</th><th>Words</th><th>Mean conf</th></tr>
     </thead>
     <tbody id="recent-body"></tbody>
+  </table>
+
+  <h2>Recent LLM calls</h2>
+  <p class="sub" style="margin-bottom:0.6rem;">Per-page/per-kind breakdown, reconstructed from agent
+    transcripts after each run. Useful for comparing pages against each other — <strong>does not
+    sum to the issue totals above</strong> (those come from the harness's own reported run totals,
+    trusted exact; this reconstruction ran ~70-80% of that in the two runs checked so far, for
+    reasons not yet fully understood). "LLM time" issue-side is summed agent time, not wall-clock —
+    Workflow runs pages concurrently, so it overstates elapsed time.</p>
+  <table id="calls-table">
+    <thead>
+      <tr><th>Date</th><th>Page</th><th>Kind</th><th>Tokens</th><th>Tool calls</th><th>Time</th></tr>
+    </thead>
+    <tbody id="calls-body"></tbody>
   </table>
 
   <footer>
@@ -108,6 +122,23 @@
     return Math.round(h / 24) + 'd ago';
   }
 
+  function fmtTokens(n) {
+    if (n == null) return '—';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+    return String(n);
+  }
+
+  function fmtDuration(ms) {
+    if (ms == null) return '—';
+    var s = Math.round(ms / 1000);
+    if (s < 60) return s + 's';
+    var m = Math.floor(s / 60);
+    var rem = s % 60;
+    if (m < 60) return m + 'm ' + rem + 's';
+    var h = Math.floor(m / 60);
+    return h + 'h ' + (m % 60) + 'm';
+  }
+
   function render(data) {
     var freshness = document.getElementById('freshness');
     var ageMs = Date.now() - new Date(data.generated_at).getTime();
@@ -119,6 +150,7 @@
     summary.innerHTML = [
       ['pages', t.pages], ['blocks', t.blocks], ['items', t.items],
       ['issues', data.issues.length],
+      ['tokens', fmtTokens(t.tokens)], ['LLM time', fmtDuration(t.duration_ms)],
     ].map(function(p) {
       return '<div class="card"><div class="n">' + p[1] + '</div><div class="l">' + p[0] + '</div></div>';
     }).join('');
@@ -137,6 +169,8 @@
           '<td>' + iss.blocks_triaged + '</td>' +
           '<td>' + iss.blocks_noise + '</td>' +
           '<td class="' + uncoveredCls + '">' + iss.blocks_uncovered + '</td>' +
+          '<td>' + fmtTokens(iss.llm_tokens) + '</td>' +
+          '<td>' + fmtDuration(iss.llm_duration_ms) + '</td>' +
           '</tr>';
       }).join('');
     }
@@ -157,6 +191,22 @@
           '<td>' + fmtAgo(p.created_at) + '</td>' +
           '<td>' + (p.hocr_word_count == null ? '—' : p.hocr_word_count) + '</td>' +
           '<td>' + (p.hocr_mean_confidence == null ? '—' : p.hocr_mean_confidence) + '</td>' +
+          '</tr>';
+      }).join('');
+    }
+
+    var callsBody = document.getElementById('calls-body');
+    if (!data.recent_llm_calls.length) {
+      callsBody.innerHTML = '<tr><td colspan="6" class="empty">No LLM calls recorded yet</td></tr>';
+    } else {
+      callsBody.innerHTML = data.recent_llm_calls.map(function(c) {
+        return '<tr>' +
+          '<td>' + c.date + '</td>' +
+          '<td>' + c.page + '</td>' +
+          '<td>' + c.kind + '</td>' +
+          '<td>' + fmtTokens(c.tokens) + '</td>' +
+          '<td>' + (c.tool_calls == null ? '—' : c.tool_calls) + '</td>' +
+          '<td>' + fmtDuration(c.duration_ms) + '</td>' +
           '</tr>';
       }).join('');
     }
