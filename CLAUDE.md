@@ -10,134 +10,81 @@ session pauses mid-task for a reason a fresh session needs to know
 that a session starting cold can read this and `transcribe/work/experiments.jsonl`'s
 tail and reconstruct state without replaying a whole prior transcript.
 
-**Active work: OCR+LLM route for 1980s+ issues — pipeline built,
-repeatable, and Workflow-orchestrated.** Pre-1980 column-transcription
-production continues unchanged on its own path — see
-`transcribe/PLAYBOOK.md` for that procedure and its own live status
-section (1% of the corpus done: 57/5,666 issues, 452/44,826 pages;
-two review-agent bugs confirmed but not yet fixed — `quality_flags.
-adjacent_text_visible` over-triggers at 83.5%, and `subdivide_slice.
-py`'s `assemble` step drops `confidence` on Tier-4 reconstructed
-slices. Both still open, see the playbook for detail).
+**OCR+LLM route (1980s+ issues) is built and stable** —
+`transcribe/ocr_llm.py` (render/OCR/cleanup/items pipeline),
+`.claude/agents/ocr-cleanup.md` + `ocr-items.md` (Read-only, durable
+rules cached), `transcribe/routing.py` (1980 cutoff),
+`.claude/skills/ocr-transcribe-issue/SKILL.md`,
+`transcribe/workflows/ocr_llm_issue.js`. Validated end-to-end on
+2001-01-03 (12pp), 1994-01-05 (12pp), 1986-01-08 (18pp). Monitor at
+`transcribe/ocr_llm_monitor.html` (own JSON store, LaunchAgent-
+refreshed, zero DB load from viewing). Not yet done:
+`items_ocr_ext.item_hocr`/`full_text_markdown` unpopulated; no
+content-filter retry ladder. Full detail in git log around
+2026-08-09, not repeated here.
 
-This session's thread, prompted by the 1980s+ issues' resistance to
-column detection (a dead end, not just a discount — see
-`layout_observations.md`): built a whole-page **Tesseract OCR + LLM
-correction** route that bypasses column cutting entirely, took it from
-one-off exploration to a real repeatable pipeline, and ran it
-end-to-end on a full issue via `Workflow`.
+**Entity registry is now real** — `people`/`organizations`/`places`/
+`products`/`events` carry `first_seen_date`/`last_seen_date` (MIN/MAX
+per mention, schema v6+), `transcribe/entity_candidates.py` prefetches
+candidates for the LLM to match against (decade-windowed for people),
+`transcribe/merge_entity.py` is the one-line CLI for merging
+duplicates (`python3 -m transcribe.merge_entity <type> <keep> <drop>
+[--alias]`). `transcribe/entities.html` is the browsable table
+(search/filter/sort/paginate, URL-synced). Established curation
+patterns this session, now also baked into `ocr-items.md` /
+`items-classifier.md` for future extraction:
+  - Period abbreviations (Wm./Geo./Chas./Thos./Jas./Robt./Ed.)
+    expand to full names; original stays in `mention_text`, not a
+    separate field — that field already existed for exactly this.
+  - Products: `name` is the generic category ("Baking Powder"), brand
+    goes in `manufacturer`, `mention_text` keeps the branded form as
+    printed.
+  - Recurring event types where each instance differs only by
+    who/where (marriages) genericize to one `name` ("Marriage");
+    **deaths were explicitly left alone** — don't extend the pattern
+    there without asking, a death may carry more individually-
+    important distinguishing value than a marriage announcement.
+  - When splitting/merging changes the date range, merge outright on
+    identical ranges; for people, a large date gap argues against
+    same-identity (ask); for products/events as generic categories, a
+    date gap doesn't argue against merging (a category legitimately
+    spans decades) — different reasoning for different entity kinds,
+    don't apply one rule uniformly.
 
-- **Full pipeline module: `transcribe/ocr_llm.py`.** Deterministic
-  parts only (render at 300dpi via `pdf_utils`, Tesseract with Sauvola
-  thresholding + `tessdata_best`, hOCR parsing at `ocr_carea` block
-  granularity — confirmed empirically to match Tesseract's own block
-  count, not assumed), DB writes, ticket/prompt construction. Never
-  calls an LLM itself — mirrors the column-cut pipeline's
-  claim/dispatch/ingest split. CLI: `python3 -m transcribe.ocr_llm
-  render <date> --page N`, then `ingest-cleanup` / `ingest-items`
-  after the two LLM passes run. `ensure_tessdata_best()` and the
-  entity-candidate prefetch (see below) are the two "reliably
-  slow-moving, pre-compute once" pieces — neither re-fetches per page.
-- **Two dedicated agent types** replace generic Agent-tool dispatch:
-  `.claude/agents/ocr-cleanup.md` (text-only correction, `tools:
-  Read`) and `.claude/agents/ocr-items.md` (item segmentation + entity
-  tagging, `tools: Read`). Durable task rules live in these files, not
-  resent every call — per-call prompts in `ocr_llm.py` now carry only
-  the variable bits (date/page/file paths), mirroring
-  `column-transcriber`'s already-validated split. New agent `.md`
-  files are **not** picked up mid-session — confirmed twice this
-  session (registry only refreshed after a session boundary). Use the
-  documented fallback (general-purpose + sonnet, told to Read the
-  agent file itself) if you need one before a fresh session starts.
-- **Geometry-first item-markup fix, measured not assumed.** The first
-  real item-markup run did exhaustive pixel-level border verification
-  on every item: 100,949 tokens, **40 tool calls**, 590s. The prompt
-  now says derive item boundaries from block adjacency/column
-  x-position first, use the image only for genuinely ambiguous
-  regions, and explicitly says not to pixel-verify every box. Re-run
-  on the same page: **3-4 tool calls**, 395-414s. Token count didn't
-  drop (~105-110K) because that same call now also does entity
-  extraction (real new output, not overhead) — the fix's win is
-  tool-calls/time, not tokens, and that's the honest way to state it.
-- **Entity registry: first_seen_date/last_seen_date landed** (schema
-  v6, additive — see version history in `schema.sql`). `upsert_entity`
-  in `ingest_item_result.py` now does MIN/MAX on every mention, not
-  just first-write; backfilled from existing `item_*_mentions` history
-  (450/522 people etc. got real dates — the rest have zero linked
-  mentions, a pre-existing gap, left NULL rather than fabricated).
-  `transcribe/entity_candidates.py` does the token-efficient lookup:
-  one bulk query per page (not per-mention), people filtered to a
-  ±40yr window around the issue's date via the decade-bucketed
-  `idx_people_decade` expression index, organizations/places/products/
-  events unfiltered (small tables, persist across decades). Verified
-  on real data: "Almonte" correctly matched its existing 1912-12-27
-  entity and extended `last_seen_date` to 2001-01-03 — an 89-year
-  span, MIN/MAX working as designed.
-- **2001-01-03 fully processed, all 12 pages** (not 10 — `render-issue`
-  found 2 more pages beyond an earlier manual assumption; don't guess
-  an issue's page count, enumerate it from `mvtm.files`). 191 items,
-  1,312 OCR blocks, 0 uncovered blocks after a fix, 1,490 entity
-  mentions (708 people, 264 orgs, 404 places, 64 products, 50 events).
-  Ran through the actual `Workflow`-orchestrated pipeline across two
-  batches (pages 5-10, then 11-12) — script at
-  `transcribe/workflows/ocr_llm_issue.js`. One real gap caught by a
-  block-coverage check (not assumed clean): page 9 had 4 blocks (idx
-  32-35, a health-insurance-adjacent ad fragment) the item-markup pass
-  never assigned to any item — added as an honest raw catch-all item
-  (matches the p4 "Stray mark" precedent — no fabricated label) rather
-  than left orphaned or silently dropped.
-- **Full issue-level integration landed** (the two items this session
-  left open have both been built):
-  - `transcribe/routing.py` — `route_for_date(year)` /
-    `layout_class_for_date(year)`, hard cutoff at 1980 (matches this
-    project's actual reality: 1980s+ cutting/QA was never signed off,
-    so "column-cut done and QA'd" and "pre-1980" are the same
-    question as of this writing — see the module docstring for when
-    to override per-issue instead of moving the cutoff).
-  - `transcribe/ocr_llm.py` gained three CLI commands:
-    `render-issue DATE` (enumerates every page from `mvtm.files`,
-    renders+OCRs+tickets all of them, idempotent, writes a
-    Workflow-ready args file), `ingest-workflow-result PATH`
-    (ingests a whole Workflow run's result array, idempotent against
-    partial re-runs), `verify-coverage DATE` (the block-coverage check
-    that caught the page 9 gap, now a real command instead of an ad
-    hoc script).
-  - `.claude/skills/ocr-transcribe-issue/SKILL.md` documents the full
-    procedure end to end. Explicitly does NOT yet have
-    `transcribe-issue`'s content-filter escalation ladder,
-    Haiku/Sonnet comparison mode, or download cleanup — noted as
-    "not yet built" rather than silently absent.
-- **New monitor: `transcribe/ocr_llm_monitor.html`.** Own compiled-
-  stats store (`transcribe/ocr_llm_stats.json`, gitignored, generated)
-  built by `transcribe/build_ocr_llm_stats.py`. Zero DB access from
-  the monitor page itself — it only fetches the JSON, polling every
-  20s. The JSON is kept fresh by a new LaunchAgent,
-  `com.mvtm.ocr_llm_stats` (`tools/refresh_ocr_llm_stats.py` +
-  `tools/com.mvtm.ocr_llm_stats.plist`, installed and confirmed
-  running this session), on its own 60s loop — independent of
-  whatever Workflow is or isn't running, deliberately avoiding
-  `build_repair_stats.py`'s own documented past mistake (being
-  invoked on every page-completion event by a live loop). Live at
-  `https://mcmniintstdio.surfaceimpression.com/MVTM/transcribe/
-  ocr_llm_monitor.html` (behind the existing Cloudflare Access gate,
-  verified serving 200 after redirect, not just assumed from the
-  URL's past use).
-- **`transcribe/backfill_2001_ocr_llm.py`** (pages 1-3, an earlier
-  session-local one-off) is now fully superseded by the real pipeline
-  above — don't extend it.
-- **Not yet done / next session:**
-  - `items_ocr_ext.item_hocr`/`full_text_markdown` columns exist but
-    nothing populates them yet.
-  - The `args` parameter to `Workflow` arrived as a non-array once
-    this session (crashed `pipeline()` before any agent ran) — worked
-    around defensively in the script (`Array.isArray(args) ? args :
-    JSON.parse(args)`), root cause not diagnosed. Watch for a repeat.
-  - `--user-words` custom dictionaries confirmed to have zero effect
-    on the modern LSTM engine — don't revisit without a materially
-    different angle.
-  - No content-filter-block retry ladder for `ocr-cleanup`/`ocr-items`
-    calls yet (see the skill's "Not yet built" section) — build it if
-    it actually recurs, not preemptively.
+**Pre-1980 items/entities: only 1912-12-27 is actually done**
+(1,133→ wait, 160 items, 718 distinct terms). 59 other pre-1980 issues
+have `column_transcripts` done (pass-1A) but **zero** `ad_transcripts`
+(pass-1B never run) and **zero** `items`. Audited 2026-08-09, don't
+re-derive without reading this first:
+  - **Ad PNGs are archived off local disk for every pre-1980 issue**,
+    including 1912-12-27's own already-transcribed ones (cold-storage
+    archival, not specific to any one date). Pass-1B can't run
+    without restoring them from wherever they're archived to.
+  - **Corrected finding, verified against `claim_items.py`'s actual
+    code (not the skill doc's stated prose):** pass-2 (items-
+    classifier) does NOT hard-require pass-1B. The only real gate is
+    columns being done; ad transcripts are pulled in if present but
+    their absence doesn't block a ticket. `classify-items-page/
+    SKILL.md`'s "pass-1B must land first" is a quality expectation,
+    not a technical one — items-classifier can extract people/places/
+    orgs/events from column body text fine without ads; only ad-
+    specific content itself would be missing on pages that have real,
+    untranscribed ads. This was asserted as a hard blocker earlier in
+    error — verify against the code, not the skill doc's prose, if
+    this comes up again.
+  - **Don't trust `mvtm.detected_ads` at face value for 1930-04-11,
+    1962-02-01, 1973-01-11** (the three merged-issue reallocation
+    dates — see `layout_observations.md`). Their ad detection is
+    still filed under the *original wrong* date bucket (1930-04-04,
+    1962-01-25, 1973-01-04 respectively); these three show "zero
+    detected ads" but are not actually ad-free. Confirmed by checking
+    the old-date buckets have real ads (4-15 per page) while the
+    reallocated dates have none at all in `detected_ads`.
+  - **Paused here deliberately.** Running pass-2 across the 59
+    unblocked issues is technically possible right now (per the
+    corrected finding above) but the user wants to resolve some
+    structural things first — specifics not yet stated as of this
+    writing. Don't start a broad pass-2 run without checking in first.
 
 ## `instructions/` is the durable knowledge base — keep it current
 
