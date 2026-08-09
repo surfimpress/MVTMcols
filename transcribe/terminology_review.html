@@ -91,6 +91,39 @@
   .scope-note { font-size: 0.72rem; color: var(--warn); margin-top: 0.3rem; }
   .empty { color: var(--muted); padding: 2rem 0; text-align: center; }
   footer { margin-top: 1.5rem; color: var(--muted); font-size: 0.78rem; }
+
+  .context-btn {
+    font: inherit; font-size: 0.78rem; color: var(--accent); background: none;
+    border: none; cursor: pointer; padding: 0; margin-top: 0.5rem; text-decoration: underline;
+  }
+
+  dialog#context-dialog {
+    max-width: 900px; width: 92vw; max-height: 80vh;
+    padding: 0; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--bg); color: var(--fg);
+  }
+  dialog#context-dialog::backdrop { background: rgba(0,0,0,0.4); }
+  .dialog-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 1rem 1.25rem; border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; background: var(--bg);
+  }
+  .dialog-head h2 { font-size: 1rem; margin: 0; }
+  .dialog-head button {
+    background: none; border: none; color: var(--muted); font-size: 1.3rem;
+    cursor: pointer; line-height: 1; padding: 0.25rem;
+  }
+  .dialog-body { padding: 0.5rem 1.25rem 1.25rem; overflow-y: auto; max-height: calc(80vh - 4rem); }
+  .context-columns { display: flex; gap: 1.25rem; flex-wrap: wrap; }
+  .context-col { flex: 1 1 320px; min-width: 280px; }
+  .context-col h3 { font-size: 0.88rem; margin: 0.4rem 0 0.5rem; }
+  .mention-item {
+    border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem 0.7rem;
+    margin-bottom: 0.5rem; background: var(--row-alt);
+  }
+  .mention-meta { font-size: 0.74rem; color: var(--muted); margin-bottom: 0.3rem; }
+  .mention-excerpt { font-size: 0.85rem; white-space: pre-wrap; }
+  .mention-excerpt mark { background: var(--warn); color: #1a1a1a; padding: 0 0.1em; }
 </style>
 </head>
 <body>
@@ -113,6 +146,14 @@
 
   <p class="count" id="count"></p>
   <div id="cards"></div>
+
+  <dialog id="context-dialog">
+    <div class="dialog-head">
+      <h2 id="context-dialog-title"></h2>
+      <button id="context-dialog-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="dialog-body" id="context-dialog-body"></div>
+  </dialog>
 
   <footer>
     Reads terminology_review.json only — nothing on this page writes to the
@@ -188,6 +229,10 @@
         ? '<p class="scope-note">Permanent rule — future matches like this one will be ' +
           (d.decision === 'approve' ? 'auto-applied' : 'auto-skipped') + ' without review.</p>'
         : '';
+      var hasContext = (r.context_a && r.context_a.length) || (r.context_b && r.context_b.length);
+      var contextBtn = hasContext
+        ? '<button class="context-btn" data-context-id="' + r.id + '">Show mentions in context</button>'
+        : '';
       return '<div class="' + cardClass + '" data-id="' + r.id + '">' +
         '<div class="card-top">' +
           '<span class="kind-tag">' + r.review_kind.replace(/_/g, ' ') + '</span>' +
@@ -195,6 +240,7 @@
         '</div>' +
         '<p class="desc">' + (r.description || '').replace(/</g, '&lt;') + '</p>' +
         '<p class="meta">' + r.entity_type + ' · raised ' + fmtAgo(r.raised_at) + ' by ' + r.raised_by + '</p>' +
+        contextBtn +
         '<div class="card-actions">' +
           '<div class="action-group">' +
             '<span class="group-label">This match:</span>' +
@@ -231,8 +277,53 @@
           setDecision(id, { decision: decision, scope: scope });
         });
       });
+      var contextBtn = card.querySelector('.context-btn');
+      if (contextBtn) {
+        contextBtn.addEventListener('click', function() {
+          var r = (state.data.reviews || []).find(function(x) { return x.id === id; });
+          if (r) openContextDialog(r);
+        });
+      }
     });
   }
+
+  function mentionCard(m) {
+    var date = m.year ? (m.year + '-' + String(m.month).padStart(2, '0') + '-' + String(m.day).padStart(2, '0')) : '';
+    var loc = [date, m.headline, m.page ? ('p' + m.page) : null].filter(Boolean).join(' · ');
+    return '<div class="mention-item">' +
+      '<div class="mention-meta">' + loc.replace(/</g, '&lt;') + '</div>' +
+      '<div class="mention-excerpt">' + (m.excerpt || '').replace(/</g, '&lt;') + '</div>' +
+      '</div>';
+  }
+
+  function openContextDialog(r) {
+    var dialog = document.getElementById('context-dialog');
+    var title = document.getElementById('context-dialog-title');
+    var body = document.getElementById('context-dialog-body');
+    title.textContent = (r.description || '').replace(/_/g, ' ');
+
+    var colA = '<div class="context-col"><h3>' + (r.entity_type || '') + ' A</h3>' +
+      ((r.context_a && r.context_a.length)
+        ? r.context_a.map(mentionCard).join('')
+        : '<p class="empty" style="padding:0.5rem 0">No mentions found.</p>') +
+      '</div>';
+    var colB = (r.other_entity_id)
+      ? '<div class="context-col"><h3>' + (r.entity_type || '') + ' B</h3>' +
+        ((r.context_b && r.context_b.length)
+          ? r.context_b.map(mentionCard).join('')
+          : '<p class="empty" style="padding:0.5rem 0">No mentions found.</p>') +
+        '</div>'
+      : '';
+    body.innerHTML = '<div class="context-columns">' + colA + colB + '</div>';
+    dialog.showModal();
+  }
+
+  document.getElementById('context-dialog-close').addEventListener('click', function() {
+    document.getElementById('context-dialog').close();
+  });
+  document.getElementById('context-dialog').addEventListener('click', function(e) {
+    if (e.target.id === 'context-dialog') document.getElementById('context-dialog').close();
+  });
 
   function setDecision(id, value) {
     if (value === null) delete state.decisions[id];
