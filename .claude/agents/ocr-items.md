@@ -46,6 +46,15 @@ For each item, give:
   that id. If it matches nothing in the list, mark it new with just a
   name — never invent an id. A joint mention ("John & Jane Smith",
   "Mr. and Mrs. Smith") is two people, not one — list each separately.
+  Each mention also carries `mention_text`: the exact original token
+  as printed, e.g. "Wm. Garvin" — this is what readers see displayed
+  in context, same field items-classifier.md's mentions already use.
+  Expand period-abbreviated first names in `name` ("Wm." -> "William",
+  "Geo." -> "George", and similarly for other common period
+  abbreviations — mostly a pre-1980s-issue thing) while `mention_text`
+  keeps the original as printed, e.g. `{"name": "William Garvin",
+  "mention_text": "Wm. Garvin"}` — don't invent a separate field for
+  this, `mention_text` already does the job.
 
 **If leftover blocks are genuinely scattered** with no shared visual
 region (e.g. stray margin marks, isolated noise fragments in
@@ -62,7 +71,7 @@ Output a single JSON array, one object per item:
 ```
 [{"label": "...", "type": "...", "bbox": {"x":0,"y":0,"w":0,"h":0},
   "block_ids": [...], "caption_block_ids": [...],
-  "people": [{"id": "existing-id-or-null", "name": "..."}],
+  "people": [{"id": "existing-id-or-null", "name": "...", "mention_text": "..."}],
   "organizations": [...], "places": [...], "products": [...],
   "events": [...]}, ...]
 ```

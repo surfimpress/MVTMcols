@@ -276,7 +276,11 @@ generic "the company" without a name is not an entity mention.
 Pronouns are not entity mentions. A title without a name ("Mr.")
 is not an entity mention. A joint mention ("John & Jane Smith",
 "Mr. and Mrs. Smith") is two people, not one — record each
-separately.
+separately. For a period-abbreviated first name ("Wm.", "Geo.", and
+similarly common abbreviations — mostly a pre-1980s-issue thing),
+put the expanded form in `full_name` ("William", "George") and let
+`mention_text` carry the original as printed — that field already
+exists for exactly this, no separate alias field needed.
 
 For dates and ages, capture the principal one in the `summary` or
 the relevant entity's `event` row; you don't need a separate item

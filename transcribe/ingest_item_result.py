@@ -558,7 +558,8 @@ def upsert_entity(conn: sqlite3.Connection,
                   *,
                   name: str,
                   extra_cols: dict | None = None,
-                  mention_date: str | None = None) -> str:
+                  mention_date: str | None = None,
+                  alias: str | None = None) -> str:
     """Find-or-insert. Returns entity id.
 
     ``extra_cols`` carries the type-specific columns (first_name,
@@ -570,13 +571,20 @@ def upsert_entity(conn: sqlite3.Connection,
     came from) widens first_seen_date/last_seen_date via MIN/MAX on
     every call, insert or lookup-hit alike — unlike the rich columns,
     these track the full span of mentions seen, not just the first.
+
+    ``alias`` (e.g. "Wm. Garvin" when ``name`` is the expanded
+    "William Garvin" -- the caller derives this from the mention's
+    own ``mention_text`` field, already part of the mention schema;
+    see _insert_mentions) is recorded as a note, same format
+    ``merge_entity.py`` uses ("alias: X") so both paths land in the
+    same place -- appended once, not duplicated on repeat mentions.
     """
     nk = normalise_key(name)
     if not nk:
         raise ValueError(f"empty normalised key for name {name!r}")
 
     row = conn.execute(
-        f"SELECT id FROM {table} WHERE normalised_key=? LIMIT 1",
+        f"SELECT id, notes FROM {table} WHERE normalised_key=? LIMIT 1",
         (nk,)).fetchone()
     if row is not None:
         if mention_date:
@@ -587,6 +595,12 @@ def upsert_entity(conn: sqlite3.Connection,
                 f"WHERE id=?",
                 (mention_date, mention_date, mention_date, mention_date,
                  row["id"]))
+        if alias:
+            alias_note = f"alias: {alias}"
+            notes = (row["notes"] or "")
+            if alias_note not in notes:
+                notes = (notes + "; " + alias_note).strip("; ")
+                conn.execute(f"UPDATE {table} SET notes=? WHERE id=?", (notes, row["id"]))
         return row["id"]
 
     new_id = _db.new_uuid()
@@ -602,6 +616,10 @@ def upsert_entity(conn: sqlite3.Connection,
     if mention_date:
         cols += ["first_seen_date", "last_seen_date"]
         vals += [mention_date, mention_date]
+
+    if alias:
+        cols.append("notes")
+        vals.append(f"alias: {alias}")
 
     if extra_cols:
         for k, v in extra_cols.items():
@@ -699,9 +717,20 @@ def _insert_mentions(conn: sqlite3.Connection,
             if m.get("event_type"):
                 extra["event_type"] = m["event_type"]
 
+        # mention_text is the exact original token as printed (see the
+        # schema docstring in items-classifier.md/ocr-items.md) --
+        # when it differs from the canonical `name` (e.g. name was
+        # expanded from an abbreviation like "Wm." -> "William"),
+        # that's exactly the alias worth recording. No separate
+        # "alias" field needed; this is what mention_text is for.
+        mention_text = m.get("mention_text")
+        alias = None
+        if mention_text and normalise_key(mention_text) != normalise_key(name):
+            alias = mention_text
+
         eid = upsert_entity(conn, entity_table,
                             name=name, extra_cols=extra,
-                            mention_date=mention_date)
+                            mention_date=mention_date, alias=alias)
 
         span_start = int(m.get("span_start") or 0)
         span_end   = m.get("span_end")
