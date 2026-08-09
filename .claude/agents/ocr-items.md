@@ -50,9 +50,10 @@ For each item, give:
   as printed, e.g. "Wm. Garvin" — this is what readers see displayed
   in context, same field items-classifier.md's mentions already use.
   Expand period-abbreviated first names in `name` ("Wm." -> "William",
-  "Geo." -> "George", and similarly for other common period
-  abbreviations — mostly a pre-1980s-issue thing) while `mention_text`
-  keeps the original as printed, e.g. `{"name": "William Garvin",
+  "Geo." -> "George", "Chas." -> "Charles", "Thos." -> "Thomas",
+  "Jas." -> "James", "Robt." -> "Robert", and similarly for other
+  common period abbreviations — mostly a pre-1980s-issue thing) while
+  `mention_text` keeps the original as printed, e.g. `{"name": "William Garvin",
   "mention_text": "Wm. Garvin"}` — don't invent a separate field for
   this, `mention_text` already does the job.
 
