@@ -59,7 +59,13 @@ For each item, give:
   abbreviation of it), don't force it to "Edward") while
   `mention_text` keeps the original as printed, e.g. `{"name": "William Garvin",
   "mention_text": "Wm. Garvin"}` — don't invent a separate field for
-  this, `mention_text` already does the job.
+  this, `mention_text` already does the job. Same idea for products:
+  `name` is the **generic** product ("Baking Powder"), not the
+  branded form as printed ("White Swan Baking Powder") — put the
+  brand in `manufacturer` and let `mention_text` carry the full
+  printed form, e.g. `{"name": "Baking Powder", "manufacturer":
+  "White Swan", "mention_text": "White Swan Baking Powder"}`. This
+  lets one generic product entity cover mentions of different brands.
 
 **If leftover blocks are genuinely scattered** with no shared visual
 region (e.g. stray margin marks, isolated noise fragments in

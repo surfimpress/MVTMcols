@@ -263,8 +263,16 @@ Type-specific fields:
   "county", "country", "landmark", "road"). Place hierarchy
   (Almonte → Ontario → Canada) is out of scope at extraction time;
   list each as it appears.
-- **products**: `name` (required), `manufacturer`, `product_type`
-  (REQUIRED — see the *Type taxonomies* note below).
+- **products**: `name` (required) — the **generic** product, not the
+  branded form as printed ("Baking Powder", not "White Swan Baking
+  Powder"). Put the brand in `manufacturer` (e.g. "White Swan") and
+  let `mention_text` carry the full printed form — same pattern as
+  the period-abbreviated-name rule above, reusing the field that
+  already exists rather than cramming the brand into `name`. This
+  lets "Baking Powder" be one entity that different brands' mentions
+  all link to, instead of a separate entity per brand. `product_type`
+  (REQUIRED — see the *Type taxonomies* note below) stays the coarser
+  category (e.g. "grocery_provisions"), one level up from `name`.
 - **events**: `name` (required), `year_known`, `date_known` (ISO
   date), `event_type` (e.g. "marriage", "death", "fire", "fair",
   "election").
