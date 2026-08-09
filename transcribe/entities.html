@@ -85,9 +85,37 @@
     .pager button { padding: 0.4rem 0.75rem; }
     th, td { padding: 0.5rem 0.5rem; }
   }
+
+  /* --- cross-page nav --- */
+  .nav-toggle {
+    position: fixed; top: 0.9rem; right: 0.9rem; z-index: 100;
+    width: 2.3rem; height: 2.3rem; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--fg);
+    font-size: 1.15rem; line-height: 1; cursor: pointer;
+  }
+  .nav-panel {
+    position: fixed; top: 3.5rem; right: 0.9rem; z-index: 100;
+    display: none; flex-direction: column; min-width: 190px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.18); overflow: hidden;
+  }
+  .nav-panel.open { display: flex; }
+  .nav-panel a {
+    padding: 0.65rem 0.9rem; color: var(--fg); text-decoration: none;
+    font-size: 0.86rem; border-bottom: 1px solid var(--border);
+  }
+  .nav-panel a:last-child { border-bottom: none; }
+  .nav-panel a:hover { background: var(--row-alt); }
+  .nav-panel a.current { color: var(--accent); font-weight: 600; pointer-events: none; }
 </style>
 </head>
 <body>
+  <button class="nav-toggle" id="nav-toggle" aria-label="Open navigation">&#9776;</button>
+  <nav class="nav-panel" id="nav-panel">
+    <a href="monitor.html">OCR+LLM route monitor</a>
+    <a href="entities.html">Entities</a>
+    <a href="terminology_review.html">Terminology review</a>
+  </nav>
   <h1>Entities</h1>
   <p class="sub" id="freshness">loading…</p>
 
@@ -293,6 +321,26 @@
 
   poll();
   setInterval(poll, POLL_MS);
+})();
+</script>
+<script>
+(function() {
+  var toggle = document.getElementById('nav-toggle');
+  var panel = document.getElementById('nav-panel');
+  var here = location.pathname.split('/').pop();
+  panel.querySelectorAll('a').forEach(function(a) {
+    if (a.getAttribute('href') === here) a.classList.add('current');
+  });
+  toggle.addEventListener('click', function(e) {
+    e.stopPropagation();
+    panel.classList.toggle('open');
+  });
+  document.addEventListener('click', function(e) {
+    if (!panel.contains(e.target) && e.target !== toggle) panel.classList.remove('open');
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') panel.classList.remove('open');
+  });
 })();
 </script>
 </body>

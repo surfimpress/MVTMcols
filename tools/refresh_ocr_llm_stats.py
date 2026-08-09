@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Background refresher for transcribe/ocr_llm_stats.json,
+"""Background refresher for transcribe/monitor.json,
 transcribe/entities.json, and transcribe/terminology_review.json.
 
-Keeps the monitor pages (ocr_llm_monitor.html, entities.html,
+Keeps the monitor pages (monitor.html, entities.html,
 terminology_review.html) current without any manual invocation and
 without any page ever touching the database -- only this script
 queries transcribe.db, on its own slow interval, independent of
@@ -30,7 +30,7 @@ REPO = "/Users/peter/Projects/MVTM"
 INTERVAL = 60  # seconds -- a handful of aggregate SQL queries, cheap at this scale
 
 BUILD_MODULES = [
-    "transcribe.build_ocr_llm_stats",
+    "transcribe.build_monitor_stats",
     "transcribe.build_entities_stats",
     "transcribe.build_terminology_review_stats",
 ]

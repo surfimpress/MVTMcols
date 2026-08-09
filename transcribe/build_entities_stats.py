@@ -1,6 +1,6 @@
 """Write transcribe/entities.json for the entity table-view page.
 
-Own compiled-stats store (like ocr_llm_stats.json), separate because
+Own compiled-stats store (like monitor.json), separate because
 entities span both pipelines (pre-1980 items-classifier and the
 OCR+LLM route) -- not scoped to either one. transcribe/entities.html
 only ever reads this JSON, never queries transcribe.db directly.

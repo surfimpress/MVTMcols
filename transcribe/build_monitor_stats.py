@@ -1,9 +1,9 @@
-"""Write transcribe/ocr_llm_stats.json for the OCR+LLM route's monitor.
+"""Write transcribe/monitor.json for the OCR+LLM route's monitor.
 
 Own compiled-stats store, deliberately separate from repair_stats.json
 (that one belongs to the column-cut pipeline; this route has different
 shape data -- OCR blocks/confidence, item/entity counts, no column
-concept at all). transcribe_ocr_llm_monitor.html only ever reads this
+concept at all). transcribe/monitor.html only ever reads this
 JSON file, never queries transcribe.db directly, so viewing the
 monitor never touches the database. The only writer is this script,
 invoked on a slow, fixed interval by a LaunchAgent (see
@@ -21,7 +21,7 @@ corpus_totals_cache.json-style hour-long caching build_repair_stats.py
 uses -- not needed yet, so not added yet.
 
 Run standalone:
-    python3 -m transcribe.build_ocr_llm_stats
+    python3 -m transcribe.build_monitor_stats
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ import os
 from . import db as _db
 from . import workflow_usage as _wf_usage
 
-OUT_PATH = os.path.join(_db.REPO_ROOT, "transcribe", "ocr_llm_stats.json")
+OUT_PATH = os.path.join(_db.REPO_ROOT, "transcribe", "monitor.json")
 
 
 def _rows_to_dicts(rows):

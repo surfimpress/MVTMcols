@@ -18,7 +18,7 @@ to the same 11-value taxonomy as `items-classifier.md`),
 `transcribe/routing.py` (1980 cutoff), `.claude/skills/ocr-transcribe-issue/SKILL.md`,
 `transcribe/workflows/ocr_llm_issue.js`. Validated end-to-end on
 2001-01-03 (12pp), 1994-01-05 (12pp), 1986-01-08 (18pp). Monitor at
-`transcribe/ocr_llm_monitor.html`. Not yet done: `items_ocr_ext.item_hocr`/
+`transcribe/monitor.html`. Not yet done: `items_ocr_ext.item_hocr`/
 `full_text_markdown` unpopulated; no content-filter retry ladder.
 
 **Entity registry + taxonomy cleanup, substantial work 2026-08-09** —
@@ -73,7 +73,7 @@ its own `terminology_reviews` table — **deliberately separate from
 `repairs`**, which is the transcript/cutting-pipeline domain, not
 entity/terminology. Review queue is `transcribe/terminology_review.html`
 (own JSON store, refreshed by the same fast LaunchAgent loop as
-`entities.html`/`ocr_llm_monitor.html`; the cleanup *passes* themselves
+`entities.html`/`monitor.html`; the cleanup *passes* themselves
 are NOT in that fast loop — they make live external SPARQL calls and
 take real time, so they're a separate, slower invocation). Three
 passes, tested against the live corpus:

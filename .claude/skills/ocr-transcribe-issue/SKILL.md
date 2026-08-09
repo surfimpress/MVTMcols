@@ -114,9 +114,9 @@ job is to glue these together and verify the result.
 
 ## Monitor
 
-`transcribe/ocr_llm_monitor.html` shows live pages/items/entity counts
+`transcribe/monitor.html` shows live pages/items/entity counts
 and per-issue block-coverage gaps. It reads
-`transcribe/ocr_llm_stats.json` only -- it never queries the database,
+`transcribe/monitor.json` only -- it never queries the database,
 and the JSON is kept fresh by a LaunchAgent
 (`com.mvtm.ocr_llm_stats`, installed from `tools/`) on its own 60s
 loop, independent of whether a Workflow is running. No manual refresh
