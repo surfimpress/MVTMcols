@@ -44,7 +44,8 @@ For each item, give:
   "events": [...]}`. If a mention clearly matches a candidate
   (allowing for initials, titles, minor spelling variants), reference
   that id. If it matches nothing in the list, mark it new with just a
-  name — never invent an id.
+  name — never invent an id. A joint mention ("John & Jane Smith",
+  "Mr. and Mrs. Smith") is two people, not one — list each separately.
 
 **If leftover blocks are genuinely scattered** with no shared visual
 region (e.g. stray margin marks, isolated noise fragments in

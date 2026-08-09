@@ -274,7 +274,9 @@ than recall. Prefer to skip a marginal mention than to invent one.
 Only extract entities that appear unambiguously in the text. A
 generic "the company" without a name is not an entity mention.
 Pronouns are not entity mentions. A title without a name ("Mr.")
-is not an entity mention.
+is not an entity mention. A joint mention ("John & Jane Smith",
+"Mr. and Mrs. Smith") is two people, not one — record each
+separately.
 
 For dates and ages, capture the principal one in the `summary` or
 the relevant entity's `event` row; you don't need a separate item
