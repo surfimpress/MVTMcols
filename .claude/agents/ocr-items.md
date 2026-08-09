@@ -31,7 +31,20 @@ redundant.
 
 For each item, give:
 - A short label
-- A type: one of `"article"`, `"photo"`, `"ad"`, `"notice"`, `"other"`
+- A type — same taxonomy as the pre-1980 column-transcript route
+  (`items-classifier.md`), so `item_type` means the same thing across
+  both pipelines: `"article"`, `"display_ad"`, `"classified_ad"`,
+  `"notice"`, `"masthead"`, `"cartoon"`, `"letter"`, `"announcement"`,
+  `"table"`, `"index"`, `"other"`. Use `"cartoon"` for photos and
+  illustrations too (with `caption_block_ids` for the caption, if
+  any) — there's no separate `"photo"` value. `"classified_ad"` vs
+  `"notice"` is easy to confuse: default to `classified_ad` (a
+  private individual, company, or professional paid to run it —
+  professional cards, "Wanted"/"For Sale", auction lots, business
+  announcements); reserve `notice` for civic/official/legally-required
+  announcements (council resolutions, by-laws, sheriff's notices,
+  election proclamations, signed by a public office or board, not a
+  private individual).
 - A bounding box `{x, y, w, h}` in the display coordinate space,
   drawn as tightly as you reasonably can around the item's actual
   visual extent

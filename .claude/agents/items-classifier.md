@@ -334,8 +334,16 @@ Rules of thumb:
   more accurate.
 - Examples seen so far:
     - **product_type**: `medicines_and_remedies` (patent medicines,
-      cures, tonics), `financial_services` (money orders, banking
-      ads), `transportation_services` (rail, steamship), and so on.
+      cures, tonics — covers Castoria, Beecham's Pills, Fruit-a-tives
+      alike, brand goes in `name`/`manufacturer` not here),
+      `groceries_and_provisions` (food/grocery items generally —
+      don't split into `food_and_beverage`/`food_and_provisions`/
+      `grocery_provisions`/etc, they were consolidated 2026-08-09
+      because five near-identical labels had crept in for the same
+      content), `financial_services` (money orders, banking ads),
+      `transportation_services` (fares/freight, a *service*) vs
+      `vehicles_and_transport` (cutters, sleighs — physical *goods*,
+      a different category), and so on.
     - **org_type**: `company`, `church`, `society`, `school`,
       `government`, `newspaper`.
     - **place_type**: `town`, `city`, `county`, `country`,
