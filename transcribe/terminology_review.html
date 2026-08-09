@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Terminology Review</title>
 <style>
   :root {
@@ -79,7 +80,7 @@
   .desc { margin: 0.4rem 0; }
   .meta { font-size: 0.76rem; color: var(--muted); margin-top: 0.4rem; }
   .card-actions { display: flex; gap: 1rem; margin-top: 0.6rem; flex-wrap: wrap; }
-  .action-group { display: flex; gap: 0.4rem; align-items: center; }
+  .action-group { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
   .action-group .group-label { font-size: 0.72rem; color: var(--muted); margin-right: 0.1rem; }
   .card-actions button {
     font: inherit; font-size: 0.8rem; border-radius: 6px; padding: 0.3rem 0.7rem;
@@ -130,6 +131,21 @@
   .mention-excerpt mark.hl-canonical { background: var(--accent); color: #fff; padding: 0 0.1em; }
   .context-legend { font-size: 0.74rem; color: var(--muted); margin: 0 0 0.6rem; }
   .context-legend mark { padding: 0 0.3em; margin-right: 0.4em; }
+
+  @media (max-width: 560px) {
+    body { padding: 0.85rem; }
+    h1 { font-size: 1.15rem; }
+    .save-bar { flex-wrap: wrap; }
+    .save-bar .pending { flex-basis: 100%; }
+    .card-actions { gap: 0.6rem; }
+    .card-actions button, button.primary, button.secondary { padding: 0.45rem 0.8rem; } /* bigger touch target */
+    .context-btn { padding: 0.4rem 0.7rem; }
+    dialog#context-dialog { width: 95vw; max-height: 88vh; }
+    .dialog-body { padding: 0.5rem 0.9rem 1rem; max-height: calc(88vh - 4rem); }
+    .dialog-head { padding: 0.85rem 0.9rem; }
+    .context-columns { gap: 0.9rem; }
+    .context-col { min-width: 0; flex-basis: 100%; } /* stack columns instead of squeezing side by side */
+  }
 </style>
 </head>
 <body>

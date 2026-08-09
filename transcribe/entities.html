@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Entities</title>
 <style>
   :root {
@@ -59,7 +60,8 @@
     background: var(--bg); color: var(--fg); font-size: 0.82rem; cursor: pointer;
   }
   .pager button:disabled { opacity: 0.4; cursor: default; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { width: 100%; min-width: 480px; border-collapse: collapse; font-size: 0.88rem; }
   th, td {
     text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border);
     font-variant-numeric: tabular-nums;
@@ -72,6 +74,17 @@
   .type-tag { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.02em; }
   .empty { color: var(--muted); padding: 2rem 0; text-align: center; }
   footer { margin-top: 1.5rem; color: var(--muted); font-size: 0.78rem; }
+
+  @media (max-width: 560px) {
+    body { padding: 1rem; }
+    h1 { font-size: 1.15rem; }
+    .controls input[type=search] { min-width: 0; flex-basis: 100%; }
+    .chip { padding: 0.45rem 0.8rem; font-size: 0.82rem; } /* bigger touch target */
+    .count-row { flex-direction: column; align-items: flex-start; }
+    .pager { flex-wrap: wrap; }
+    .pager button { padding: 0.4rem 0.75rem; }
+    th, td { padding: 0.5rem 0.5rem; }
+  }
 </style>
 </head>
 <body>
@@ -102,18 +115,20 @@
     </div>
   </div>
 
-  <table id="entities-table">
-    <thead>
-      <tr>
-        <th data-key="name">Name</th>
-        <th data-key="type">Type</th>
-        <th data-key="mentions">Mentions</th>
-        <th data-key="first_seen">First seen</th>
-        <th data-key="last_seen">Last seen</th>
-      </tr>
-    </thead>
-    <tbody id="entities-body"></tbody>
-  </table>
+  <div class="table-scroll">
+    <table id="entities-table">
+      <thead>
+        <tr>
+          <th data-key="name">Name</th>
+          <th data-key="type">Type</th>
+          <th data-key="mentions">Mentions</th>
+          <th data-key="first_seen">First seen</th>
+          <th data-key="last_seen">Last seen</th>
+        </tr>
+      </thead>
+      <tbody id="entities-body"></tbody>
+    </table>
+  </div>
 
   <footer>Reads entities.json only. Refreshed automatically.</footer>
 

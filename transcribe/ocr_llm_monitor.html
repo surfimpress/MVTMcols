@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OCR+LLM route monitor</title>
 <style>
   :root {
@@ -47,7 +48,8 @@
   .summary .n { font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
   .summary .l { font-size: 0.78rem; color: var(--muted); }
   h2 { font-size: 1rem; margin: 1.75rem 0 0.6rem; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { width: 100%; min-width: 480px; border-collapse: collapse; font-size: 0.88rem; }
   th, td {
     text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border);
     font-variant-numeric: tabular-nums;
@@ -64,6 +66,7 @@
   .run-card h3 { margin: 0 0 0.5rem; font-size: 0.95rem; }
   .run-bar-track { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; margin-bottom: 0.9rem; }
   .run-bar-fill { height: 100%; background: var(--accent); }
+  .run-matrix-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .run-matrix { display: grid; grid-auto-rows: minmax(1.3rem, auto); gap: 2px; width: 100%; }
   .run-matrix .rowlabel {
     font-size: 0.72rem; color: var(--muted); display: flex; align-items: center;
@@ -82,6 +85,14 @@
   .run-matrix .cell.pending { background: var(--border); }
   footer { margin-top: 2rem; color: var(--muted); font-size: 0.78rem; }
   code { font-size: 0.85em; }
+
+  @media (max-width: 560px) {
+    body { padding: 1rem; }
+    h1 { font-size: 1.15rem; }
+    .summary { grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 0.5rem; }
+    th, td { padding: 0.5rem 0.5rem; }
+    .run-card { padding: 0.8rem 0.9rem; }
+  }
 </style>
 </head>
 <body>
@@ -93,32 +104,38 @@
   <div id="active-runs"></div>
 
   <h2>Issues</h2>
-  <table id="issues-table">
-    <thead>
-      <tr><th>Date</th><th>Pages</th><th>Items</th><th>Blocks</th><th>Triaged</th><th>Noise</th><th>Uncovered</th><th>Tokens</th><th>LLM time</th></tr>
-    </thead>
-    <tbody id="issues-body"></tbody>
-  </table>
+  <div class="table-scroll">
+    <table id="issues-table">
+      <thead>
+        <tr><th>Date</th><th>Pages</th><th>Items</th><th>Blocks</th><th>Triaged</th><th>Noise</th><th>Uncovered</th><th>Tokens</th><th>LLM time</th></tr>
+      </thead>
+      <tbody id="issues-body"></tbody>
+    </table>
+  </div>
 
   <h2>Entity mentions</h2>
   <div class="summary" id="mentions"></div>
 
   <h2>Recently rendered pages</h2>
-  <table id="recent-table">
-    <thead>
-      <tr><th>Date</th><th>Page</th><th>Rendered</th><th>Words</th><th>Mean conf</th></tr>
-    </thead>
-    <tbody id="recent-body"></tbody>
-  </table>
+  <div class="table-scroll">
+    <table id="recent-table">
+      <thead>
+        <tr><th>Date</th><th>Page</th><th>Rendered</th><th>Words</th><th>Mean conf</th></tr>
+      </thead>
+      <tbody id="recent-body"></tbody>
+    </table>
+  </div>
 
   <h2>Recent LLM calls</h2>
   <p class="sub" style="margin-bottom:0.6rem;">Estimates — for relative comparison only.</p>
-  <table id="calls-table">
-    <thead>
-      <tr><th>Date</th><th>Page</th><th>Kind</th><th>Tokens</th><th>Tool calls</th><th>Time</th></tr>
-    </thead>
-    <tbody id="calls-body"></tbody>
-  </table>
+  <div class="table-scroll">
+    <table id="calls-table">
+      <thead>
+        <tr><th>Date</th><th>Page</th><th>Kind</th><th>Tokens</th><th>Tool calls</th><th>Time</th></tr>
+      </thead>
+      <tbody id="calls-body"></tbody>
+    </table>
+  </div>
 
   <footer>Auto-refreshes every 20s. No reload needed.</footer>
 
@@ -178,7 +195,10 @@
       activeEl.innerHTML = data.active_runs.map(function(run) {
         var pct = run.total_agents ? Math.round(100 * run.completed / run.total_agents) : 0;
         var n = run.pages.length;
-        var cols = '3rem repeat(' + n + ', minmax(0,1fr))';
+        // min 1.6rem per cell keeps the icon/number legible -- past
+        // that many pages the matrix scrolls horizontally in its own
+        // container instead of squishing cells down to illegibility.
+        var cols = '3rem repeat(' + n + ', minmax(1.6rem,1fr))';
         var icon = { done: '✓', running: '…', pending: '' };
 
         var labelRow = '<div class="rowlabel"></div>' + run.pages.map(function(p) {
@@ -195,9 +215,9 @@
           '<h3>In progress — ' + (run.date || 'unknown date') + ' — ' +
           run.completed + '/' + run.total_agents + ' calls done</h3>' +
           '<div class="run-bar-track"><div class="run-bar-fill" style="width:' + pct + '%"></div></div>' +
-          '<div class="run-matrix" style="grid-template-columns:' + cols + '">' +
+          '<div class="run-matrix-scroll"><div class="run-matrix" style="grid-template-columns:' + cols + '">' +
           labelRow + cleanRow + itemsRow +
-          '</div></div>';
+          '</div></div></div>';
       }).join('');
     }
 
