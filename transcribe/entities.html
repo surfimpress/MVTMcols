@@ -167,9 +167,19 @@
       });
   }
 
+  function syncUrl() {
+    var p = new URLSearchParams();
+    if (state.type !== 'all') p.set('type', state.type);
+    if (state.q) p.set('q', state.q);
+    var qs = p.toString();
+    var url = location.pathname + (qs ? '?' + qs : '');
+    history.replaceState(null, '', url);
+  }
+
   document.getElementById('search').value = state.q;
   document.getElementById('search').addEventListener('input', function(e) {
     state.q = e.target.value;
+    syncUrl();
     render();
   });
 
@@ -182,6 +192,7 @@
       document.querySelectorAll('.chip').forEach(function(c) { c.classList.remove('active'); });
       chip.classList.add('active');
       state.type = chip.dataset.type;
+      syncUrl();
       render();
     });
   });
