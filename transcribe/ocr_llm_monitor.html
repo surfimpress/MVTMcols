@@ -42,6 +42,8 @@
   .summary .card {
     border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem;
   }
+  a.card { display: block; text-decoration: none; color: inherit; }
+  a.card:hover { border-color: var(--accent); }
   .summary .n { font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
   .summary .l { font-size: 0.78rem; color: var(--muted); }
   h2 { font-size: 1rem; margin: 1.75rem 0 0.6rem; }
@@ -221,7 +223,8 @@
 
     var mentions = document.getElementById('mentions');
     mentions.innerHTML = Object.keys(data.mention_counts).map(function(k) {
-      return '<div class="card"><div class="n">' + data.mention_counts[k] + '</div><div class="l">' + k + '</div></div>';
+      return '<a class="card" href="entities.html?type=' + k + '">' +
+        '<div class="n">' + data.mention_counts[k] + '</div><div class="l">' + k + '</div></a>';
     }).join('');
 
     var recentBody = document.getElementById('recent-body');

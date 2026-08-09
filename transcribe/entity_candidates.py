@@ -70,9 +70,27 @@ def people_candidates(conn: sqlite3.Connection, year: int,
     return _cap(out, "people")
 
 
+def all_rows(conn: sqlite3.Connection, table: str,
+             name_col: str = "name") -> list[dict]:
+    """Every row from an entity table, uncapped --
+    {id, name, first_seen_date, last_seen_date}. Base helper: shared
+    by _unfiltered_candidates below (which adds the prompt-size cap)
+    and build_entities_stats.py (the full browsing index, which wants
+    everything, not a prompt-sized sample)."""
+    rows = conn.execute(
+        f"SELECT id, {name_col} AS name, first_seen_date, last_seen_date "
+        f"FROM {table}"
+    ).fetchall()
+    return [
+        {"id": r["id"], "name": r["name"],
+         "first_seen_date": r["first_seen_date"], "last_seen_date": r["last_seen_date"]}
+        for r in rows
+    ]
+
+
 def _unfiltered_candidates(conn: sqlite3.Connection, table: str,
                             name_col: str = "name") -> list[dict]:
-    rows = conn.execute(f"SELECT id, {name_col} AS name FROM {table}").fetchall()
+    rows = all_rows(conn, table, name_col)
     return _cap([{"id": r["id"], "name": r["name"]} for r in rows], table)
 
 

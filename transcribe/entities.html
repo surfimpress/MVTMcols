@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Entities</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #6b6b6b;
+    --border: #e0e0e0;
+    --row-alt: #f7f7f7;
+    --accent: #2b6cb0;   /* blue */
+    --warn: #d9822b;     /* orange */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a;
+      --fg: #e8e8e8;
+      --muted: #9a9a9a;
+      --border: #2c2f33;
+      --row-alt: #1b1e21;
+      --accent: #5b9bd5;
+      --warn: #e6a45c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 1.5rem;
+    background: var(--bg); color: var(--fg);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    max-width: 960px; margin-inline: auto;
+  }
+  h1 { font-size: 1.3rem; margin: 0 0 0.2rem; }
+  .sub { color: var(--muted); font-size: 0.85rem; margin: 0 0 1.25rem; }
+  .controls { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 1.1rem; align-items: center; }
+  .controls input[type=search] {
+    flex: 1; min-width: 160px; padding: 0.45rem 0.7rem; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 0.9rem;
+  }
+  .chip {
+    padding: 0.35rem 0.7rem; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--muted); font-size: 0.8rem; cursor: pointer;
+  }
+  .chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .count { color: var(--muted); font-size: 0.82rem; margin-bottom: 0.6rem; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  th, td {
+    text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
+  }
+  th { color: var(--muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase;
+       letter-spacing: 0.03em; cursor: pointer; user-select: none; white-space: nowrap; }
+  th:hover { color: var(--fg); }
+  th.sorted::after { content: ' \25BE'; }
+  tbody tr:nth-child(even) { background: var(--row-alt); }
+  .type-tag { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.02em; }
+  .empty { color: var(--muted); padding: 2rem 0; text-align: center; }
+  footer { margin-top: 1.5rem; color: var(--muted); font-size: 0.78rem; }
+</style>
+</head>
+<body>
+  <h1>Entities</h1>
+  <p class="sub" id="freshness">loading…</p>
+
+  <div class="controls">
+    <input type="search" id="search" placeholder="Search by name…">
+    <button class="chip active" data-type="all">All</button>
+    <button class="chip" data-type="people">People</button>
+    <button class="chip" data-type="organizations">Organizations</button>
+    <button class="chip" data-type="places">Places</button>
+    <button class="chip" data-type="products">Products</button>
+    <button class="chip" data-type="events">Events</button>
+  </div>
+
+  <p class="count" id="count"></p>
+
+  <table id="entities-table">
+    <thead>
+      <tr>
+        <th data-key="name">Name</th>
+        <th data-key="type">Type</th>
+        <th data-key="mentions">Mentions</th>
+        <th data-key="first_seen">First seen</th>
+        <th data-key="last_seen">Last seen</th>
+      </tr>
+    </thead>
+    <tbody id="entities-body"></tbody>
+  </table>
+
+  <footer>Reads entities.json only. Refreshed automatically.</footer>
+
+<script>
+(function() {
+  var POLL_MS = 30000;
+  var state = { type: 'all', q: '', sortKey: 'mentions', sortDir: -1, data: null };
+
+  var params = new URLSearchParams(location.search);
+  if (params.get('type')) state.type = params.get('type');
+  if (params.get('q')) state.q = params.get('q');
+
+  function fmtAgo(iso) {
+    if (!iso) return '—';
+    var ms = Date.now() - new Date(iso).getTime();
+    var s = Math.round(ms / 1000);
+    if (s < 60) return s + 's ago';
+    var m = Math.round(s / 60);
+    if (m < 60) return m + 'm ago';
+    var h = Math.round(m / 60);
+    if (h < 48) return h + 'h ago';
+    return Math.round(h / 24) + 'd ago';
+  }
+
+  function render() {
+    if (!state.data) return;
+    var rows = state.data.entities;
+    if (state.type !== 'all') rows = rows.filter(function(e) { return e.type === state.type; });
+    if (state.q) {
+      var q = state.q.toLowerCase();
+      rows = rows.filter(function(e) { return e.name.toLowerCase().indexOf(q) !== -1; });
+    }
+    rows = rows.slice().sort(function(a, b) {
+      var av = a[state.sortKey], bv = b[state.sortKey];
+      if (av == null) av = state.sortKey === 'mentions' ? -1 : '';
+      if (bv == null) bv = state.sortKey === 'mentions' ? -1 : '';
+      if (av < bv) return -1 * state.sortDir;
+      if (av > bv) return 1 * state.sortDir;
+      return 0;
+    });
+
+    document.getElementById('count').textContent = rows.length + ' entities';
+
+    document.querySelectorAll('#entities-table th').forEach(function(th) {
+      th.classList.toggle('sorted', th.dataset.key === state.sortKey);
+    });
+
+    var body = document.getElementById('entities-body');
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="5" class="empty">No matching entities</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.slice(0, 500).map(function(e) {
+      return '<tr>' +
+        '<td>' + e.name.replace(/</g, '&lt;') + '</td>' +
+        '<td class="type-tag">' + e.type + '</td>' +
+        '<td>' + e.mentions + '</td>' +
+        '<td>' + (e.first_seen || '—') + '</td>' +
+        '<td>' + (e.last_seen || '—') + '</td>' +
+        '</tr>';
+    }).join('') + (rows.length > 500
+      ? '<tr><td colspan="5" class="empty">showing first 500 of ' + rows.length + ' — narrow your search</td></tr>'
+      : '');
+  }
+
+  function poll() {
+    fetch('entities.json?_=' + Date.now())
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        state.data = data;
+        var freshness = document.getElementById('freshness');
+        freshness.textContent = 'updated ' + fmtAgo(data.generated_at);
+        render();
+      })
+      .catch(function(e) {
+        document.getElementById('freshness').textContent = 'failed to load entities.json: ' + e;
+      });
+  }
+
+  document.getElementById('search').value = state.q;
+  document.getElementById('search').addEventListener('input', function(e) {
+    state.q = e.target.value;
+    render();
+  });
+
+  document.querySelectorAll('.chip').forEach(function(chip) {
+    if (chip.dataset.type === state.type) {
+      document.querySelectorAll('.chip').forEach(function(c) { c.classList.remove('active'); });
+      chip.classList.add('active');
+    }
+    chip.addEventListener('click', function() {
+      document.querySelectorAll('.chip').forEach(function(c) { c.classList.remove('active'); });
+      chip.classList.add('active');
+      state.type = chip.dataset.type;
+      render();
+    });
+  });
+
+  document.querySelectorAll('#entities-table th').forEach(function(th) {
+    th.addEventListener('click', function() {
+      if (state.sortKey === th.dataset.key) {
+        state.sortDir *= -1;
+      } else {
+        state.sortKey = th.dataset.key;
+        state.sortDir = th.dataset.key === 'mentions' ? -1 : 1;
+      }
+      render();
+    });
+  });
+
+  poll();
+  setInterval(poll, POLL_MS);
+})();
+</script>
+</body>
+</html>
