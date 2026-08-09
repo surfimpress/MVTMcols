@@ -30,6 +30,7 @@ import json
 import os
 
 from . import db as _db
+from . import workflow_usage as _wf_usage
 
 OUT_PATH = os.path.join(_db.REPO_ROOT, "transcribe", "ocr_llm_stats.json")
 
@@ -171,6 +172,11 @@ def build_stats(conn) -> dict:
             }
             for r in recent_llm_calls
         ],
+        # Live progress for any in-flight run -- reconstructed from
+        # journal.jsonl + agent transcripts, not agent self-reporting
+        # (ocr-cleanup/ocr-items are Read-only by design). Empty list
+        # when nothing is currently running.
+        "active_runs": _wf_usage.find_active_runs(),
     }
 
 

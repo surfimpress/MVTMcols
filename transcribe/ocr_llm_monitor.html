@@ -55,6 +55,22 @@
   .warn { color: var(--warn); font-weight: 600; }
   .ok { color: var(--muted); }
   .empty { color: var(--muted); padding: 1.5rem 0; text-align: center; }
+  .run-card {
+    border: 1px solid var(--border); border-radius: 8px; padding: 0.9rem 1.1rem;
+    margin-bottom: 1.5rem;
+  }
+  .run-card h3 { margin: 0 0 0.5rem; font-size: 0.95rem; }
+  .run-bar-track { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; margin-bottom: 0.7rem; }
+  .run-bar-fill { height: 100%; background: var(--accent); }
+  .run-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+    gap: 0.4rem; font-size: 0.78rem;
+  }
+  .run-grid .cell { border: 1px solid var(--border); border-radius: 6px; padding: 0.3rem 0.4rem; text-align: center; }
+  .run-grid .p { font-weight: 600; margin-bottom: 0.2rem; }
+  .run-grid .stage { display: block; color: var(--muted); }
+  .run-grid .stage.done { color: var(--accent); font-weight: 600; }
+  .run-grid .stage.running { color: var(--warn); font-weight: 600; }
   footer { margin-top: 2rem; color: var(--muted); font-size: 0.78rem; }
   code { font-size: 0.85em; }
 </style>
@@ -64,6 +80,8 @@
   <p class="sub" id="freshness">loading…</p>
 
   <div class="summary" id="summary"></div>
+
+  <div id="active-runs"></div>
 
   <h2>Issues</h2>
   <table id="issues-table">
@@ -143,6 +161,25 @@
     ].map(function(p) {
       return '<div class="card"><div class="n">' + p[1] + '</div><div class="l">' + p[0] + '</div></div>';
     }).join('');
+
+    var activeEl = document.getElementById('active-runs');
+    if (!data.active_runs || !data.active_runs.length) {
+      activeEl.innerHTML = '';
+    } else {
+      activeEl.innerHTML = data.active_runs.map(function(run) {
+        var pct = run.total_agents ? Math.round(100 * run.completed / run.total_agents) : 0;
+        var grid = run.pages.map(function(p) {
+          return '<div class="cell"><div class="p">p' + p.page + '</div>' +
+            '<span class="stage ' + p.cleanup + '">clean ' + p.cleanup + '</span>' +
+            '<span class="stage ' + p.items + '">items ' + p.items + '</span></div>';
+        }).join('');
+        return '<div class="run-card">' +
+          '<h3>In progress — ' + run.completed + '/' + run.total_agents + ' calls done</h3>' +
+          '<div class="run-bar-track"><div class="run-bar-fill" style="width:' + pct + '%"></div></div>' +
+          '<div class="run-grid">' + grid + '</div>' +
+          '</div>';
+      }).join('');
+    }
 
     var issuesBody = document.getElementById('issues-body');
     if (!data.issues.length) {

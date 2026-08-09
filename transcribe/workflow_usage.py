@@ -28,8 +28,20 @@ import glob
 import json
 import os
 import re
+import time
 
 _PAGE_RE = re.compile(r"page (\d+)\b")
+
+# Path shape: ~/.claude/projects/<project>/<session-id>/subagents/
+# workflows/wf_<run-id>/ -- two levels between "projects/" and
+# "subagents/" (project dir, then session id), not scoped to this
+# one project's session, since the agentType filter below (ocr-
+# cleanup/ocr-items) is already an unambiguous match; no other
+# workflow uses those two names.
+_WORKFLOW_RUN_GLOB = os.path.expanduser(
+    "~/.claude/projects/*/*/subagents/workflows/wf_*")
+
+ACTIVE_RUN_MAX_AGE_S = 1800  # a run whose journal hasn't moved in 30min is stale, not active
 
 
 def _agent_ids_in_run(run_dir: str) -> list[str]:
@@ -123,3 +135,86 @@ def extract_agent_usage(run_dir: str) -> list[dict]:
             "tool_calls": tool_calls, "duration_ms": duration_ms,
         })
     return results
+
+
+def _page_from_transcript(run_dir: str, agent_id: str) -> int | None:
+    transcript_path = os.path.join(run_dir, f"agent-{agent_id}.jsonl")
+    if not os.path.isfile(transcript_path):
+        return None
+    try:
+        with open(transcript_path) as f:
+            first_line = f.readline()
+        entry = json.loads(first_line)
+        text = _extract_text(entry.get("message", {}).get("content"))
+        m = _PAGE_RE.search(text)
+        return int(m.group(1)) if m else None
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def find_active_runs(max_age_s: int = ACTIVE_RUN_MAX_AGE_S) -> list[dict]:
+    """Live progress for any in-flight ocr-cleanup/ocr-items Workflow
+    run, reconstructed from journal.jsonl + agent-*.meta.json +
+    each agent's own transcript (for page/kind) -- no agent-side
+    changes needed, since ocr-cleanup/ocr-items are deliberately
+    Read-only and can't call a status-reporting script themselves.
+    A run is "active" if its journal has moved within max_age_s;
+    older runs are assumed already ingested (or abandoned) and are
+    the DB's job to reflect, not this live-progress view's.
+    """
+    runs = []
+    now = time.time()
+    for run_dir in glob.glob(_WORKFLOW_RUN_GLOB):
+        journal_path = os.path.join(run_dir, "journal.jsonl")
+        if not os.path.isfile(journal_path):
+            continue
+        if now - os.path.getmtime(journal_path) > max_age_s:
+            continue
+
+        meta_by_id = {}
+        for meta_path in glob.glob(os.path.join(run_dir, "agent-*.meta.json")):
+            agent_id = os.path.basename(meta_path)[len("agent-"):-len(".meta.json")]
+            with open(meta_path) as f:
+                meta_by_id[agent_id] = json.load(f)
+        if not any(m.get("agentType") in ("ocr-cleanup", "ocr-items")
+                   for m in meta_by_id.values()):
+            continue  # not an OCR+LLM run
+
+        started_ids, result_ids = set(), set()
+        with open(journal_path) as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                entry = json.loads(line)
+                agent_id = entry.get("agentId")
+                if entry.get("type") == "started":
+                    started_ids.add(agent_id)
+                elif entry.get("type") == "result":
+                    result_ids.add(agent_id)
+
+        pages = {}
+        for agent_id, meta in meta_by_id.items():
+            agent_type = meta.get("agentType", "")
+            kind = ("cleanup" if "cleanup" in agent_type
+                    else "items" if "items" in agent_type else None)
+            if kind is None:
+                continue
+            page = _page_from_transcript(run_dir, agent_id)
+            if page is None:
+                continue
+            status = ("done" if agent_id in result_ids
+                       else "running" if agent_id in started_ids else "pending")
+            pages.setdefault(page, {})[kind] = status
+
+        runs.append({
+            "run_dir": run_dir,
+            "total_agents": len(meta_by_id),
+            "started": len(started_ids),
+            "completed": len(result_ids),
+            "pages": [
+                {"page": p, "cleanup": s.get("cleanup", "pending"),
+                 "items": s.get("items", "pending")}
+                for p, s in sorted(pages.items())
+            ],
+        })
+    return runs
