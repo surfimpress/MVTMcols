@@ -110,30 +110,40 @@ def build_tickets(conn, max_batch: int = MAX_BATCH) -> list[dict]:
     return tickets
 
 
-def ingest_assignments(conn, extractions: list[dict]) -> dict:
+def ingest_assignments(conn, extractions: list[dict],
+                        all_item_ids: set[str] | None = None) -> dict:
     """Apply a list of {id, people, organizations, places, products,
     events} per-item raw-mention dicts -- reuses the exact same
     ingest_item_result._insert_mentions/upsert_entity path ocr_llm.py
     used to call inline from ocr-items' own output, just fed by this
     module's extractions instead. Marks each processed item's
-    terms_extracted_at so it isn't picked up again."""
-    item_ids = [e["id"] for e in extractions if e.get("id")]
+    terms_extracted_at so it isn't picked up again.
+
+    all_item_ids, when given, is the full set of items actually sent
+    for extraction (not just the ones with entries in `extractions`) --
+    every id in it gets terms_extracted_at set even if it has zero
+    mentions, so a legitimately-empty item is never mistaken for
+    "not processed yet" on a future pending_items() scan."""
+    item_ids = {e["id"] for e in extractions if e.get("id")}
+    if all_item_ids:
+        item_ids |= set(all_item_ids)
     if not item_ids:
         return {"items_processed": 0, "mentions_inserted": 0}
     placeholders = ",".join("?" * len(item_ids))
     rows = conn.execute(
         f"SELECT id, year, month, day FROM items WHERE id IN ({placeholders})",
-        item_ids,
+        list(item_ids),
     ).fetchall()
     dates = {r["id"]: f"{r['year']:04d}-{r['month']:02d}-{r['day']:02d}" for r in rows}
 
     now = _db.now_iso()
+    by_id = {e["id"]: e for e in extractions if e.get("id")}
     items_processed, mentions_inserted = 0, 0
-    for e in extractions:
-        item_id = e.get("id")
+    for item_id in item_ids:
         mention_date = dates.get(item_id)
         if mention_date is None:
             continue  # unknown/stale item id -- skip rather than error
+        e = by_id.get(item_id, {})
         for entity_table, junction_table, fk_col, name_keys in ENTITY_TABLES:
             mentions_inserted += _ingest_items._insert_mentions(
                 conn, item_id=item_id,
@@ -153,6 +163,18 @@ def ingest_assignments(conn, extractions: list[dict]) -> dict:
     return {"items_processed": items_processed, "mentions_inserted": mentions_inserted}
 
 
+def _ticket_item_ids(tickets: list[dict]) -> set[str]:
+    """Every item id actually sent across a set of tickets, read back
+    from their items_path files -- the structural source of truth for
+    "what was sent", independent of what the agent chose to return."""
+    ids = set()
+    for t in tickets:
+        with open(t["items_path"]) as f:
+            payload = json.load(f)
+        ids.update(item["id"] for item in payload["items"])
+    return ids
+
+
 def ingest_workflow_result(conn, result_path: str) -> dict:
     """result_path: a flat JSON array of {id, people, organizations,
     places, products, events} dicts, one per item across every ticket
@@ -160,10 +182,27 @@ def ingest_workflow_result(conn, result_path: str) -> dict:
     transcribe/workflows/extract_terms.js returns (already flattened
     across tickets there, since no per-ticket routing metadata is
     needed -- unlike classify_terms.js, every item here carries its
-    own id)."""
+    own id).
+
+    Marks terms_extracted_at for every item actually sent, not just
+    ones the agent chose to include in its output -- an item genuinely
+    found to have zero mentions is still "done", and trusting the
+    agent's own omission to double as that signal is exactly the bug
+    this guards against (confirmed happening: 365 of 640 items in the
+    first real run came back empty and were silently never marked
+    done, because the agent was told -- and, separately, chose -- to
+    omit them). Reads workflow_args.json from the same directory as
+    result_path if present, since build/ingest always share WORK_DIR.
+    """
     with open(result_path) as f:
         extractions = json.load(f)
-    return ingest_assignments(conn, extractions)
+    all_ids = None
+    args_path = os.path.join(os.path.dirname(os.path.abspath(result_path)), "workflow_args.json")
+    if os.path.exists(args_path):
+        with open(args_path) as f:
+            tickets = json.load(f)
+        all_ids = _ticket_item_ids(tickets)
+    return ingest_assignments(conn, extractions, all_item_ids=all_ids)
 
 
 # --------------------------------------------------------------------

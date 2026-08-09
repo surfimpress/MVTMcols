@@ -107,17 +107,24 @@ that won't reappear in a different ad/issue/year, go more general.
 
 ## Output
 
-A single JSON array, one object per input item (omit items with no
-mentions at all rather than including an empty entry):
+A single JSON array with **exactly one object per input item, including
+items with no mentions at all** — `id` is how the orchestrator marks an
+item as processed, so a missing item looks identical to "not done yet"
+and would get resent to you again on a future batch. An item with no
+mentions is still real signal (this item genuinely names nothing) and
+still needs its `id` recorded, just with no entity-type keys attached:
 
 ```
 [{"id": "...",
   "people": [{"name": "...", "mention_text": "..."}],
   "organizations": [...], "places": [...],
   "products": [{"name": "...", "manufacturer": "...", "mention_text": "..."}],
-  "events": [...]}, ...]
+  "events": [...]},
+ {"id": "..."},
+ ...]
 ```
 
 Omit empty entity-type arrays within an item rather than including
-them empty. Every `id` you include must be one from the input batch.
-Reply with the JSON array only, nothing else in your final message.
+them empty — but never omit the item itself. Every `id` from the input
+batch must appear exactly once in your output, no exceptions. Reply
+with the JSON array only, nothing else in your final message.
