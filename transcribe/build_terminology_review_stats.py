@@ -20,26 +20,63 @@ from . import merge_entity as _merge_entity
 OUT_PATH = os.path.join(_db.REPO_ROOT, "transcribe", "terminology_review.json")
 
 CONTEXT_LIMIT = 3  # mentions per entity -- enough to judge, not a full dump
+EXCERPT_WINDOW = 200  # chars either side of the actual mention occurrence
+
+
+def _windowed_excerpt(full_text: str | None, mention_text: str | None) -> str:
+    """A snippet of full_text centered on where mention_text actually
+    occurs -- not just the item's first N characters. A fixed
+    "first 400 chars" excerpt frequently didn't contain the mention at
+    all on longer items (confirmed 2026-08-09: an "Algonquin" mention
+    that only appeared past character 400 showed an excerpt with
+    nothing to highlight, looking like the highlighter was broken when
+    the real bug was the excerpt never having the term in the first
+    place)."""
+    if not full_text:
+        return ""
+    if mention_text:
+        idx = full_text.lower().find(mention_text.lower())
+        if idx != -1:
+            start = max(0, idx - EXCERPT_WINDOW)
+            end = min(len(full_text), idx + len(mention_text) + EXCERPT_WINDOW)
+            prefix = "…" if start > 0 else ""
+            suffix = "…" if end < len(full_text) else ""
+            return prefix + full_text[start:end] + suffix
+    return full_text[:400]
 
 
 def entity_context(conn, table: str, entity_id: str) -> list[dict]:
     """A few real mentions of one entity -- headline, date, and a
-    text excerpt -- so a human reviewing a duplicate candidate on
-    terminology_review.html can judge from actual context instead of
-    two bare name strings (e.g. "Big Brothers/Big Sisters" vs "Big
-    Brothers/Big Sisters of Lanark County" is unjudgeable without
-    seeing what each mention is actually about)."""
+    text excerpt centered on the actual mention -- so a human
+    reviewing a duplicate candidate on terminology_review.html can
+    judge from actual context instead of two bare name strings (e.g.
+    "Big Brothers/Big Sisters" vs "Big Brothers/Big Sisters of Lanark
+    County" is unjudgeable without seeing what each mention is
+    actually about)."""
     junction, fk, _namecol = _merge_entity.JUNCTIONS[table]
     rows = conn.execute(
         f"""SELECT m.mention_text, m.role, i.headline, i.year, i.month, i.day, i.page,
-                   substr(i.full_text, 1, 400) AS excerpt
+                   i.full_text
               FROM {junction} m JOIN items i ON i.id = m.item_id
              WHERE m.{fk}=?
           ORDER BY i.year, i.month, i.day
              LIMIT {CONTEXT_LIMIT}""",
         (entity_id,),
     ).fetchall()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["excerpt"] = _windowed_excerpt(d.pop("full_text"), d["mention_text"])
+        out.append(d)
+    return out
+
+
+def _entity_name(conn, table: str, entity_id: str | None) -> str | None:
+    if not entity_id:
+        return None
+    _junction, _fk, namecol = _merge_entity.JUNCTIONS[table]
+    row = conn.execute(f"SELECT {namecol} AS name FROM {table} WHERE id=?", (entity_id,)).fetchone()
+    return row["name"] if row else None
 
 
 def build_stats(conn) -> dict:
@@ -51,14 +88,18 @@ def build_stats(conn) -> dict:
     ).fetchall()
     reviews = [dict(r) for r in rows]
 
-    # Context is only useful for open reviews -- skip it for resolved
-    # history to keep the JSON lean and avoid wasted queries.
+    # Context (+ canonical names, for the frontend's dual-color
+    # highlight: mention_text as literally printed vs. the canonical
+    # name we normalized it to) is only useful for open reviews --
+    # skip both for resolved history to keep the JSON lean.
     for r in reviews:
         if r["status"] != "open" or r["entity_type"] not in _merge_entity.JUNCTIONS:
             continue
         r["context_a"] = entity_context(conn, r["entity_type"], r["entity_id"]) if r["entity_id"] else []
         r["context_b"] = (entity_context(conn, r["entity_type"], r["other_entity_id"])
                           if r["other_entity_id"] else [])
+        r["entity_name"] = _entity_name(conn, r["entity_type"], r["entity_id"])
+        r["other_entity_name"] = _entity_name(conn, r["entity_type"], r["other_entity_id"])
 
     counts_by_kind = {}
     counts_by_status = {}

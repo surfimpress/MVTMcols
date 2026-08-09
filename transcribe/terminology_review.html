@@ -126,7 +126,10 @@
   }
   .mention-meta { font-size: 0.74rem; color: var(--muted); margin-bottom: 0.3rem; }
   .mention-excerpt { font-size: 0.85rem; white-space: pre-wrap; }
-  .mention-excerpt mark { background: var(--warn); color: #1a1a1a; padding: 0 0.1em; }
+  .mention-excerpt mark.hl-mention { background: var(--warn); color: #1a1a1a; padding: 0 0.1em; }
+  .mention-excerpt mark.hl-canonical { background: var(--accent); color: #fff; padding: 0 0.1em; }
+  .context-legend { font-size: 0.74rem; color: var(--muted); margin: 0 0 0.6rem; }
+  .context-legend mark { padding: 0 0.3em; margin-right: 0.4em; }
 </style>
 </head>
 <body>
@@ -296,26 +299,58 @@
     return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  // Wraps the mention's own term (mention_text -- the exact original
-  // token as it appeared, e.g. "Big Brothers / Big Sisters") in <mark>
-  // wherever it appears in the excerpt, so the source of the term is
-  // visible at a glance instead of needing to read the whole excerpt.
-  function highlightTerm(excerpt, term) {
-    var escExcerpt = escapeHtml(excerpt);
-    if (!term) return escExcerpt;
-    var escTerm = escapeHtml(term);
-    var idx = escExcerpt.toLowerCase().indexOf(escTerm.toLowerCase());
-    if (idx === -1) return escExcerpt;
-    return escExcerpt.slice(0, idx) + '<mark>' + escExcerpt.slice(idx, idx + escTerm.length) +
-      '</mark>' + escExcerpt.slice(idx + escTerm.length);
+  // Finds every non-overlapping occurrence of `term` in already-escaped
+  // text, skipping any span already claimed (so mention_text and the
+  // canonical name don't fight over the same characters when they're
+  // equal or one contains the other).
+  function findSpans(escText, term, cls, claimed) {
+    var spans = [];
+    if (!term) return spans;
+    var lowerText = escText.toLowerCase();
+    var lowerTerm = term.toLowerCase();
+    var idx = 0;
+    while (true) {
+      var found = lowerText.indexOf(lowerTerm, idx);
+      if (found === -1) break;
+      var end = found + lowerTerm.length;
+      var overlaps = claimed.some(function(c) { return found < c.end && end > c.start; });
+      if (!overlaps) spans.push({ start: found, end: end, cls: cls });
+      idx = end;
+    }
+    return spans;
   }
 
-  function mentionCard(m) {
+  // Highlights both the mention's own literal text (as printed, e.g.
+  // "Big Brothers / Big Sisters") and the entity's canonical name (the
+  // name we normalized it to, e.g. "Big Brothers/Big Sisters of Lanark
+  // County") wherever each occurs in the excerpt -- in different
+  // colors, since they're not always the same string and a reviewer
+  // needs to see both to judge a duplicate candidate.
+  function highlightTerm(excerpt, mentionText, canonicalName) {
+    var escExcerpt = escapeHtml(excerpt);
+    var escMention = escapeHtml(mentionText || '');
+    var mentionSpans = findSpans(escExcerpt, escMention, 'hl-mention', []);
+    var escCanonical = escapeHtml(canonicalName || '');
+    var canonicalSpans = (escCanonical && escCanonical.toLowerCase() !== escMention.toLowerCase())
+      ? findSpans(escExcerpt, escCanonical, 'hl-canonical', mentionSpans)
+      : [];
+    var all = mentionSpans.concat(canonicalSpans).sort(function(a, b) { return a.start - b.start; });
+    var out = '', pos = 0;
+    all.forEach(function(s) {
+      out += escExcerpt.slice(pos, s.start);
+      out += '<mark class="' + s.cls + '">' + escExcerpt.slice(s.start, s.end) + '</mark>';
+      pos = s.end;
+    });
+    out += escExcerpt.slice(pos);
+    return out;
+  }
+
+  function mentionCard(m, canonicalName) {
     var date = m.year ? (m.year + '-' + String(m.month).padStart(2, '0') + '-' + String(m.day).padStart(2, '0')) : '';
     var loc = [date, m.headline, m.page ? ('p' + m.page) : null].filter(Boolean).join(' · ');
     return '<div class="mention-item">' +
       '<div class="mention-meta">' + escapeHtml(loc) + '</div>' +
-      '<div class="mention-excerpt">' + highlightTerm(m.excerpt, m.mention_text) + '</div>' +
+      '<div class="mention-excerpt">' + highlightTerm(m.excerpt, m.mention_text, canonicalName) + '</div>' +
       '</div>';
   }
 
@@ -334,19 +369,27 @@
 
     title.textContent = (r.description || '').replace(/_/g, ' ');
 
-    var colA = '<div class="context-col"><h3>' + (r.entity_type || '') + ' A</h3>' +
+    var legend = '<p class="context-legend">' +
+      '<mark class="hl-mention">text as printed</mark>' +
+      '<mark class="hl-canonical">canonical name (' + escapeHtml(r.entity_name || '') +
+      (r.other_entity_name ? ' / ' + escapeHtml(r.other_entity_name) : '') + ')</mark>' +
+      '</p>';
+
+    var colA = '<div class="context-col"><h3>' + (r.entity_type || '') + ' A: ' +
+      escapeHtml(r.entity_name || '') + '</h3>' +
       ((r.context_a && r.context_a.length)
-        ? r.context_a.map(mentionCard).join('')
+        ? r.context_a.map(function(m) { return mentionCard(m, r.entity_name); }).join('')
         : '<p class="empty" style="padding:0.5rem 0">No mentions found.</p>') +
       '</div>';
     var colB = (r.other_entity_id)
-      ? '<div class="context-col"><h3>' + (r.entity_type || '') + ' B</h3>' +
+      ? '<div class="context-col"><h3>' + (r.entity_type || '') + ' B: ' +
+        escapeHtml(r.other_entity_name || '') + '</h3>' +
         ((r.context_b && r.context_b.length)
-          ? r.context_b.map(mentionCard).join('')
+          ? r.context_b.map(function(m) { return mentionCard(m, r.other_entity_name); }).join('')
           : '<p class="empty" style="padding:0.5rem 0">No mentions found.</p>') +
         '</div>'
       : '';
-    body.innerHTML = '<div class="context-columns">' + colA + colB + '</div>';
+    body.innerHTML = legend + '<div class="context-columns">' + colA + colB + '</div>';
     dialog.showModal();
   }
 
