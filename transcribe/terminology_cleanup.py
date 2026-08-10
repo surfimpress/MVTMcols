@@ -569,7 +569,7 @@ def apply_genericize(conn, table: str, old_name: str, new_name: str) -> dict:
         conn.commit()
 
     return _merge_entity.merge_entity(conn, table, keep_name=new_name,
-                                       drop_name=old_name, alias=False)
+                                       drop_name=old_name, alias=True)
 
 
 # --------------------------------------------------------------------
