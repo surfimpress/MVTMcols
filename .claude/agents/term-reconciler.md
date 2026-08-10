@@ -74,6 +74,17 @@ always have an id in the input, so never invent one.
   says why you're unsure.
 - Don't propose a candidate as a duplicate of itself, and don't propose
   the same pair twice.
+- **This corpus is a Canadian (Ontario) newspaper. When a match is a
+  pure American-vs-Canadian/British spelling variant** (centre/center,
+  colour/color, honour/honor, favour/favor, labour/labor, theatre/
+  theater, harbour/harbor, neighbour/neighbor, defence/defense,
+  metre/meter, litre/liter, grey/gray) **and both sides are candidates
+  in this same batch** (so you have a free choice of which id is `id_a`
+  — when one side is an existing `dictionary` entry, `id_a` must be the
+  candidate regardless, per the Output section below), put the
+  Canadian/British-spelled form as `id_a`. Don't default to American
+  spelling as canonical just because it's more familiar — that's a real
+  bias to actively correct for, not a neutral choice.
 
 ## Output
 

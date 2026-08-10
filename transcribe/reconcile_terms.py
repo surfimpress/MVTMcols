@@ -61,10 +61,51 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 
 from . import db as _db
 from . import entity_candidates as _entity_candidates
 from . import terminology_cleanup as _cleanup
+
+# American -> Canadian/British spelling, whole-word case-insensitive.
+# Deliberately conservative: only entries where Canadian usage
+# unambiguously matches British, unlike e.g. -ize/-ise or program/
+# programme, where Canadian usage doesn't reliably follow British --
+# see term-reconciler.md's matching list. This corpus is a Canadian
+# (Ontario) newspaper; the LLM tier defaulting to American spelling as
+# "canonical" (confirmed live 2026-08-10: 'Centennial Center' proposed
+# over 'Centennial Centre') is a real bias, not a neutral choice, and
+# needs a code-level backstop, not just a prompt instruction -- id_a is
+# schema-forced to be the new candidate even when the pre-existing
+# dictionary entry is the Canadian-spelled form, so prompting alone
+# can't always fix the direction.
+_AMERICAN_TO_CANADIAN = {
+    "center": "centre", "theater": "theatre", "meter": "metre", "liter": "litre",
+    "color": "colour", "honor": "honour", "favor": "favour", "labor": "labour",
+    "harbor": "harbour", "neighbor": "neighbour", "defense": "defence",
+    "offense": "offence", "gray": "grey",
+}
+_WORD_RE = re.compile(r"[A-Za-z]+")
+
+
+def _canadianize(name: str) -> str:
+    def repl(m):
+        return _AMERICAN_TO_CANADIAN.get(m.group(0).lower(), m.group(0))
+    return _WORD_RE.sub(repl, name).lower()
+
+
+def _prefer_canadian_order(id_a: str, name_a: str, id_b: str, name_b: str):
+    """If this pair differs only by an American/Canadian spelling
+    substitution, returns (id, name) x2 with the Canadian-spelled form
+    first -- regardless of which side was originally id_a. A no-op for
+    every other kind of match."""
+    if _canadianize(name_a) != _canadianize(name_b):
+        return id_a, name_a, id_b, name_b
+    a_is_american = name_a.lower() != _canadianize(name_a)
+    b_is_american = name_b.lower() != _canadianize(name_b)
+    if a_is_american and not b_is_american:
+        return id_b, name_b, id_a, name_a
+    return id_a, name_a, id_b, name_b
 
 WORK_DIR = os.path.join(_db.REPO_ROOT, "transcribe", "work", "reconcile_terms")
 CHECKPOINT_KEY = "reconcile_terms_last_run"
@@ -273,6 +314,7 @@ def ingest_matches(conn, entity_type: str, matches: list[dict]) -> dict:
         if id_a not in names or id_b not in names:
             continue  # unknown/stale id -- skip rather than error
         name_a, name_b = names[id_a], names[id_b]
+        id_a, name_a, id_b, name_b = _prefer_canadian_order(id_a, name_a, id_b, name_b)
 
         if _cleanup._already_reviewed_pair(conn, entity_type, id_a, id_b):
             skipped += 1
