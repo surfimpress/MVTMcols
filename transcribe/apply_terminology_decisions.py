@@ -132,7 +132,8 @@ def apply_decisions(conn, decisions: dict) -> dict:
                 key, fix = _rule_for(live, names, "approve")
                 _cleanup.upsert_rule(conn, live["entity_type"], live["review_kind"], key,
                                      "approve", proposed_fix=fix,
-                                     notes=f"created via terminology_review.html Save, review {review['id']}")
+                                     notes=f"created via terminology_review.html Save, review {review['id']}",
+                                     provenance=live["provenance"])
                 rules_added.append({"id": review["id"], "decision": "approve", "match_key": key})
         except Exception as e:
             _mark(conn, review["id"], "open", f"apply failed: {e}")
@@ -154,7 +155,8 @@ def apply_decisions(conn, decisions: dict) -> dict:
             if key:
                 _cleanup.upsert_rule(conn, live["entity_type"], live["review_kind"], key,
                                      "ignore", proposed_fix=None,
-                                     notes=f"created via terminology_review.html Save, review {review['id']}")
+                                     notes=f"created via terminology_review.html Save, review {review['id']}",
+                                     provenance=live["provenance"])
                 rules_added.append({"id": review["id"], "decision": "ignore", "match_key": key})
 
     return {"applied": applied, "failed": failed, "dismissed": dismissed, "rules_added": rules_added}

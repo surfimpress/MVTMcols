@@ -375,23 +375,27 @@ def raise_terminology_review(conn: sqlite3.Connection,
                              review_kind: str,
                              description: str,
                              raised_by: str,
+                             provenance: str,
                              entity_id: str | None = None,
                              other_entity_id: str | None = None,
                              confidence: float | None = None,
                              proposed_fix: dict | None = None,
                              suggested_cli: str | None = None,
                              notes: str | None = None) -> str:
+    """provenance: 'python' (deterministic heuristic) or 'llm' (agent
+    judgment) -- required, not defaulted, so every call site is explicit
+    about which it is. See schema.sql's terminology_reviews comment."""
     new_id = new_uuid()
     conn.execute(
         """INSERT INTO terminology_reviews
            (id, entity_type, entity_id, other_entity_id, review_kind,
             description, confidence, proposed_fix_json, suggested_cli,
-            status, raised_by, raised_at, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)""",
+            status, raised_by, raised_at, notes, provenance)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?)""",
         (new_id, entity_type, entity_id, other_entity_id, review_kind,
          description, confidence,
          json.dumps(proposed_fix, sort_keys=True) if proposed_fix is not None else None,
-         suggested_cli, raised_by, now_iso(), notes),
+         suggested_cli, raised_by, now_iso(), notes, provenance),
     )
     conn.commit()
     return new_id

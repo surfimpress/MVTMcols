@@ -83,7 +83,7 @@ def build_stats(conn) -> dict:
     rows = conn.execute(
         """SELECT id, entity_type, entity_id, other_entity_id, review_kind,
                   description, confidence, suggested_cli, status, raised_by,
-                  raised_at, resolved_at, notes
+                  raised_at, resolved_at, notes, provenance
            FROM terminology_reviews ORDER BY raised_at DESC"""
     ).fetchall()
     reviews = [dict(r) for r in rows]
@@ -103,14 +103,17 @@ def build_stats(conn) -> dict:
 
     counts_by_kind = {}
     counts_by_status = {}
+    counts_by_provenance = {}
     for r in reviews:
         counts_by_kind[r["review_kind"]] = counts_by_kind.get(r["review_kind"], 0) + 1
         counts_by_status[r["status"]] = counts_by_status.get(r["status"], 0) + 1
+        counts_by_provenance[r["provenance"]] = counts_by_provenance.get(r["provenance"], 0) + 1
 
     return {
         "generated_at": _db.now_iso(),
         "counts_by_kind": counts_by_kind,
         "counts_by_status": counts_by_status,
+        "counts_by_provenance": counts_by_provenance,
         "reviews": reviews,
     }
 

@@ -77,6 +77,12 @@
   }
   .confidence { font-size: 0.78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
   .confidence.low { color: var(--warn); }
+  .provenance-tag {
+    font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.03em;
+    padding: 0.1rem 0.4rem; border-radius: 999px; border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .provenance-tag.llm { color: var(--accent); border-color: var(--accent); }
   .desc { margin: 0.4rem 0; }
   .meta { font-size: 0.76rem; color: var(--muted); margin-top: 0.4rem; }
   .card-actions { display: flex; gap: 1rem; margin-top: 0.6rem; flex-wrap: wrap; }
@@ -194,6 +200,12 @@
     <button class="chip" data-kind="type_near_duplicate">Type near-duplicates</button>
   </div>
 
+  <div class="controls">
+    <button class="chip active" data-provenance="all">All sources</button>
+    <button class="chip" data-provenance="python">Python</button>
+    <button class="chip" data-provenance="llm">LLM</button>
+  </div>
+
   <p class="count" id="count"></p>
   <div id="cards"></div>
 
@@ -216,7 +228,7 @@
 (function() {
   var POLL_MS = 30000;
   var STORAGE_KEY = 'terminology_review_decisions';
-  var state = { kind: 'all', data: null, decisions: loadDecisions() };
+  var state = { kind: 'all', provenance: 'all', data: null, decisions: loadDecisions() };
 
   function loadDecisions() {
     var raw;
@@ -256,6 +268,7 @@
     if (!state.data) return;
     var rows = state.data.reviews.filter(function(r) { return r.status === 'open'; });
     if (state.kind !== 'all') rows = rows.filter(function(r) { return r.review_kind === state.kind; });
+    if (state.provenance !== 'all') rows = rows.filter(function(r) { return (r.provenance || 'python') === state.provenance; });
     rows.sort(function(a, b) { return (b.confidence || 0) - (a.confidence || 0); });
 
     document.getElementById('count').textContent = rows.length + ' open review(s)';
@@ -287,6 +300,7 @@
         '<div class="card-top">' +
           '<span class="card-top-eyebrow">' +
             '<span class="kind-tag">' + r.review_kind.replace(/_/g, ' ') + '</span>' +
+            '<span class="provenance-tag ' + (r.provenance || 'python') + '">' + (r.provenance || 'python') + '</span>' +
             '<span class="' + confClass + '">confidence ' + conf + '</span>' +
           '</span>' +
           contextBtn +
@@ -468,9 +482,14 @@
 
   document.querySelectorAll('.chip').forEach(function(chip) {
     chip.addEventListener('click', function() {
-      document.querySelectorAll('.chip').forEach(function(c) { c.classList.remove('active'); });
+      // Each chip group (kind, provenance) has its own active state --
+      // scope the toggle to siblings within the same .controls group,
+      // not every .chip on the page, now that there are two groups.
+      var group = chip.closest('.controls');
+      group.querySelectorAll('.chip').forEach(function(c) { c.classList.remove('active'); });
       chip.classList.add('active');
-      state.kind = chip.dataset.kind;
+      if (chip.dataset.kind !== undefined) state.kind = chip.dataset.kind;
+      if (chip.dataset.provenance !== undefined) state.provenance = chip.dataset.provenance;
       render();
     });
   });

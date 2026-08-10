@@ -585,7 +585,12 @@ CREATE TABLE IF NOT EXISTS terminology_reviews (
     raised_by         TEXT,                       -- 'terminology_cleanup' pass name, or model name
     raised_at         TEXT NOT NULL,
     resolved_at       TEXT,
-    notes             TEXT
+    notes             TEXT,
+    -- provenance: 'python' (deterministic heuristic, terminology_cleanup.py)
+    -- or 'llm' (term-reconciler.md via reconcile_terms.py). Drives both
+    -- the UI's provenance chip and reconcile_terms.py's own context-feed
+    -- query (see terminology_rules.provenance below).
+    provenance        TEXT NOT NULL DEFAULT 'python'
 );
 CREATE INDEX IF NOT EXISTS idx_terminology_reviews_status ON terminology_reviews (status);
 CREATE INDEX IF NOT EXISTS idx_terminology_reviews_kind ON terminology_reviews (review_kind);
@@ -616,6 +621,14 @@ CREATE TABLE IF NOT EXISTS terminology_rules (
     proposed_fix_json TEXT,                       -- for 'approve': what to apply (mirrors terminology_reviews)
     created_at        TEXT NOT NULL,
     notes             TEXT,
+    -- provenance: the source review's provenance at the moment this rule
+    -- was created (threaded through by apply_terminology_decisions.py).
+    -- reconcile_terms.py's confirmed_examples() reads only provenance='llm'
+    -- approve-rules as few-shot context for its next run -- an 'approve
+    -- always' on a python-tier review stays a simple mechanical rule with
+    -- no further effect; the same decision on an llm-tier review also
+    -- feeds the matcher's own future context.
+    provenance        TEXT NOT NULL DEFAULT 'python',
     UNIQUE (entity_type, review_kind, match_key)
 );
 
@@ -700,7 +713,21 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 --                                    its own decoupled Unit 3, this is
 --                                    how it finds items it hasn't
 --                                    processed yet
+--  13 — terminology provenance (2026-08-09): terminology_reviews.provenance
+--                                    and terminology_rules.provenance
+--                                    ('python'|'llm') -- Unit 4 gained a
+--                                    second, LLM-based matching tier
+--                                    (term-reconciler.md via
+--                                    transcribe/reconcile_terms.py)
+--                                    alongside the original Python
+--                                    heuristics in terminology_cleanup.py;
+--                                    an 'approve always' decision on an
+--                                    llm-provenance review feeds the
+--                                    confirmed pair forward as context
+--                                    into the matcher's next run, a
+--                                    python-provenance review's rule
+--                                    stays purely mechanical
 INSERT OR IGNORE INTO schema_meta (key, value)
-    VALUES ('schema_version', '12');
+    VALUES ('schema_version', '13');
 INSERT OR IGNORE INTO schema_meta (key, value)
     VALUES ('created_at_iso', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));

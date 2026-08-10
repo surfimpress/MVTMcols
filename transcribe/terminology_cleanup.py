@@ -97,19 +97,25 @@ def find_rule(conn, entity_type: str, review_kind: str, match_key: str) -> dict 
 
 def upsert_rule(conn, entity_type: str, review_kind: str, match_key: str,
                 decision: str, proposed_fix: dict | None = None,
-                notes: str | None = None) -> None:
+                notes: str | None = None, provenance: str = "python") -> None:
+    """provenance: the source review's provenance at the moment this rule
+    was created/re-decided -- see schema.sql's terminology_rules comment.
+    Defaults to 'python' since most callers are this module's own
+    heuristic passes; apply_terminology_decisions.py passes the live
+    review's actual provenance explicitly."""
     conn.execute(
         """INSERT INTO terminology_rules
            (id, entity_type, review_kind, match_key, decision, proposed_fix_json,
-            created_at, notes)
-           VALUES (?,?,?,?,?,?,?,?)
+            created_at, notes, provenance)
+           VALUES (?,?,?,?,?,?,?,?,?)
            ON CONFLICT(entity_type, review_kind, match_key)
            DO UPDATE SET decision=excluded.decision,
                          proposed_fix_json=excluded.proposed_fix_json,
-                         notes=excluded.notes""",
+                         notes=excluded.notes,
+                         provenance=excluded.provenance""",
         (_db.new_uuid(), entity_type, review_kind, match_key, decision,
          json.dumps(proposed_fix) if proposed_fix is not None else None,
-         _db.now_iso(), notes),
+         _db.now_iso(), notes, provenance),
     )
     conn.commit()
 
@@ -145,21 +151,28 @@ def _known_place_names(conn) -> set:
 
 def _record_applied_review(conn, *, entity_type: str, review_kind: str,
                            entity_id: str | None, other_entity_id: str | None,
-                           description: str, notes: str) -> str:
+                           description: str, notes: str,
+                           provenance: str = "python") -> str:
     """Like db.raise_terminology_review, but records a review that's
     already resolved -- for the 'approve always' auto-apply path,
     where there's no open decision to make, only a record to keep for
     visibility/audit (so terminology_review.html and stats still show
-    what happened, even though no one clicked anything this time)."""
+    what happened, even though no one clicked anything this time).
+
+    provenance reflects whichever pass performed THIS auto-apply (i.e.
+    this module, since only terminology_cleanup.py's own passes call
+    this), not necessarily the provenance of the rule being applied --
+    a rule created from an llm-sourced review is still applied here by
+    plain Python matching logic."""
     new_id = _db.new_uuid()
     now = _db.now_iso()
     conn.execute(
         """INSERT INTO terminology_reviews
            (id, entity_type, entity_id, other_entity_id, review_kind,
-            description, status, raised_by, raised_at, resolved_at, notes)
-           VALUES (?,?,?,?,?,?, 'applied', ?, ?, ?, ?)""",
+            description, status, raised_by, raised_at, resolved_at, notes, provenance)
+           VALUES (?,?,?,?,?,?, 'applied', ?, ?, ?, ?, ?)""",
         (new_id, entity_type, entity_id, other_entity_id, review_kind,
-         description, RAISED_BY, now, now, notes),
+         description, RAISED_BY, now, now, notes, provenance),
     )
     conn.commit()
     return new_id
@@ -246,7 +259,8 @@ def find_duplicates(conn, table: str) -> list[dict]:
                             conn, entity_type=table, review_kind="duplicate_candidate",
                             entity_id=id_a, other_entity_id=id_b,
                             description=f"{kind}: {name_a!r} / {name_b!r}",
-                            notes=f"auto-applied via 'approve always' rule ({key})")
+                            notes=f"auto-applied via 'approve always' rule ({key})",
+                            provenance="python")
                     except ValueError:
                         pass  # already merged via this or another rule this run
                     continue
@@ -255,7 +269,7 @@ def find_duplicates(conn, table: str) -> list[dict]:
                     conn, entity_type=table, review_kind="duplicate_candidate",
                     entity_id=id_a, other_entity_id=id_b, confidence=confidence,
                     description=f"{kind}: {name_a!r} / {name_b!r}",
-                    raised_by=RAISED_BY,
+                    raised_by=RAISED_BY, provenance="python",
                     suggested_cli=(
                         f"python3 -m transcribe.merge_entity {table} "
                         f"{name_a!r} {name_b!r} --alias"),
@@ -350,7 +364,8 @@ def nomenclature_gaps(conn) -> dict:
                     conn, entity_type="products", review_kind="nomenclature_gap",
                     entity_id=r["id"], other_entity_id=None,
                     description=f"{r['name']!r} -> product_type={rule_fix['product_type']!r}",
-                    notes=f"auto-applied via 'approve always' rule ({key})")
+                    notes=f"auto-applied via 'approve always' rule ({key})",
+                    provenance="python")
                 applied += 1
                 continue
 
@@ -361,7 +376,7 @@ def nomenclature_gaps(conn) -> dict:
                     f"{r['name']!r} currently product_type={r['product_type']!r}; "
                     f"Nomenclature suggests {category_value!r} "
                     f"({match['label']!r}, {match['uri']})"),
-                raised_by=RAISED_BY,
+                raised_by=RAISED_BY, provenance="python",
                 proposed_fix=fix,
                 suggested_cli=(
                     f"python3 -m transcribe.terminology_cleanup apply-nomenclature "
@@ -460,7 +475,8 @@ def check_generic_names(conn, table: str = "products") -> list[dict]:
                     conn, entity_type="products", review_kind="name_too_specific",
                     entity_id=r["id"], other_entity_id=None,
                     description=f"genericized {name!r} -> {rule_fix['new_name']!r}",
-                    notes=f"auto-applied via 'approve always' rule ({key})")
+                    notes=f"auto-applied via 'approve always' rule ({key})",
+                    provenance="python")
             except ValueError:
                 pass
             continue
@@ -470,7 +486,7 @@ def check_generic_names(conn, table: str = "products") -> list[dict]:
             entity_id=r["id"], confidence=0.7,
             description=(f"{name!r} still embeds manufacturer {mfr!r} in its own "
                          f"name -- propose genericizing to {stripped!r}"),
-            raised_by=RAISED_BY,
+            raised_by=RAISED_BY, provenance="python",
             proposed_fix={"new_name": stripped},
             suggested_cli=(
                 f"python3 -m transcribe.terminology_cleanup apply-genericize "
