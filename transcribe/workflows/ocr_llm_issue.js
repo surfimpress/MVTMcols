@@ -79,21 +79,63 @@ const ITEMS_SCHEMA = {
 
 const pages = Array.isArray(args) ? args : JSON.parse(args)
 
+// Contingency for a content-filter block or other agent-call failure.
+// agent() already retries transient API errors internally and returns
+// null only after exhausting those (per its own contract) -- retrying
+// an already-null result identically wouldn't help, so this only
+// adds ONE extra attempt for a genuinely thrown error (a content-
+// filter block can surface this way, and isn't always deterministic
+// across an identical retry). This is a deliberately light contingency,
+// not the older transcribe-issue pipeline's multi-tier reframing
+// ladder -- if blocks turn out to recur often on this route, that's
+// the pattern to reach for next, not this one.
+const MAX_ATTEMPTS = 2
+
+async function callWithRetry(prompt, opts) {
+  let lastError = null
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const result = await agent(prompt, opts)
+      if (result) return { ok: true, result }
+      return { ok: false, reason: 'agent returned no result after harness-level retries' }
+    } catch (e) {
+      lastError = e
+    }
+  }
+  return { ok: false, reason: String((lastError && lastError.message) || lastError) }
+}
+
 const results = await pipeline(
   pages,
-  page => agent(page.cleanup_prompt, {
+  page => callWithRetry(page.cleanup_prompt, {
     label: `cleanup:p${page.page}`, phase: 'Cleanup',
     agentType: 'ocr-cleanup', schema: CLEANUP_SCHEMA,
   }),
-  (cleanupResult, page) => agent(page.items_prompt, {
-    label: `items:p${page.page}`, phase: 'Items',
-    agentType: 'ocr-items', schema: ITEMS_SCHEMA,
-  }).then(itemsResult => ({
-    page_id: page.page_id,
-    page: page.page,
-    cleanup: cleanupResult ? cleanupResult.blocks : [],
-    items: itemsResult ? itemsResult.items : [],
-  }))
+  async (cleanup, page) => {
+    const items = await callWithRetry(page.items_prompt, {
+      label: `items:p${page.page}`, phase: 'Items',
+      agentType: 'ocr-items', schema: ITEMS_SCHEMA,
+    })
+    const problems = []
+    if (!cleanup.ok) problems.push(`cleanup: ${cleanup.reason}`)
+    if (!items.ok) problems.push(`items: ${items.reason}`)
+    return {
+      page_id: page.page_id,
+      page: page.page,
+      cleanup: cleanup.ok ? cleanup.result.blocks : [],
+      items: items.ok ? items.result.items : [],
+      // Explicit failure signal -- an empty items array on a page
+      // whose agent call genuinely failed must never look the same
+      // as "the agent ran fine and found nothing." The ingest side
+      // (ocr_llm.py's ingest_workflow_result_data) checks this before
+      // trusting an empty result as real.
+      failed: problems.length > 0,
+      failure_reason: problems.length ? problems.join('; ') : null,
+    }
+  }
 )
 
-return results.filter(Boolean)
+// Every page now always produces a well-formed entry (callWithRetry
+// never throws past this point, and the pipeline stage always
+// returns an object) -- nothing to silently filter out anymore.
+return results

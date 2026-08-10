@@ -52,6 +52,12 @@ doesn't need to run right after ingest.
    `transcribe/work/ocr_llm/YYYY-MM-DD/workflow_args.json`: one
    `{page_id, page, cleanup_prompt, items_prompt}` object per page.
 
+   A page marked `damaged` (its LLM stages have failed
+   `DAMAGED_THRESHOLD` times across separate runs -- see step 4) is
+   skipped here by default and reported by page number, not silently
+   dropped -- pass `--include-damaged` once you've decided by hand
+   that a retry is worth it.
+
 3. **Dispatch via Workflow.** Read the args file's contents and
    invoke:
    ```
@@ -71,6 +77,32 @@ doesn't need to run right after ingest.
    For large issues, consider chunking pages across a few `Workflow`
    calls rather than one huge call -- no hard limit has been hit yet,
    but this hasn't been tested past ~12 pages in one run.
+
+   **Watch for a stalled run.** This project has a recurring "last
+   agent never ends" pattern (seen on the older `transcribe-issue`
+   pipeline too). That pipeline's stall watcher tracks transcript-file
+   *byte growth* per agent (a real, precise "still working" signal) --
+   `ocr-cleanup`/`ocr-items`/`term-extractor` can't use that same
+   mechanism, since all three are `tools: Read` only and never write
+   an incremental file the way `column-transcriber` does. So this
+   route's watcher can only track elapsed time, which is weaker: it
+   can flag "unusually long," never confirm "genuinely stuck" the way
+   byte-growth can distinguish from "hard content, still working."
+   Treat an alert as "go look," not "kill and retry."
+
+   Launch a standalone `Monitor` poll loop alongside the `Workflow`
+   dispatch above (same "entirely outside the agent pool, zero
+   impedance" design as the older pipeline's watcher) that polls the
+   run's transcript directory every ~60s and flags if the most recent
+   `agent-*.jsonl` file's mtime hasn't advanced for longer than a
+   floor of 900s (1.5x the top of this route's own observed 90-600s
+   per-call range, quoted in `ocr_llm_issue.js`'s own comment -- not
+   independently calibrated the way the older pipeline's 300s floor
+   was against real data, so treat 900s as a starting point to revise
+   after watching a real run, not a settled number). On a flagged
+   stall, check the transcript directly before doing anything else --
+   it may just be a page with unusually hard content, exactly like the
+   1869-01-29 p3 case that turned out to be legitimate.
 
 4. **Save the result and ingest.** When the workflow completes, save
    its `result` array to a file (e.g.
@@ -92,19 +124,37 @@ doesn't need to run right after ingest.
    against a partially-ingested batch (e.g. after ingesting some pages
    by hand mid-session) is safe.
 
-5. **Verify block coverage.** Run:
-   ```
-   python3 -m transcribe.ocr_llm verify-coverage YYYY-MM-DD
-   ```
+   The workflow script itself now retries a page's cleanup/items call
+   once on a thrown error (a content-filter block can surface this
+   way) before giving up -- a page whose call still fails is reported
+   as `FAILED` here, not silently ingested as if it legitimately found
+   nothing. A failed page's `llm_status` moves to `failed`, then
+   `damaged` after `DAMAGED_THRESHOLD` (2) separate failed runs; a page
+   that succeeds afterwards gets a clean slate. This is a light
+   contingency (one retry, clear reporting), not the older
+   `transcribe-issue` pipeline's multi-tier reframing ladder -- reach
+   for that pattern instead if content-filter blocks turn out to
+   recur often on this route.
+
+5. **Coverage is recovered automatically -- verify it stayed that way.**
    An item-markup pass can legitimately drop blocks even when told not
    to (confirmed: 4/188 blocks on 2001-01-03 page 9 were never
    assigned to any item, despite the prompt's explicit "every block id
-   should end up inside exactly one item" instruction). This command
-   reports any gap by page and block index -- it does not auto-fix.
-   For a small gap, add an honest catch-all item bundling the orphaned
-   blocks' raw text (see the page 9 precedent in `CLAUDE.md`'s history
-   -- don't fabricate a confident label for content you can't actually
-   classify). For a large gap, re-run that page's items pass instead.
+   should end up inside exactly one item" instruction). Step 4's ingest
+   now calls `recover_orphaned_blocks()` automatically right after
+   ingesting each page's items -- any block still unclaimed gets
+   bundled into one honest catch-all `other` item from its already-
+   persisted OCR text (`repair_needed=1`, a clear `repair_reason`),
+   zero LLM tokens spent, no manual step required. Its console output
+   during ingest shows `(+N recovered into a catch-all item)` on any
+   page that needed it.
+
+   Run `python3 -m transcribe.ocr_llm verify-coverage YYYY-MM-DD` as a
+   final check anyway -- it should now always report full coverage; a
+   gap surviving past ingest means something unexpected happened (e.g.
+   a page whose items-pass produced zero items at all, which the
+   recovery guard deliberately skips -- see `recover_orphaned_blocks`'s
+   docstring). Investigate rather than hand-patch in that case.
 
 6. **Summarise.** How many pages, items; any coverage gaps found and
    how they were resolved; anything that needed `--force` on
@@ -131,11 +181,14 @@ picks up items that don't have it set yet, so re-running `build` later
 
 ## Not yet built (unlike `transcribe-issue`)
 
-- No content-filter-block escalation ladder. If an `ocr-cleanup`,
-  `ocr-items`, or `term-extractor` agent call is blocked by
-  Anthropic's safety classifier, there is no Tier 2/3/4 retry path
-  here yet -- surface it and decide case by case. Worth building if it
-  recurs; not built preemptively.
+- Only a light contingency for a content-filter block or other agent
+  failure (one retry, then clear FAILED reporting + `llm_status`
+  tracking -- see step 4), not `transcribe-issue`'s full Tier 2/3/4
+  reframing/escalation ladder. Build that heavier pattern if blocks
+  turn out to recur often on this route; not built preemptively.
+- `term-extractor` (a separate pass, not part of this skill) has no
+  retry/failure handling at all yet -- only the render+cleanup+items
+  path above does.
 - No Haiku/Sonnet comparison mode.
 - No download cleanup step (`transcribe-issue`'s step 5) -- rendered
   pages and their tickets stay under `transcribe/work/ocr_llm/` and

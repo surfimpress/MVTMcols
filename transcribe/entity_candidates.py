@@ -114,19 +114,36 @@ def all_rows(conn: sqlite3.Connection, table: str,
     ]
 
 
-def _unfiltered_candidates(conn: sqlite3.Connection, table: str,
-                            name_col: str = "name") -> list[str]:
+def capped_rows(conn: sqlite3.Connection, table: str,
+                 name_col: str = "name", limit: int = MAX_CANDIDATES) -> list[dict]:
+    """Recency-sorted, capped {id, name, first_seen_date, last_seen_date}
+    rows -- same truncation policy as _unfiltered_candidates (see
+    _sort_by_recency/_cap), but keeps id. For callers that need
+    identity, not just a name hint -- e.g. reconcile_terms.dictionary(),
+    which has to report a real id for whichever existing entity a new
+    candidate turns out to duplicate. `limit` defaults to MAX_CANDIDATES
+    but is overridable -- a caller that repeats this list once per
+    chunk of a larger job (again, reconcile_terms.dictionary()) needs a
+    tighter cap than a caller that sends it once."""
     rows = all_rows(conn, table, name_col)
     ordered = _sort_by_recency(rows)
-    return _cap([r["name"] for r in ordered], table)
+    return _cap(ordered, table, limit)
 
 
-def _cap(candidates: list[str], label: str) -> list[str]:
-    if len(candidates) > MAX_CANDIDATES:
+def _unfiltered_candidates(conn: sqlite3.Connection, table: str,
+                            name_col: str = "name") -> list[str]:
+    return [r["name"] for r in capped_rows(conn, table, name_col)]
+
+
+def _cap(candidates: list, label: str, limit: int = MAX_CANDIDATES) -> list:
+    """Generic over the item type -- truncates a list of names (people
+    etc's candidate lists) or a list of row dicts (capped_rows) the
+    same way, since only length/order matter here."""
+    if len(candidates) > limit:
         print(f"entity_candidates: {label} list truncated "
-              f"{len(candidates)} -> {MAX_CANDIDATES}; consider narrowing "
+              f"{len(candidates)} -> {limit}; consider narrowing "
               f"the filter for this table if this recurs")
-        return candidates[:MAX_CANDIDATES]
+        return candidates[:limit]
     return candidates
 
 

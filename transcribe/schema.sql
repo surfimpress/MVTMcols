@@ -243,6 +243,22 @@ CREATE TABLE IF NOT EXISTS pages (
     display_image_path   TEXT,
     display_width_px     INTEGER,
     display_height_px    INTEGER,
+    -- Lightweight outcome tracking for the LLM stages (cleanup+items),
+    -- not a claim/lock -- this route dispatches one Workflow call at a
+    -- time from a single orchestrator session, so there's no concurrent-
+    -- worker race to guard against the way the older column-cut
+    -- pipeline's claim_columns.py needs. NULL means "not attempted yet"
+    -- (the render/OCR step alone doesn't set this). 'done' on a
+    -- successful ingest; 'failed' when a page's cleanup or items call
+    -- errors even after the workflow's own one-shot retry;
+    -- llm_failure_count increments on every 'failed' outcome and
+    -- render-issue auto-flips a page to 'damaged' once it crosses
+    -- DAMAGED_THRESHOLD (see ocr_llm.py) -- a damaged page is skipped
+    -- by default on future runs (no more agent churn on a page that
+    -- keeps failing) until a human clears it by hand.
+    llm_status            TEXT,              -- NULL|'done'|'failed'|'damaged'
+    llm_failure_count      INTEGER NOT NULL DEFAULT 0,
+    llm_status_notes       TEXT,
     created_at            TEXT NOT NULL,
     notes                 TEXT,
     UNIQUE (year, month, day, page)
@@ -732,7 +748,19 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 --                                    into the matcher's next run, a
 --                                    python-provenance review's rule
 --                                    stays purely mechanical
+--  14 — OCR+LLM lightweight page status (2026-08-10): pages.llm_status,
+--                                    llm_failure_count, llm_status_notes --
+--                                    tracks cleanup+items outcome per page
+--                                    (NULL/'done'/'failed'/'damaged') so a
+--                                    page that keeps failing gets skipped
+--                                    on future runs instead of churning
+--                                    agents against it forever. Not a
+--                                    claim/lock table -- this route runs
+--                                    one Workflow dispatch at a time from a
+--                                    single orchestrator session, so there's
+--                                    no concurrent-worker race to guard
+--                                    against
 INSERT OR IGNORE INTO schema_meta (key, value)
-    VALUES ('schema_version', '13');
+    VALUES ('schema_version', '14');
 INSERT OR IGNORE INTO schema_meta (key, value)
     VALUES ('created_at_iso', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));

@@ -7,12 +7,15 @@ export const meta = {
 }
 
 // args: [{ entity_type, candidates_path, n, prompt }, ...]
-// One batch per ticket, one ticket per entity type -- see
-// transcribe/reconcile_terms.py build_tickets(). Batches are fully
-// independent (different entity types, no shared state), so this is a
-// flat parallel fan-out, not a pipeline -- same shape as
-// classify_terms.js/extract_terms.js. Ingest happens after this workflow
-// returns, in the caller (reconcile_terms.py ingest-workflow-result).
+// One batch per ticket -- one or more tickets per entity type, chunked
+// by build_tickets() so a large backlog produces more tickets, not
+// bigger ones (transcribe/reconcile_terms.py). Batches are fully
+// independent (no shared state, even between two chunks of the same
+// type -- each carries its own copy of the dictionary/confirmed
+// examples), so this is a flat parallel fan-out, not a pipeline -- same
+// shape as classify_terms.js/extract_terms.js. Ingest happens after
+// this workflow returns, in the caller
+// (reconcile_terms.py ingest-workflow-result).
 
 const MATCHES_SCHEMA = {
   type: 'object',

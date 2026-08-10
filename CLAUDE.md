@@ -2,7 +2,7 @@
 
 ## Current status — read this first, keep it current
 
-**Last updated: 2026-08-09.** This section is a live pointer, not a
+**Last updated: 2026-08-10.** This section is a live pointer, not a
 durable rule — overwrite it (don't append to it) whenever the active
 work changes materially: a campaign finishes, a new one starts, or a
 session pauses mid-task for a reason a fresh session needs to know
@@ -46,11 +46,90 @@ git history same date. `.claude/skills/ocr-transcribe-issue/SKILL.md`,
 (1980 cutoff). Validated end-to-end pre-split on 2001-01-03 (12pp),
 1994-01-05 (12pp), 1986-01-08 (18pp) — not yet re-validated as a full
 issue post-split. Monitor at `transcribe/monitor.html`. Not yet done:
-`items_ocr_ext.item_hocr`/`full_text_markdown` unpopulated; no
-content-filter retry ladder; the 647 pre-existing OCR+LLM-route items
-(from before this split) are all `terms_extracted_at IS NULL` and
-will get picked up by the next `extract_terms build` run, including
-the ~639 not yet touched by today's 8-item verification batch.
+`items_ocr_ext.item_hocr`/`full_text_markdown` unpopulated (the
+*page*-level `pages.hocr_path` is populated and durable, see the
+2026-08-10 robustness paragraph below — this is a different, still-open
+gap, the LLM-tidied item-scoped fragment); the 647 pre-existing
+OCR+LLM-route items (from before this split) are all
+`terms_extracted_at IS NULL` and will get picked up by the next
+`extract_terms build` run, including the ~639 not yet touched by the
+8-item verification batch.
+
+**Robustness audit + fixes, 2026-08-10, ahead of a planned 2-issue
+run** — a 3-agent audit (orchestration robustness / agent-prompt
+clarity+token cost / reconciliation-at-scale risk) plus direct infra
+checks found several real, confirmed-not-hypothesized problems; all
+addressed same session:
+  - `reconcile_terms.py` (Unit 4b, the LLM matching tier) had an
+    unbounded dictionary (`entity_candidates.all_rows`, uncapped) and
+    a dead `_chunk()` helper never called — the checkpoint
+    (`schema_meta.reconcile_terms_last_run`) had also never
+    initialized, so the very first real run would have been a
+    full-corpus bootstrap sending ~1900-candidate tickets. Fixed:
+    `dictionary()` now uses a new `entity_candidates.capped_rows()`
+    (recency-sorted, capped at `DICTIONARY_CAP=150` — tighter than
+    Unit 3's `MAX_CANDIDATES=500` since this tier is a second-pass
+    safety net, not primary recall) and candidates are chunked at
+    `CANDIDATE_CHUNK_SIZE=150` (deliberately close to the dictionary
+    cap so a big backlog doesn't multiply the dictionary's cost many
+    times over — verified live: 95 tickets at chunk=40 vs 28 at
+    chunk=150 for the same 3723-candidate backlog). Also fixed a real
+    checkpoint race: `_set_checkpoint` used to stamp `now()` at
+    *ingest* time while candidates were read at *build* time, so
+    anything created in between was silently, permanently skipped.
+    Now `build_tickets` snapshots `as_of` once and stashes it as a
+    pending checkpoint (`schema_meta.reconcile_terms_pending_as_of`),
+    promoted to the real checkpoint only at ingest — verified with a
+    synthetic race test (entity created "mid-cycle" correctly deferred
+    to the next run, never lost).
+  - `ocr-items` (Unit 2b) had a confirmed real silent-data-loss
+    incident (4/188 blocks on 2001-01-03 p9) with no safety net besides
+    a human remembering to run `verify-coverage` and hand-patch.
+    `ocr_llm.recover_orphaned_blocks()` now runs automatically right
+    after every page's items-ingest, bundling any still-unclaimed
+    block's already-persisted OCR text (sourced from the page's saved
+    `.hocr`/`page_ocr_blocks.raw_text`, zero LLM tokens) into an
+    honest `repair_needed=1` catch-all item. Has a guard against the
+    real false-positive this surfaced during testing: a page with zero
+    items (items-pass never dispatched yet, e.g. 1997-01-08) must not
+    be treated as "100% orphaned" — recovery only fires when the page
+    already has at least one genuine item.
+  - `ocr_llm_issue.js` had zero retry/timeout/content-filter handling;
+    a failed page silently produced `items: []`, indistinguishable
+    from "agent ran fine, found nothing." Now retries once on a thrown
+    error and returns an explicit `failed`/`failure_reason` per page
+    instead of ever silently dropping one. Schema v14 adds
+    `pages.llm_status`/`llm_failure_count`/`llm_status_notes` (NOT a
+    claim/lock table — this route runs one Workflow dispatch at a time
+    from a single orchestrator session, no concurrent-worker race to
+    guard against) — a page auto-escalates to `'damaged'` after
+    `DAMAGED_THRESHOLD=2` separate failed runs and `render-issue` skips
+    damaged pages by default (`--include-damaged` to override), so a
+    consistently-failing page stops churning agents instead of being
+    silently retried forever.
+  - Stall-watcher ("last agent never ends") procedure documented in
+    `ocr-transcribe-issue/SKILL.md` step 3, adapted from the older
+    `transcribe-issue` pipeline's proven `Monitor`-based watcher —
+    genuinely weaker here since `ocr-cleanup`/`ocr-items`/
+    `term-extractor` are all `tools: Read` only (no incremental
+    transcript-file byte-growth signal to watch, unlike
+    `column-transcriber`), so it can only flag "unusually long"
+    (floor 900s, not independently calibrated against real data the
+    way the older pipeline's 300s floor was) rather than confirm
+    "genuinely stuck." Not yet exercised against a real live dispatch.
+  - `.claude/agents/term-extractor.md` gained explicit place-naming
+    rules (street-suffix expansion; Ontario bare / elsewhere-Canada
+    province / US state / other country context) and a stronger
+    bare-first-name rule (actively infer a surname from item context,
+    e.g. a birth announcement's named parents, before skipping).
+  - **Not yet extended to `extract_terms.js`/`reconcile_terms.js`'s own
+    dispatch** — the retry contingency above only covers
+    `ocr_llm_issue.js`. Ad hoc DB backup taken 2026-08-10 (previous
+    automated backup predated all of 2026-08-09's entity-curation
+    work). No code has been run end-to-end against a real 2-issue
+    dispatch yet with these fixes in place — verified via disposable DB
+    copies and simulated results (zero LLM tokens spent on verification
+    itself), not a live Workflow run.
 
 **Entity registry + taxonomy cleanup, substantial work 2026-08-09** —
 `people`/`organizations`/`places`/`products`/`events` carry
@@ -69,6 +148,25 @@ type's job (too generic) and not be a one-off brand/instance (too
 specific) — distilled from real misses found today (Book/Movie/Play
 had briefly landed in `gifts_and_novelties`, a bad reuse of an
 existing bucket rather than a genuine fit).
+
+**entities.html follow-up work, 2026-08-10** — added single-item
+Rename and Delete alongside merge (`apply_terminology_decisions.py`
+branches `_materialize_manual_review` on `review_kind`), a permanent
+deletion blocklist (`upsert_entity()` refuses to recreate a
+name matching an approved `'deletion'` rule, all 5 tables), a DB
+metadata panel in the detail modal (real columns — `org_type`/
+`place_type`/`product_type`/`event_type`, Nomenclature `external_*`,
+notes/aliases — not just first/last-seen), and a sticky selection
+toolbar. Found and fixed a real bug the same day: `apply_genericize()`
+(the rename path) called `merge_entity(..., alias=False)`, silently
+dropping the old name instead of recording it as an alias the way a
+plain merge does — fixed (now `alias=True`) and the two already-
+affected entities (Geneva, Arnprior) corrected by hand. New automatic
+`street_abbrev_match` tier in `terminology_cleanup.py` auto-merges "X
+St." into "X Street" for places directly (no per-name-pair rule
+needed, trailing-position-only detection so it structurally can't fire
+on a leading "St." Saint- name) — verified against the live corpus
+before wiring in the auto-apply (1 real match, 0 false positives).
 
 **Nomenclature for Museum Cataloging integration** — `transcribe/nomenclature.py`
 is a SPARQL client (`https://nomenclature.info/sparql/rest/sparql/nom`,

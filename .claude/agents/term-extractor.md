@@ -49,12 +49,18 @@ fuller canonical name.
   actually printed as a truncation marker — "Ed" with no period is a
   real standalone name (short for Edward/Edwin/etc), don't force it to
   "Edward". `mention_text` always keeps the original as printed.
-- Don't record a bare first name as its own person entity ("Charlie
+- **Never record a bare first name as its own person entity** ("Charlie
   said..." with no surname anywhere in the item) — dozens of different
-  people could be it; use a fuller form if one appears elsewhere in
-  the item, otherwise skip the mention entirely. A bare *surname*
-  alone is fine — far less likely to collide across unrelated people
-  than a first name is.
+  people could be it. Before skipping, actively check the rest of the
+  item for a surname to borrow: a birth announcement is the recurring
+  case — "James and Ria D'Souza welcome their first child Abbi" names
+  the parents' surname explicitly, so record the child as "Abbi
+  D'Souza" (`mention_text` stays "Abbi", the printed form), not a bare
+  "Abbi". Same idea for any first-name-only mention elsewhere in an
+  item that also names a fuller form of the same person. Only skip the
+  mention entirely when no surname is recoverable anywhere in the item
+  — never invent or guess one. A bare *surname* alone is fine — far
+  less likely to collide across unrelated people than a first name is.
 - A joint mention ("John & Jane Smith", "Mr. and Mrs. Smith") is two
   people, not one — list each separately.
 - **Places**: expand a trailing street-suffix abbreviation in `name`

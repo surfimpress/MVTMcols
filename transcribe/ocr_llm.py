@@ -58,6 +58,15 @@ TESSDATA_URL = (
 )
 OCR_ENGINE = "tesseract 5.5.3"
 RENDER_DPI = 300
+
+# A page's LLM stages (cleanup+items) failing this many times across
+# SEPARATE render-issue/dispatch cycles auto-flips it to 'damaged' --
+# render-issue then skips it by default (see pages.llm_status,
+# schema.sql v14). Deliberately small: this isn't punishing a single
+# in-run retry (the workflow already retries once itself, see
+# ocr_llm_issue.js) -- it's the backstop against repeatedly re-
+# dispatching a page that keeps failing across whole runs.
+DAMAGED_THRESHOLD = 2
 DISPLAY_MAX_W = 1400
 CONF_TRIAGE_THRESHOLD = 85
 
@@ -604,11 +613,115 @@ def ingest_items_data(conn, page_id: str, items: list[dict],
     return n
 
 
+def recover_orphaned_blocks(conn, page_id: str) -> int:
+    """Automatic, Python-only fallback for the coverage gap that
+    verify-coverage otherwise leaves for a human to find and hand-patch
+    (SKILL.md's "does not auto-fix" note; confirmed real on 2001-01-03
+    p9, 4/188 blocks silently unclaimed despite the items-pass prompt's
+    explicit instruction). Called right after ingest_items_data(), not
+    as a separate manual step, so a coverage gap can no longer slip
+    through just because nobody remembered to run verify-coverage.
+
+    Bundles every still-unclaimed block's already-persisted text
+    (cleaned if triaged, raw Tesseract output otherwise -- the same
+    fallback ingest_items_data's own items use, ultimately sourced
+    from the page's saved .hocr file, see pages.hocr_path) into one
+    honest catch-all 'other' item, flagged repair_needed so it surfaces
+    like any other upstream issue this pipeline flags rather than
+    blending in as a genuine LLM classification -- never fabricate a
+    confident label for content no LLM pass actually classified. Zero
+    LLM tokens spent: this never calls an agent, only reads what OCR
+    already wrote. Idempotent -- a page with no gap is a no-op.
+
+    Requires at least one real item to already exist for this page --
+    a page with zero items means the items-pass hasn't run at all yet
+    (still pending, nothing dropped), not that it ran and left a gap.
+    Confirmed live on 1997-01-08: every block on every page shows as
+    "unclaimed" simply because that issue's items-pass hasn't been
+    dispatched yet -- without this guard, recovery would wrongly
+    swallow an entire unprocessed page into one fake catch-all item."""
+    has_items = conn.execute(
+        "SELECT 1 FROM items WHERE year=(SELECT year FROM pages WHERE id=?) "
+        "AND month=(SELECT month FROM pages WHERE id=?) "
+        "AND day=(SELECT day FROM pages WHERE id=?) "
+        "AND page=(SELECT page FROM pages WHERE id=?) LIMIT 1",
+        (page_id, page_id, page_id, page_id),
+    ).fetchone()
+    if not has_items:
+        return 0
+    block_rows = conn.execute(
+        "SELECT id, block_idx, bbox_left_pct, bbox_top_pct, bbox_right_pct, "
+        "bbox_bottom_pct, raw_text, cleaned_text, cleanup_status "
+        "FROM page_ocr_blocks WHERE page_id=?", (page_id,),
+    ).fetchall()
+    if not block_rows:
+        return 0
+    covered = {r[0] for r in conn.execute(
+        "SELECT DISTINCT page_ocr_block_id FROM item_ocr_block_spans "
+        "WHERE page_ocr_block_id IN ({})".format(",".join("?" * len(block_rows))),
+        [r["id"] for r in block_rows],
+    )}
+    orphaned = [r for r in block_rows if r["id"] not in covered]
+    if not orphaned:
+        return 0
+
+    page_row = conn.execute(
+        "SELECT year, month, day, page FROM pages WHERE id=?", (page_id,),
+    ).fetchone()
+    cleaned_by_idx = {
+        r["block_idx"]: {"cleaned": r["cleaned_text"], "status": r["cleanup_status"]}
+        for r in block_rows if r["cleanup_status"] is not None
+    }
+    raw_by_idx = {r["block_idx"]: r["raw_text"] for r in block_rows}
+    lines = [_block_line(cleaned_by_idx, raw_by_idx, r["block_idx"]) for r in orphaned]
+    full_text = "\n".join(l for l in lines if l)
+
+    now = _db.now_iso()
+    item_id = _db.new_uuid()
+    conn.execute(
+        """INSERT INTO items (
+            id, item_type, year, month, day, page,
+            bbox_left_pct, bbox_top_pct, bbox_right_pct, bbox_bottom_pct,
+            headline, full_text, model, created_at,
+            repair_needed, repair_reason
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            item_id, "other", page_row["year"], page_row["month"],
+            page_row["day"], page_row["page"],
+            min(r["bbox_left_pct"] for r in orphaned),
+            min(r["bbox_top_pct"] for r in orphaned),
+            max(r["bbox_right_pct"] for r in orphaned),
+            max(r["bbox_bottom_pct"] for r in orphaned),
+            "[Auto-recovered: unclaimed OCR blocks]", full_text,
+            "auto-recovery", now, 1,
+            f"items-pass left {len(orphaned)} block(s) unclaimed "
+            f"(idx {sorted(r['block_idx'] for r in orphaned)}); bundled "
+            f"automatically from saved OCR text, not reviewed by any LLM pass",
+        ),
+    )
+    conn.execute(
+        "INSERT INTO items_ocr_ext (item_id, created_at) VALUES (?,?)",
+        (item_id, now),
+    )
+    for seq, r in enumerate(orphaned):
+        conn.execute(
+            "INSERT INTO item_ocr_block_spans "
+            "(item_id, page_ocr_block_id, role, sequence) VALUES (?,?,?,?)",
+            (item_id, r["id"], "body", seq),
+        )
+    conn.commit()
+    return len(orphaned)
+
+
 def ingest_items_result(conn, page_id: str, result_path: str,
                          model: str = "sonnet") -> int:
     with open(result_path) as f:
         items = json.load(f)
-    return ingest_items_data(conn, page_id, items, model)
+    n = ingest_items_data(conn, page_id, items, model)
+    recovered = recover_orphaned_blocks(conn, page_id)
+    if recovered:
+        print(f"recover_orphaned_blocks: {recovered} block(s) bundled into a catch-all item")
+    return n
 
 
 # --------------------------------------------------------------------
@@ -712,6 +825,31 @@ def _cmd_render_issue(args):
 
     results = [results_by_page[page] for page in pages]
 
+    # A page marked 'damaged' (repeated LLM-stage failures across
+    # separate runs, see DAMAGED_THRESHOLD/_record_page_failure) is
+    # excluded from dispatch by default -- the point is to stop
+    # agents churning against something that keeps failing, not to
+    # keep re-trying it silently forever. --include-damaged overrides
+    # this for a deliberate human-decided retry.
+    if not args.include_damaged:
+        conn = _db.open_connection()
+        try:
+            damaged = {
+                r["id"]: (r["llm_status_notes"] or "")
+                for r in conn.execute(
+                    "SELECT id, llm_status_notes FROM pages WHERE id IN ({}) AND llm_status='damaged'"
+                    .format(",".join("?" * len(results))),
+                    [r["page_id"] for r in results],
+                )
+            }
+        finally:
+            conn.close()
+        if damaged:
+            skipped_pages = [r["page"] for r in results if r["page_id"] in damaged]
+            print(f"\nSkipping {len(skipped_pages)} damaged page(s): {skipped_pages} "
+                  f"-- pass --include-damaged to retry anyway.")
+            results = [r for r in results if r["page_id"] not in damaged]
+
     out_dir = _issue_work_dir(args.date)
     args_path = os.path.join(out_dir, "workflow_args.json")
     with open(args_path, "w") as f:
@@ -723,12 +861,47 @@ def _cmd_render_issue(args):
           "'ingest-workflow-result'.")
 
 
+def _record_page_failure(conn, page_id: str, reason: str) -> str:
+    """Increments llm_failure_count and sets llm_status -- 'damaged'
+    once the count crosses DAMAGED_THRESHOLD, 'failed' otherwise (a
+    single bad run shouldn't permanently block a page; repeated
+    failures across separate runs should). Returns the status set, so
+    the caller can report it."""
+    row = conn.execute(
+        "SELECT llm_failure_count FROM pages WHERE id=?", (page_id,)
+    ).fetchone()
+    count = (row["llm_failure_count"] or 0) + 1
+    status = "damaged" if count >= DAMAGED_THRESHOLD else "failed"
+    conn.execute(
+        "UPDATE pages SET llm_failure_count=?, llm_status=?, llm_status_notes=? WHERE id=?",
+        (count, status, reason, page_id),
+    )
+    conn.commit()
+    return status
+
+
+def _record_page_success(conn, page_id: str) -> None:
+    """A page that succeeds gets a clean slate -- past failures no
+    longer matter once the actual problem is resolved."""
+    conn.execute(
+        "UPDATE pages SET llm_status='done', llm_failure_count=0, llm_status_notes=NULL WHERE id=?",
+        (page_id,),
+    )
+    conn.commit()
+
+
 def ingest_workflow_result_data(conn, pages: list[dict], model: str = "sonnet") -> dict:
     """Ingest a whole Workflow run's result array
-    ([{page_id, page, cleanup, items}, ...]). Skips any page that
-    already has items ingested (idempotent -- safe to re-run against
-    a partially-ingested batch, e.g. after a crash mid-loop)."""
-    ingested, skipped = [], []
+    ([{page_id, page, cleanup, items, failed, failure_reason}, ...]).
+    Skips any page that already has items ingested (idempotent -- safe
+    to re-run against a partially-ingested batch, e.g. after a crash
+    mid-loop). A page marked failed (its cleanup or items agent call
+    errored even after ocr_llm_issue.js's own one-shot retry) is not
+    ingested at all -- there's nothing reliable to ingest -- and
+    instead has its failure recorded via _record_page_failure, so a
+    page that keeps failing across separate runs auto-escalates to
+    'damaged' and stops being dispatched (see render-issue)."""
+    ingested, skipped, failed = [], [], []
     for p in pages:
         page_id = p["page_id"]
         existing = conn.execute(
@@ -739,10 +912,19 @@ def ingest_workflow_result_data(conn, pages: list[dict], model: str = "sonnet") 
         if existing:
             skipped.append(p["page"])
             continue
+        if p.get("failed"):
+            status = _record_page_failure(conn, page_id, p.get("failure_reason") or "unspecified")
+            failed.append({"page": p["page"], "status": status, "reason": p.get("failure_reason")})
+            continue
         n_blocks = ingest_cleanup_data(conn, page_id, p.get("cleanup") or [], model)
         n_items = ingest_items_data(conn, page_id, p.get("items") or [], model)
-        ingested.append({"page": p["page"], "blocks": n_blocks, "items": n_items})
-    return {"ingested": ingested, "skipped_already_done": skipped}
+        n_recovered = recover_orphaned_blocks(conn, page_id)
+        _record_page_success(conn, page_id)
+        entry = {"page": p["page"], "blocks": n_blocks, "items": n_items}
+        if n_recovered:
+            entry["recovered_blocks"] = n_recovered
+        ingested.append(entry)
+    return {"ingested": ingested, "skipped_already_done": skipped, "failed": failed}
 
 
 def ingest_run_usage(conn, year: int, month: int, day: int, run_dir: str,
@@ -852,9 +1034,18 @@ def _cmd_ingest_workflow_result(args):
     try:
         summary = ingest_workflow_result_data(conn, pages, args.model)
         for row in summary["ingested"]:
-            print(f"  page {row['page']}: ingested {row['blocks']} blocks, {row['items']} items")
+            line = f"  page {row['page']}: ingested {row['blocks']} blocks, {row['items']} items"
+            if row.get("recovered_blocks"):
+                line += f" (+{row['recovered_blocks']} recovered into a catch-all item)"
+            print(line)
         if summary["skipped_already_done"]:
             print(f"  skipped (already done): pages {summary['skipped_already_done']}")
+        if summary["failed"]:
+            for f in summary["failed"]:
+                print(f"  page {f['page']}: FAILED ({f['status']}) -- {f['reason']}")
+            print(f"  {len(summary['failed'])} page(s) failed -- not ingested, nothing "
+                  f"fabricated. Re-run render-issue to retry (pages marked 'damaged' "
+                  f"need --include-damaged, see its help text).")
 
         if args.run_dir:
             if not args.date or args.total_tokens is None or args.agent_count is None or args.duration_ms is None:
@@ -926,6 +1117,11 @@ def main():
         "--workers", type=int, default=4,
         help="Parallel render+OCR worker threads (default 4; pages are "
              "independent, so this is a straight wall-clock win up to core count)")
+    p_render_issue.add_argument(
+        "--include-damaged", action="store_true",
+        help="Include pages marked 'damaged' (repeated LLM-stage failures) "
+             "in the dispatch args instead of skipping them -- use after "
+             "deciding by hand that a retry is worth it")
     p_render_issue.set_defaults(func=_cmd_render_issue)
 
     p_ingest_wf = sub.add_parser(
