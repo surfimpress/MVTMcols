@@ -314,7 +314,14 @@ def ingest_workflow_result(conn, result_path: str) -> list[dict]:
     marker exists (e.g. ingest invoked without a matching build call),
     so the checkpoint always advances rather than getting stuck."""
     with open(result_path) as f:
-        results = json.load(f)
+        data = json.load(f)
+    # Accept either the bare result array or the harness's own
+    # TaskOutput-style {"result": [...], "summary": ..., ...} wrapper --
+    # both have shown up on disk depending on how the file was saved
+    # (see ocr_llm.py's ingest, and the same fix in extract_terms.py's
+    # ingest_workflow_result -- confirmed as a real bug there 2026-08-10,
+    # not just a hypothetical edge case).
+    results = data["result"] if isinstance(data, dict) and "result" in data else data
     summaries = []
     for r in results:
         if not r:

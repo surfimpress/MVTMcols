@@ -195,7 +195,12 @@ def ingest_workflow_result(conn, result_path: str) -> dict:
     result_path if present, since build/ingest always share WORK_DIR.
     """
     with open(result_path) as f:
-        extractions = json.load(f)
+        data = json.load(f)
+    # Accept either the bare result array or the harness's own
+    # TaskOutput-style {"result": [...], "summary": ..., ...} wrapper --
+    # both have shown up on disk depending on how the file was saved
+    # (see ocr_llm.py's ingest, which handles the same ambiguity).
+    extractions = data["result"] if isinstance(data, dict) and "result" in data else data
     all_ids = None
     args_path = os.path.join(os.path.dirname(os.path.abspath(result_path)), "workflow_args.json")
     if os.path.exists(args_path):

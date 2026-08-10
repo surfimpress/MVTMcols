@@ -217,7 +217,13 @@ def ingest_workflow_result(conn, result_path: str) -> list[dict]:
     (one entry per ticket the workflow processed), matching what
     transcribe/workflows/classify_terms.js returns."""
     with open(result_path) as f:
-        results = json.load(f)
+        data = json.load(f)
+    # Accept either the bare result array or the harness's own
+    # TaskOutput-style {"result": [...], "summary": ..., ...} wrapper --
+    # confirmed as a real bug in the sibling ingest_workflow_result
+    # functions (ocr_llm.py, extract_terms.py, reconcile_terms.py)
+    # 2026-08-10, not just a hypothetical edge case.
+    results = data["result"] if isinstance(data, dict) and "result" in data else data
     summaries = []
     for r in results:
         if not r or not r.get("assignments"):
