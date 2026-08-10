@@ -144,6 +144,25 @@ def _already_reviewed_pair(conn, entity_type: str, id_a: str, id_b: str) -> bool
     return row is not None
 
 
+def _street_abbrev_expand(norm_name: str) -> str | None:
+    """If norm_name's last word is a bare 'st' token, return the name
+    with 'street' substituted for it; otherwise None.
+
+    Trailing position is the load-bearing signal: in this corpus's
+    place names, a 'St.' abbreviation for a street suffix always comes
+    LAST ('Elgin St.', 'Church St.', 'Martin St.'), while 'St.' as an
+    abbreviation for 'Saint' always comes FIRST ('St. Thomas', 'St.
+    Catharines') -- so checking only the last word structurally can't
+    fire on a Saint- place, with no name list to maintain. Confirmed
+    2026-08-10 against the live corpus: exactly one candidate pair
+    (Martin St. / Martin Street), zero false positives on any
+    St.-leading place name."""
+    words = norm_name.split()
+    if len(words) < 2 or words[-1] != "st":
+        return None
+    return " ".join(words[:-1] + ["street"])
+
+
 def _known_place_names(conn) -> set:
     return {_normalize_for_dedup(r["name"])
             for r in conn.execute("SELECT name FROM places").fetchall()}
@@ -229,6 +248,32 @@ def find_duplicates(conn, table: str) -> list[dict]:
             for j in range(i + 1, len(bucket)):
                 id_a, name_a, norm_a = bucket[i]
                 id_b, name_b, norm_b = bucket[j]
+                if table == "places" and (
+                        _street_abbrev_expand(norm_a) == norm_b
+                        or norm_a == _street_abbrev_expand(norm_b)):
+                    # Mechanical and structurally safe (see
+                    # _street_abbrev_expand's docstring) -- auto-apply
+                    # directly like the Nomenclature safe-enrichment
+                    # tier, rather than raising a review, so a new
+                    # street name doesn't need its own one-off
+                    # 'approve always' rule the way name-pair-keyed
+                    # rules otherwise require.
+                    if _already_reviewed_pair(conn, table, id_a, id_b):
+                        continue
+                    keep_name, drop_name = (
+                        (name_b, name_a) if _street_abbrev_expand(norm_a) == norm_b
+                        else (name_a, name_b))
+                    try:
+                        _merge_entity.merge_entity(conn, table, keep_name, drop_name, alias=True)
+                        _record_applied_review(
+                            conn, entity_type=table, review_kind="duplicate_candidate",
+                            entity_id=id_a, other_entity_id=id_b,
+                            description=f"street_abbrev_match: {name_a!r} / {name_b!r}",
+                            notes="auto-applied -- trailing 'St.' is a street-suffix abbreviation, not a Saint- place name",
+                            provenance="python")
+                    except ValueError:
+                        pass  # already merged via this or another rule this run
+                    continue
                 if norm_a == norm_b:
                     kind, confidence = "exact_normalized_match", 0.9
                 elif len(norm_a) >= 4 and len(norm_b) >= 4 and (

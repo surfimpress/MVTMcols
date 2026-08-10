@@ -27,16 +27,20 @@ in a decisions file, since the blast radius is different: a "once"
 decision affects the two entities in front of you; an "always" rule
 affects every future match, unattended.
 
-entities.html's manual merge-flagging UI produces the same top-level
+entities.html's manual flagging UI produces the same top-level
 {saved_at, approved, ignored} shape (always with an empty "ignored" --
-there's no "ignore a pair I'm the one flagging" case) but its
+there's no "ignore something I'm the one flagging" case) but its
 "approved" entries reference an "id" with no matching terminology_reviews
-row, since a human spotted the pair by browsing the full entity list,
-not from an auto-raised review. Those entries carry entity_type/
-entity_id/other_entity_id/reason directly (self-sufficient); see
-_materialize_manual_review(), which raises a real terminology_reviews
-row on the fly (provenance="human") before applying it the same way as
-any other decision -- one code path for both sources after that point.
+row, since a human spotted it by browsing the full entity list, not
+from an auto-raised review. Those entries carry entity_type/entity_id/
+reason directly (self-sufficient) plus review_kind-specific fields --
+other_entity_id for a merge, new_name for a rename, nothing extra for
+a deletion; see _materialize_manual_review(), which raises a real
+terminology_reviews row on the fly (provenance="human") before
+applying it the same way as any other decision -- one code path for
+every source after that point, including the one genuinely destructive
+handler here (_apply_deletion): unlike merge, which preserves mention
+data by moving it, deletion discards it.
 
 Usage::
 
@@ -74,26 +78,65 @@ def _materialize_manual_review(conn, review: dict) -> dict | None:
     """A decision whose id doesn't match any terminology_reviews row is
     either stale (the review was resolved by something else since the
     page was loaded -- a real failure) or was never a review to begin
-    with: a human flagged it directly via entities.html's manual merge
-    UI, which has no pre-existing row to reference. Distinguish by
-    whether the entry carries enough self-sufficient data to raise one
-    now -- entity_type + both entity ids, both still resolving to real
-    rows. Confidence is fixed at 1.0: a human explicitly chose this
-    pair, unlike a heuristic guess or an LLM's self-reported score."""
-    if not (review.get("entity_type") and review.get("entity_id")
-            and review.get("other_entity_id")):
+    with: a human flagged it directly via entities.html, which has no
+    pre-existing row to reference. Distinguish by whether the entry
+    carries enough self-sufficient data to raise one now. Confidence is
+    fixed at 1.0 throughout: a human explicitly chose this, unlike a
+    heuristic guess or an LLM's self-reported score.
+
+    Branches on review_kind -- entities.html can submit three shapes:
+    duplicate_candidate (merge), name_too_specific (rename), deletion.
+    """
+    kind = review.get("review_kind")
+    table = review.get("entity_type")
+    if not table or not kind:
         return None
-    name_a = _entity_name(conn, review["entity_type"], review["entity_id"])
-    name_b = _entity_name(conn, review["entity_type"], review["other_entity_id"])
-    if not name_a or not name_b:
-        return None  # ids don't resolve -- genuinely stale, not a manual entry
-    reason = review.get("reason") or "flagged via entities.html"
-    review_id = _db.raise_terminology_review(
-        conn, entity_type=review["entity_type"], review_kind="duplicate_candidate",
-        entity_id=review["entity_id"], other_entity_id=review["other_entity_id"],
-        description=f"manual_match: {name_a!r} / {name_b!r} -- {reason}",
-        raised_by="entities.html", provenance="human", confidence=1.0,
-    )
+
+    if kind == "duplicate_candidate":
+        if not (review.get("entity_id") and review.get("other_entity_id")):
+            return None
+        name_a = _entity_name(conn, table, review["entity_id"])
+        name_b = _entity_name(conn, table, review["other_entity_id"])
+        if not name_a or not name_b:
+            return None  # ids don't resolve -- genuinely stale, not a manual entry
+        reason = review.get("reason") or "flagged via entities.html"
+        review_id = _db.raise_terminology_review(
+            conn, entity_type=table, review_kind="duplicate_candidate",
+            entity_id=review["entity_id"], other_entity_id=review["other_entity_id"],
+            description=f"manual_match: {name_a!r} / {name_b!r} -- {reason}",
+            raised_by="entities.html", provenance="human", confidence=1.0,
+        )
+    elif kind == "name_too_specific":
+        new_name = review.get("new_name")
+        if not (review.get("entity_id") and new_name):
+            return None
+        name = _entity_name(conn, table, review["entity_id"])
+        if not name:
+            return None
+        reason = review.get("reason") or "renamed via entities.html"
+        review_id = _db.raise_terminology_review(
+            conn, entity_type=table, review_kind="name_too_specific",
+            entity_id=review["entity_id"],
+            description=f"manual_rename: {name!r} -> {new_name!r} -- {reason}",
+            raised_by="entities.html", provenance="human", confidence=1.0,
+            proposed_fix={"new_name": new_name},
+        )
+    elif kind == "deletion":
+        if not review.get("entity_id"):
+            return None
+        name = _entity_name(conn, table, review["entity_id"])
+        if not name:
+            return None
+        reason = review.get("reason") or "deleted via entities.html"
+        review_id = _db.raise_terminology_review(
+            conn, entity_type=table, review_kind="deletion",
+            entity_id=review["entity_id"],
+            description=f"manual_delete: {name!r} -- {reason}",
+            raised_by="entities.html", provenance="human", confidence=1.0,
+        )
+    else:
+        return None
+
     return dict(conn.execute(
         "SELECT * FROM terminology_reviews WHERE id=?", (review_id,)
     ).fetchone())
@@ -142,10 +185,30 @@ def _apply_name_too_specific(conn, review: dict, names: dict) -> str:
     return f"genericized {result['dropped']!r} -> {result['kept']!r}"
 
 
+def _apply_deletion(conn, review: dict, names: dict) -> str:
+    """The one genuinely destructive handler here -- unlike merge,
+    which preserves mention data by moving it, this discards it. Only
+    reachable via a review a human explicitly raised (materialized
+    on the fly, see _materialize_manual_review) or approved -- nothing
+    auto-raises a 'deletion' review, so there's no automated path that
+    could trigger this without a person having chosen it."""
+    table = review["entity_type"]
+    name = names.get("entity_id")
+    if name is None:
+        # Same reasoning as _apply_duplicate's missing-id case.
+        return "already resolved -- entity no longer exists (merged/deleted by an earlier decision in this batch)"
+    junction, fk, _namecol = _merge_entity.JUNCTIONS[table]
+    n = conn.execute(f"DELETE FROM {junction} WHERE {fk}=?", (review["entity_id"],)).rowcount
+    conn.execute(f"DELETE FROM {table} WHERE id=?", (review["entity_id"],))
+    conn.commit()
+    return f"deleted {name!r} ({n} mention(s) permanently removed)"
+
+
 DISPATCH = {
     "duplicate_candidate": _apply_duplicate,
     "nomenclature_gap": _apply_nomenclature_gap,
     "name_too_specific": _apply_name_too_specific,
+    "deletion": _apply_deletion,
 }
 
 

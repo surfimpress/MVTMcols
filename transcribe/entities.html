@@ -104,6 +104,7 @@
     display: none; align-items: center; gap: 0.7rem; margin-bottom: 0.8rem;
     padding: 0.5rem 0.8rem; border-radius: 8px; background: var(--row-alt);
     border: 1px dashed var(--accent); font-size: 0.85rem;
+    position: sticky; top: 0; z-index: 5; box-shadow: 0 2px 6px rgba(0,0,0,0.15);
   }
   .merge-toolbar .merge-label { color: var(--muted); flex: 1; }
 
@@ -144,12 +145,20 @@
   }
   .merge-keep-option:has(input:checked) { border-color: var(--accent); background: var(--row-alt); }
   .merge-keep-option input { margin-right: 0.4rem; }
-  #merge-reason {
+  #merge-reason, #single-action-reason, #single-action-new-name {
     width: 100%; font: inherit; font-size: 0.85rem; padding: 0.5rem 0.6rem;
     border-radius: 6px; border: 1px solid var(--border); background: var(--bg);
-    color: var(--fg); resize: vertical; margin-bottom: 0.8rem;
+    color: var(--fg); margin-bottom: 0.8rem;
   }
+  #merge-reason, #single-action-reason { resize: vertical; }
   .merge-dialog-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .single-action-info { font-size: 0.95rem; margin: 0 0 0.6rem; }
+  .single-action-info label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 0.2rem; }
+  .delete-warning {
+    font-size: 0.85rem; color: var(--warn); background: var(--row-alt);
+    border: 1px solid var(--warn); border-radius: 6px; padding: 0.5rem 0.7rem;
+    margin: 0 0 0.8rem;
+  }
 
   @media (max-width: 560px) {
     body { padding: 1rem; }
@@ -234,6 +243,8 @@
 
   <div class="merge-toolbar" id="merge-toolbar">
     <span class="merge-label" id="merge-toolbar-label"></span>
+    <button class="secondary" id="rename-btn">Rename</button>
+    <button class="secondary" id="delete-btn">Delete</button>
     <button class="primary" id="merge-btn">Merge</button>
   </div>
 
@@ -241,7 +252,7 @@
     <table id="entities-table">
       <thead>
         <tr>
-          <th class="select-th"><input type="checkbox" id="select-mode-toggle" aria-label="Select entities to merge"></th>
+          <th class="select-th"><input type="checkbox" id="select-mode-toggle" aria-label="Select entities to edit or merge"></th>
           <th data-key="name">Name</th>
           <th data-key="type">Type</th>
           <th data-key="mentions">Mentions</th>
@@ -269,12 +280,20 @@
     <div class="dialog-body" id="merge-dialog-body"></div>
   </dialog>
 
+  <dialog id="single-action-dialog">
+    <div class="dialog-head">
+      <h2 id="single-action-title"></h2>
+      <button id="single-action-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="dialog-body" id="single-action-body"></div>
+  </dialog>
+
   <footer>
     Reads entities.json + entities_context.json only — nothing on this
-    page writes to the database directly. Manual merges are saved in
-    this browser only, until you click "Save decisions", which
-    downloads one JSON file — the same kind terminology_review.html
-    produces, and applied the same way.
+    page writes to the database directly. Manual merges, renames, and
+    deletions are saved in this browser only, until you click "Save
+    decisions", which downloads one JSON file — the same kind
+    terminology_review.html produces, and applied the same way.
   </footer>
 
 <script>
@@ -431,7 +450,7 @@
     var body = document.getElementById('entities-body');
     if (!rows.length) {
       body.innerHTML = '<tr><td colspan="6" class="empty">No matching entities</td></tr>';
-      updateMergeToolbar();
+      updateSelectionToolbar();
       return;
     }
     body.innerHTML = pageRows.map(function(e) {
@@ -459,10 +478,10 @@
       cb.addEventListener('change', function() {
         if (cb.checked) state.selected.add(cb.dataset.id);
         else state.selected.delete(cb.dataset.id);
-        updateMergeToolbar();
+        updateSelectionToolbar();
       });
     });
-    updateMergeToolbar();
+    updateSelectionToolbar();
   }
 
   function applyDateCellFilter(dateStr) {
@@ -598,11 +617,28 @@
     render();
   });
 
-  function updateMergeToolbar() {
+  function updateSelectionToolbar() {
     var toolbar = document.getElementById('merge-toolbar');
     var label = document.getElementById('merge-toolbar-label');
-    var btn = document.getElementById('merge-btn');
+    var renameBtn = document.getElementById('rename-btn');
+    var deleteBtn = document.getElementById('delete-btn');
+    var mergeBtn = document.getElementById('merge-btn');
     var ids = Array.from(state.selected);
+
+    renameBtn.style.display = 'none';
+    deleteBtn.style.display = 'none';
+    mergeBtn.style.display = 'none';
+
+    if (ids.length === 1) {
+      var e = state.data.entities.find(function(x) { return x.id === ids[0]; });
+      if (!e) { toolbar.style.display = 'none'; return; }
+      toolbar.style.display = 'flex';
+      label.textContent = '1 selected: ' + e.name;
+      renameBtn.style.display = '';
+      deleteBtn.style.display = '';
+      return;
+    }
+
     if (ids.length !== 2) {
       toolbar.style.display = 'none';
       return;
@@ -612,10 +648,12 @@
     toolbar.style.display = 'flex';
     if (!a || !b || a.type !== b.type) {
       label.textContent = '2 selected — different types, cannot merge';
-      btn.disabled = true;
+      mergeBtn.style.display = '';
+      mergeBtn.disabled = true;
     } else {
       label.textContent = '2 selected: ' + a.name + ' + ' + b.name;
-      btn.disabled = false;
+      mergeBtn.style.display = '';
+      mergeBtn.disabled = false;
     }
   }
 
@@ -711,12 +749,17 @@
     dialog.showModal();
   }
 
+  function newDecisionId() {
+    return (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+      : 'manual-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+  }
+
   function submitMerge(keep, drop, scope) {
     var reason = (document.getElementById('merge-reason').value || '').trim();
-    var id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
-      : 'manual-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+    var id = newDecisionId();
     state.decisions[id] = {
-      entity_type: keep.type, entity_id: keep.id, other_entity_id: drop.id,
+      review_kind: 'duplicate_candidate', entity_type: keep.type,
+      entity_id: keep.id, other_entity_id: drop.id,
       name_a: keep.name, name_b: drop.name, reason: reason, scope: scope,
     };
     saveDecisionsLocal();
@@ -734,6 +777,125 @@
   });
   document.getElementById('merge-btn').addEventListener('click', openMergeDialog);
 
+  function currentSingleSelected() {
+    var ids = Array.from(state.selected);
+    if (ids.length !== 1) return null;
+    return state.data.entities.find(function(x) { return x.id === ids[0]; }) || null;
+  }
+
+  function openRenameDialog() {
+    var e = currentSingleSelected();
+    if (!e) return;
+    var dialog = document.getElementById('single-action-dialog');
+    var title = document.getElementById('single-action-title');
+    var body = document.getElementById('single-action-body');
+    if (dialog.open) dialog.close();
+    title.textContent = 'Rename entity';
+    body.innerHTML =
+      '<p class="single-action-info">Renaming <strong>' + escapeHtml(e.name) + '</strong> (' +
+      e.mentions + ' mentions, ' + e.type + ')</p>' +
+      '<label for="single-action-new-name">New name</label>' +
+      '<input type="text" id="single-action-new-name" value="' + escapeHtml(e.name) + '">' +
+      '<textarea id="single-action-reason" placeholder="Why? (optional)" rows="3"></textarea>' +
+      '<div class="merge-dialog-actions">' +
+        '<button class="secondary" id="single-action-once-btn">Rename this</button>' +
+        '<button class="primary" id="single-action-always-btn">Rename all like this</button>' +
+      '</div>';
+    document.getElementById('single-action-once-btn').addEventListener('click', function() {
+      submitRename(e);
+    });
+    document.getElementById('single-action-always-btn').addEventListener('click', function() {
+      var ok = window.confirm(
+        'This makes a PERMANENT rule: every future entity created with the name ' +
+        escapeHtml(e.name) + ' will be auto-renamed, with no review. Are you sure?'
+      );
+      if (!ok) return;
+      submitRename(e, 'always');
+    });
+    dialog.showModal();
+  }
+
+  function submitRename(e, scope) {
+    scope = scope || 'once';
+    var newName = (document.getElementById('single-action-new-name').value || '').trim();
+    if (!newName || newName === e.name) {
+      document.getElementById('single-action-dialog').close();
+      return;
+    }
+    var reason = (document.getElementById('single-action-reason').value || '').trim();
+    var id = newDecisionId();
+    state.decisions[id] = {
+      review_kind: 'name_too_specific', entity_type: e.type, entity_id: e.id,
+      name_a: e.name, new_name: newName, reason: reason, scope: scope,
+    };
+    saveDecisionsLocal();
+    updateSaveBar();
+    document.getElementById('single-action-dialog').close();
+    state.selected.clear();
+    render();
+  }
+
+  function openDeleteDialog() {
+    var e = currentSingleSelected();
+    if (!e) return;
+    var dialog = document.getElementById('single-action-dialog');
+    var title = document.getElementById('single-action-title');
+    var body = document.getElementById('single-action-body');
+    if (dialog.open) dialog.close();
+    title.textContent = 'Delete entity';
+    body.innerHTML =
+      '<p class="single-action-info">Deleting <strong>' + escapeHtml(e.name) + '</strong> (' + e.type + ')</p>' +
+      '<p class="delete-warning">This will permanently remove ' + e.mentions +
+      ' mention(s) — unlike a merge, nothing is preserved. This cannot be undone from this page.</p>' +
+      '<textarea id="single-action-reason" placeholder="Why? (optional)" rows="3"></textarea>' +
+      '<div class="merge-dialog-actions">' +
+        '<button class="secondary" id="single-action-once-btn">Delete this</button>' +
+        '<button class="primary" id="single-action-always-btn">Delete always (block future re-creation)</button>' +
+      '</div>';
+    document.getElementById('single-action-once-btn').addEventListener('click', function() {
+      var ok = window.confirm(
+        'Permanently delete ' + escapeHtml(e.name) + ' and its ' + e.mentions +
+        ' mention(s)? This cannot be undone from this page.'
+      );
+      if (!ok) return;
+      submitDelete(e);
+    });
+    document.getElementById('single-action-always-btn').addEventListener('click', function() {
+      var ok = window.confirm(
+        'Permanently delete ' + escapeHtml(e.name) + ' and its ' + e.mentions + ' mention(s), ' +
+        'AND make a PERMANENT rule blocking this exact name from ever being created again. ' +
+        'This cannot be undone from this page. Are you sure?'
+      );
+      if (!ok) return;
+      submitDelete(e, 'always');
+    });
+    dialog.showModal();
+  }
+
+  function submitDelete(e, scope) {
+    scope = scope || 'once';
+    var reason = (document.getElementById('single-action-reason').value || '').trim();
+    var id = newDecisionId();
+    state.decisions[id] = {
+      review_kind: 'deletion', entity_type: e.type, entity_id: e.id,
+      name_a: e.name, reason: reason, scope: scope,
+    };
+    saveDecisionsLocal();
+    updateSaveBar();
+    document.getElementById('single-action-dialog').close();
+    state.selected.clear();
+    render();
+  }
+
+  document.getElementById('single-action-close').addEventListener('click', function() {
+    document.getElementById('single-action-dialog').close();
+  });
+  document.getElementById('single-action-dialog').addEventListener('click', function(e) {
+    if (e.target.id === 'single-action-dialog') document.getElementById('single-action-dialog').close();
+  });
+  document.getElementById('rename-btn').addEventListener('click', openRenameDialog);
+  document.getElementById('delete-btn').addEventListener('click', openDeleteDialog);
+
   document.getElementById('clear-btn').addEventListener('click', function() {
     state.decisions = {};
     saveDecisionsLocal();
@@ -743,11 +905,20 @@
   document.getElementById('save-btn').addEventListener('click', function() {
     var approved = Object.keys(state.decisions).map(function(id) {
       var d = state.decisions[id];
-      return {
-        id: id, review_kind: 'duplicate_candidate', entity_type: d.entity_type,
-        entity_id: d.entity_id, other_entity_id: d.other_entity_id,
-        description: d.name_a + ' / ' + d.name_b, reason: d.reason, scope: d.scope,
+      var entry = {
+        id: id, review_kind: d.review_kind, entity_type: d.entity_type,
+        entity_id: d.entity_id, reason: d.reason, scope: d.scope,
       };
+      if (d.review_kind === 'duplicate_candidate') {
+        entry.other_entity_id = d.other_entity_id;
+        entry.description = d.name_a + ' / ' + d.name_b;
+      } else if (d.review_kind === 'name_too_specific') {
+        entry.new_name = d.new_name;
+        entry.description = d.name_a + ' -> ' + d.new_name;
+      } else if (d.review_kind === 'deletion') {
+        entry.description = d.name_a;
+      }
+      return entry;
     });
     var payload = { saved_at: new Date().toISOString(), approved: approved, ignored: [] };
     var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });

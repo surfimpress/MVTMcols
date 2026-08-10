@@ -88,6 +88,7 @@ import sys
 
 from . import db as _db
 from . import ingest_column_result as _col
+from . import terminology_cleanup as _cleanup
 
 
 RESULTS_DIR = os.path.join(_db.REPO_ROOT, "transcribe", "work", "results")
@@ -646,6 +647,21 @@ def upsert_entity(conn: sqlite3.Connection,
                   f"{name!r} (recurs as first name of {recurrence} other people) "
                   f"-- mention dropped, not recorded as a new entity")
             return None
+
+    # A human explicitly choosing "delete always" via entities.html
+    # creates a permanent, name-keyed blocklist rule (see
+    # apply_terminology_decisions._apply_deletion / schema.sql's
+    # terminology_rules comment) -- honour it here too, not just at
+    # deletion time, or the exact same noise just gets recreated by the
+    # next extraction pass. General to all 5 tables, unlike the
+    # people-only heuristic above: this is a deliberate human decision,
+    # not an automatic guess.
+    key = _cleanup.rule_match_key("deletion", name)
+    rule = _cleanup.find_rule(conn, table, "deletion", key)
+    if rule and rule["decision"] == "approve":
+        print(f"upsert_entity: refusing to create {name!r} -- "
+              f"blocklisted via a permanent deletion rule")
+        return None
 
     new_id = _db.new_uuid()
     cols = ["id", "normalised_key", "created_at"]
