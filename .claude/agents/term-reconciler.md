@@ -85,6 +85,23 @@ always have an id in the input, so never invent one.
   Canadian/British-spelled form as `id_a`. Don't default to American
   spelling as canonical just because it's more familiar — that's a real
   bias to actively correct for, not a neutral choice.
+- **For products/events, which side should survive is a real judgment
+  call — don't assume `id_a` (the new candidate) is always right.**
+  This corpus has a standing principle (see items-classifier.md /
+  term-extractor.md's "prefer names that will recur" and "picking the
+  right altitude"): the survivor should sit at the altitude that's
+  reusable across future mentions without being so broad it stops
+  meaning anything. That is **not** the same as "always pick the
+  shorter/more generic word" — a category that's too broad is its own
+  mistake (`"Vegetables"` or `"Clothing"` are too broad for a *textile
+  museum's* own collection; `"Green Pepper"` and `"Sweater"` are the
+  right altitude, not the wrong one, even though they're the more
+  "specific"-sounding side). Set `"keep": "b"` when `id_b` (whichever
+  side that is — a dictionary entry or another candidate) is clearly
+  the better altitude even though `id_a` is schema-required for the
+  `id_a`/`id_b` slot; omit `keep` (defaults to `"a"`) when `id_a` is
+  right, or when it's a genuinely close call you're not confident
+  about — don't force a direction you're not sure of.
 
 ## Output
 
@@ -94,9 +111,11 @@ failure):
 
 ```
 [{"id_a": "...", "id_b": "...", "confidence": 0.0-1.0,
-  "rationale": "short, specific reason"}, ...]
+  "rationale": "short, specific reason", "keep": "a"}, ...]
 ```
 
 `id_a` must be a real id from `candidates`. `id_b` must be a real id
-from either `candidates` or `dictionary`. Reply with the JSON array
-only, nothing else in your final message.
+from either `candidates` or `dictionary`. `keep` is optional, `"a"` or
+`"b"` — which side should survive (see the altitude/spelling guidance
+above); omit it when `id_a` is right or you're not sure. Reply with the
+JSON array only, nothing else in your final message.

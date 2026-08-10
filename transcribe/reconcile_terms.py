@@ -314,6 +314,13 @@ def ingest_matches(conn, entity_type: str, matches: list[dict]) -> dict:
         if id_a not in names or id_b not in names:
             continue  # unknown/stale id -- skip rather than error
         name_a, name_b = names[id_a], names[id_b]
+        # The agent's own explicit keep/drop call (altitude judgment --
+        # e.g. a generic category beating an overly-specific candidate,
+        # see term-reconciler.md) takes priority over the deterministic
+        # spelling backstop below, which only ever fires on a pure
+        # American/Canadian spelling pair -- the two can't conflict.
+        if m.get("keep") == "b":
+            id_a, name_a, id_b, name_b = id_b, name_b, id_a, name_a
         id_a, name_a, id_b, name_b = _prefer_canadian_order(id_a, name_a, id_b, name_b)
 
         if _cleanup._already_reviewed_pair(conn, entity_type, id_a, id_b):

@@ -29,6 +29,7 @@ const MATCHES_SCHEMA = {
           id_b: { type: 'string' },
           confidence: { type: 'number' },
           rationale: { type: 'string' },
+          keep: { type: 'string', enum: ['a', 'b'] },
         },
         required: ['id_a', 'id_b'],
       },
