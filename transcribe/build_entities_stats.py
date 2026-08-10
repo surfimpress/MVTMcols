@@ -1,12 +1,22 @@
-"""Write transcribe/entities.json for the entity table-view page.
+"""Write transcribe/entities.json and transcribe/entities_context.json
+for the entity table-view page.
 
 Own compiled-stats store (like monitor.json), separate because
 entities span both pipelines (pre-1980 items-classifier and the
 OCR+LLM route) -- not scoped to either one. transcribe/entities.html
-only ever reads this JSON, never queries transcribe.db directly.
-Refreshed by the same LaunchAgent as the OCR+LLM stats (see
+only ever reads these JSON files, never queries transcribe.db
+directly. Refreshed by the same LaunchAgent as the OCR+LLM stats (see
 tools/refresh_ocr_llm_stats.py) -- cheap at this corpus's current
 scale (a few thousand rows total across 5 tables).
+
+entities.json stays small and is re-fetched by the page every 30s
+(POLL_MS) -- it's just the flat table data. entities_context.json is
+the much heavier per-entity mention detail (up to 3 mentions with
+excerpts per entity, reusing build_terminology_review_stats.entity_context
+-- already fully generic, no review-specific coupling), written
+separately so the frequently-polled file never carries it; the page
+fetches this second file lazily, once per session, only when a detail
+modal is actually opened.
 
 Run standalone:
     python3 -m transcribe.build_entities_stats
@@ -17,10 +27,12 @@ from __future__ import annotations
 import json
 import os
 
+from . import build_terminology_review_stats as _review_stats
 from . import db as _db
 from . import entity_candidates as _entity_candidates
 
 OUT_PATH = os.path.join(_db.REPO_ROOT, "transcribe", "entities.json")
+CONTEXT_OUT_PATH = os.path.join(_db.REPO_ROOT, "transcribe", "entities_context.json")
 
 TABLES = [
     ("people", "full_name", "item_people_mentions", "person_id"),
@@ -31,8 +43,10 @@ TABLES = [
 ]
 
 
-def build_stats(conn) -> dict:
+def build_stats(conn) -> tuple[dict, dict]:
+    """Returns (entities_stats, context_stats) -- the two JSON payloads."""
     entities = []
+    context = {}
     for table, namecol, junction, fk in TABLES:
         # Same base row-fetch the item-markup pass's candidate-list
         # prefetch uses (entity_candidates.all_rows) -- one query per
@@ -43,36 +57,67 @@ def build_stats(conn) -> dict:
             r["id"]: r["n"] for r in conn.execute(
                 f"SELECT {fk} AS id, count(*) AS n FROM {junction} GROUP BY {fk}")
         }
+        # Every distinct (year, month, day, page) this entity is
+        # mentioned on -- uncapped, integers only, no headline/excerpt
+        # text. One JOIN query per table (same shape as mention_counts
+        # above), not one query per entity. Cheap enough to live
+        # directly in entities.json (unlike entity_context()'s text,
+        # which stays in the separate lazy-loaded file) because the
+        # year/month/day/page filter dropdowns need to work immediately
+        # against the whole loaded list, not one entity at a time.
+        dates_by_id: dict[str, set] = {}
+        for r in conn.execute(
+            f"SELECT m.{fk} AS id, i.year, i.month, i.day, i.page "
+            f"FROM {junction} m JOIN items i ON i.id = m.item_id"
+        ):
+            dates_by_id.setdefault(r["id"], set()).add(
+                (r["year"], r["month"], r["day"], r["page"]))
+
         for r in rows:
+            n = mention_counts.get(r["id"], 0)
             entities.append({
                 "id": r["id"], "type": table, "name": r["name"],
                 "first_seen": r["first_seen_date"], "last_seen": r["last_seen_date"],
-                "mentions": mention_counts.get(r["id"], 0),
+                "mentions": n,
+                "dates": sorted(dates_by_id.get(r["id"], set())),
             })
+            if n > 0:  # nothing to show for a zero-mention entity
+                context[r["id"]] = {"context": _review_stats.entity_context(conn, table, r["id"])}
 
     counts = {}
     for table, *_ in TABLES:
         counts[table] = sum(1 for e in entities if e["type"] == table)
 
-    return {
+    entities_stats = {
         "generated_at": _db.now_iso(),
         "counts": counts,
         "entities": entities,
     }
+    context_stats = {
+        "generated_at": _db.now_iso(),
+        "context": context,
+    }
+    return entities_stats, context_stats
+
+
+def _atomic_write(path: str, data: dict) -> None:
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w") as f:
+        json.dump(data, f)
+    os.replace(tmp_path, path)
 
 
 def main() -> int:
     conn = _db.open_connection()
     try:
-        stats = build_stats(conn)
+        entities_stats, context_stats = build_stats(conn)
     finally:
         conn.close()
 
-    tmp_path = OUT_PATH + ".tmp"
-    with open(tmp_path, "w") as f:
-        json.dump(stats, f)
-    os.replace(tmp_path, OUT_PATH)
-    print(f"wrote {OUT_PATH} ({len(stats['entities'])} entities)")
+    _atomic_write(OUT_PATH, entities_stats)
+    _atomic_write(CONTEXT_OUT_PATH, context_stats)
+    print(f"wrote {OUT_PATH} ({len(entities_stats['entities'])} entities), "
+          f"{CONTEXT_OUT_PATH} ({len(context_stats['context'])} with context)")
     return 0
 
 

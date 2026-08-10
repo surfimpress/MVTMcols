@@ -108,18 +108,22 @@ def dictionary(conn, table: str) -> list[dict]:
 
 
 def confirmed_examples(conn, table: str, limit: int = CONFIRMED_EXAMPLES_LIMIT) -> list[dict]:
-    """Approved llm-provenance duplicate_candidate rules for this type --
-    the whole feed-forward mechanism. No new storage: this reads exactly
-    what apply_terminology_decisions.py already writes to terminology_rules
-    when a human clicks "approve always" on an llm-sourced review. A
-    python-provenance "approve always" never shows up here -- that
-    decision stays a simple mechanical rule with no further effect,
-    per the plan's design.
+    """Approved llm- or human-provenance duplicate_candidate rules for
+    this type -- the whole feed-forward mechanism. No new storage: this
+    reads exactly what apply_terminology_decisions.py already writes to
+    terminology_rules when a human clicks "approve always" on an
+    llm-sourced review, or manually flags a pair via entities.html
+    (also provenance="human" once materialized -- see
+    apply_terminology_decisions._materialize_manual_review). Either way
+    it's a confirmed fact about this corpus's naming patterns, at least
+    as trustworthy as an automated match. A python-provenance "approve
+    always" never shows up here -- that decision stays a simple
+    mechanical rule with no further effect, per the plan's design.
     """
     rows = conn.execute(
         "SELECT proposed_fix_json FROM terminology_rules "
         "WHERE entity_type=? AND review_kind='duplicate_candidate' "
-        "AND decision='approve' AND provenance='llm' "
+        "AND decision='approve' AND provenance IN ('llm', 'human') "
         "ORDER BY created_at DESC LIMIT ?",
         (table, limit),
     ).fetchall()

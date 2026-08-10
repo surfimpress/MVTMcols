@@ -586,10 +586,13 @@ CREATE TABLE IF NOT EXISTS terminology_reviews (
     raised_at         TEXT NOT NULL,
     resolved_at       TEXT,
     notes             TEXT,
-    -- provenance: 'python' (deterministic heuristic, terminology_cleanup.py)
-    -- or 'llm' (term-reconciler.md via reconcile_terms.py). Drives both
-    -- the UI's provenance chip and reconcile_terms.py's own context-feed
-    -- query (see terminology_rules.provenance below).
+    -- provenance: 'python' (deterministic heuristic, terminology_cleanup.py),
+    -- 'llm' (term-reconciler.md via reconcile_terms.py), or 'human' (a
+    -- person manually flagging a pair via entities.html, materialized
+    -- on the fly by apply_terminology_decisions._materialize_manual_review
+    -- -- no auto-raise pass involved at all). Drives both the UI's
+    -- provenance chip and reconcile_terms.py's own context-feed query
+    -- (see terminology_rules.provenance below).
     provenance        TEXT NOT NULL DEFAULT 'python'
 );
 CREATE INDEX IF NOT EXISTS idx_terminology_reviews_status ON terminology_reviews (status);
@@ -622,12 +625,14 @@ CREATE TABLE IF NOT EXISTS terminology_rules (
     created_at        TEXT NOT NULL,
     notes             TEXT,
     -- provenance: the source review's provenance at the moment this rule
-    -- was created (threaded through by apply_terminology_decisions.py).
-    -- reconcile_terms.py's confirmed_examples() reads only provenance='llm'
-    -- approve-rules as few-shot context for its next run -- an 'approve
-    -- always' on a python-tier review stays a simple mechanical rule with
-    -- no further effect; the same decision on an llm-tier review also
-    -- feeds the matcher's own future context.
+    -- was created (threaded through by apply_terminology_decisions.py) --
+    -- 'python', 'llm', or 'human' (see terminology_reviews.provenance
+    -- above). reconcile_terms.py's confirmed_examples() reads
+    -- provenance IN ('llm','human') approve-rules as few-shot context
+    -- for its next run -- an 'approve always' on a python-tier review
+    -- stays a simple mechanical rule with no further effect; the same
+    -- decision on an llm- or human-sourced review also feeds the
+    -- matcher's own future context.
     provenance        TEXT NOT NULL DEFAULT 'python',
     UNIQUE (entity_type, review_kind, match_key)
 );

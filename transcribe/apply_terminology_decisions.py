@@ -27,6 +27,17 @@ in a decisions file, since the blast radius is different: a "once"
 decision affects the two entities in front of you; an "always" rule
 affects every future match, unattended.
 
+entities.html's manual merge-flagging UI produces the same top-level
+{saved_at, approved, ignored} shape (always with an empty "ignored" --
+there's no "ignore a pair I'm the one flagging" case) but its
+"approved" entries reference an "id" with no matching terminology_reviews
+row, since a human spotted the pair by browsing the full entity list,
+not from an auto-raised review. Those entries carry entity_type/
+entity_id/other_entity_id/reason directly (self-sufficient); see
+_materialize_manual_review(), which raises a real terminology_reviews
+row on the fly (provenance="human") before applying it the same way as
+any other decision -- one code path for both sources after that point.
+
 Usage::
 
     python3 -m transcribe.apply_terminology_decisions \
@@ -57,6 +68,35 @@ def _entity_name(conn, table: str, entity_id: str) -> str | None:
     namecol = _cleanup.NAME_COL[table]
     row = conn.execute(f"SELECT {namecol} AS name FROM {table} WHERE id=?", (entity_id,)).fetchone()
     return row["name"] if row else None
+
+
+def _materialize_manual_review(conn, review: dict) -> dict | None:
+    """A decision whose id doesn't match any terminology_reviews row is
+    either stale (the review was resolved by something else since the
+    page was loaded -- a real failure) or was never a review to begin
+    with: a human flagged it directly via entities.html's manual merge
+    UI, which has no pre-existing row to reference. Distinguish by
+    whether the entry carries enough self-sufficient data to raise one
+    now -- entity_type + both entity ids, both still resolving to real
+    rows. Confidence is fixed at 1.0: a human explicitly chose this
+    pair, unlike a heuristic guess or an LLM's self-reported score."""
+    if not (review.get("entity_type") and review.get("entity_id")
+            and review.get("other_entity_id")):
+        return None
+    name_a = _entity_name(conn, review["entity_type"], review["entity_id"])
+    name_b = _entity_name(conn, review["entity_type"], review["other_entity_id"])
+    if not name_a or not name_b:
+        return None  # ids don't resolve -- genuinely stale, not a manual entry
+    reason = review.get("reason") or "flagged via entities.html"
+    review_id = _db.raise_terminology_review(
+        conn, entity_type=review["entity_type"], review_kind="duplicate_candidate",
+        entity_id=review["entity_id"], other_entity_id=review["other_entity_id"],
+        description=f"manual_match: {name_a!r} / {name_b!r} -- {reason}",
+        raised_by="entities.html", provenance="human", confidence=1.0,
+    )
+    return dict(conn.execute(
+        "SELECT * FROM terminology_reviews WHERE id=?", (review_id,)
+    ).fetchone())
 
 
 def _apply_duplicate(conn, review: dict, names: dict) -> str:
@@ -117,9 +157,14 @@ def apply_decisions(conn, decisions: dict) -> dict:
             "SELECT * FROM terminology_reviews WHERE id=?", (review["id"],)
         ).fetchone()
         if live is None:
-            failed.append({"id": review["id"], "error": "review id not found in DB"})
-            continue
-        live = dict(live)
+            live = _materialize_manual_review(conn, review)
+            if live is None:
+                failed.append({"id": review["id"],
+                               "error": "review id not found in DB and no self-sufficient "
+                                        "entity_type/entity_id/other_entity_id to create one"})
+                continue
+        else:
+            live = dict(live)
         if live["status"] != "open":
             failed.append({"id": review["id"], "error": f"already {live['status']}, skipped"})
             continue
@@ -136,8 +181,15 @@ def apply_decisions(conn, decisions: dict) -> dict:
         }
         try:
             summary = handler(conn, live, names)
-            _mark(conn, review["id"], "applied", summary)
-            applied.append({"id": review["id"], "summary": summary})
+            # Mark by live["id"], not review["id"] -- for a materialized
+            # manual review these differ (review["id"] is the client's
+            # own bookkeeping id, live["id"] is the real row
+            # raise_terminology_review() just created). Marking the
+            # wrong one is a silent no-op in SQLite (UPDATE affecting 0
+            # rows), which is exactly how this stayed 'open' forever
+            # the first time -- confirmed live, not hypothesized.
+            _mark(conn, live["id"], "applied", summary)
+            applied.append({"id": review["id"], "db_id": live["id"], "summary": summary})
             if review.get("scope") == "always":
                 key, fix = _rule_for(live, names, "approve")
                 _cleanup.upsert_rule(conn, live["entity_type"], live["review_kind"], key,
@@ -146,7 +198,7 @@ def apply_decisions(conn, decisions: dict) -> dict:
                                      provenance=live["provenance"])
                 rules_added.append({"id": review["id"], "decision": "approve", "match_key": key})
         except Exception as e:
-            _mark(conn, review["id"], "open", f"apply failed: {e}")
+            _mark(conn, live["id"], "open", f"apply failed: {e}")
             failed.append({"id": review["id"], "error": str(e)})
 
     for review in decisions.get("ignored", []):
