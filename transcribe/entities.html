@@ -140,16 +140,18 @@
   /* --- merge dialog specifics --- */
   .merge-pair { font-size: 0.95rem; margin: 0 0 0.5rem; }
   .merge-keep-option {
-    display: block; font-size: 0.88rem; padding: 0.5rem 0.6rem; margin-bottom: 0.4rem;
+    display: flex; align-items: flex-start; gap: 0.5rem;
+    font-size: 0.88rem; padding: 0.5rem 0.6rem; margin-bottom: 0.4rem;
     border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
   }
   .merge-keep-option:has(input:checked) { border-color: var(--accent); background: var(--row-alt); }
-  .merge-keep-option input { margin-right: 0.4rem; }
+  .merge-keep-option input { flex-shrink: 0; margin: 0.2rem 0 0; }
   #merge-reason, #single-action-reason, #single-action-new-name {
     width: 100%; font: inherit; font-size: 0.85rem; padding: 0.5rem 0.6rem;
     border-radius: 6px; border: 1px solid var(--border); background: var(--bg);
     color: var(--fg); margin-bottom: 0.8rem;
   }
+  #merge-reason { margin-top: 0.5rem; }
   #merge-reason, #single-action-reason { resize: vertical; }
   .merge-dialog-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
   .single-action-info { font-size: 0.95rem; margin: 0 0 0.6rem; }
