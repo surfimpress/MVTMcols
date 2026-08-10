@@ -46,7 +46,14 @@ def merge_entity(conn, table: str, keep_name: str, drop_name: str,
     if drop is None:
         raise ValueError(f"no {table} row named {drop_name!r} -- check exact spelling on entities.html")
     if keep["id"] == drop["id"]:
-        raise ValueError(f"{keep_name!r} and {drop_name!r} are already the same row")
+        # Not an error -- a common, expected outcome when applying a
+        # batch of overlapping decisions (e.g. three variants of the
+        # same organization all pairwise-flagged; merging the first
+        # pair already resolves the second). The desired end state
+        # (one row, not two) is already true; nothing to do.
+        return {"kept": keep_name, "kept_id": keep["id"], "dropped": drop_name,
+                "moved": 0, "collided": 0, "notes": keep["notes"] or "",
+                "already_merged": True}
 
     fs = [d for d in (keep["first_seen_date"], drop["first_seen_date"]) if d]
     ls = [d for d in (keep["last_seen_date"], drop["last_seen_date"]) if d]
@@ -101,8 +108,12 @@ def main() -> int:
     finally:
         conn.close()
 
-    print(f"kept {result['kept']!r} ({result['kept_id']}), dropped {result['dropped']!r} -- "
-          f"moved {result['moved']} mentions, {result['collided']} collisions deduped")
+    if result.get("already_merged"):
+        print(f"{result['kept']!r} and {result['dropped']!r} were already the same "
+              f"row ({result['kept_id']}) -- nothing to do")
+    else:
+        print(f"kept {result['kept']!r} ({result['kept_id']}), dropped {result['dropped']!r} -- "
+              f"moved {result['moved']} mentions, {result['collided']} collisions deduped")
     if result["notes"]:
         print(f"notes: {result['notes']!r}")
     return 0

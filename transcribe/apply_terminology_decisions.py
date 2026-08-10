@@ -63,9 +63,16 @@ def _apply_duplicate(conn, review: dict, names: dict) -> str:
     table = review["entity_type"]
     keep, drop = names.get("entity_id"), names.get("other_entity_id")
     if keep is None or drop is None:
-        raise ValueError("one or both entities no longer exist -- already merged "
-                         "by an earlier decision in this batch?")
+        # Not a failure -- the only way an id referenced by an open
+        # review stops existing is merge_entity's own DELETE, so this
+        # means an earlier decision in the same batch already merged
+        # it away. The desired outcome (one row, not two) already
+        # holds; resolve this review rather than bouncing it back to
+        # 'open' for a human to look at again with nothing left to do.
+        return "already resolved -- entity no longer exists (merged by an earlier decision in this batch)"
     result = _merge_entity.merge_entity(conn, table, keep, drop, alias=True)
+    if result.get("already_merged"):
+        return f"already resolved -- {result['kept']!r} and {result['dropped']!r} were already the same entity"
     return (f"merged {result['dropped']!r} into {result['kept']!r} "
             f"({result['moved']} mentions moved)")
 
@@ -86,8 +93,11 @@ def _apply_name_too_specific(conn, review: dict, names: dict) -> str:
         raise ValueError("no new_name in proposed_fix_json")
     old_name = names.get("entity_id")
     if old_name is None:
-        raise ValueError("entity no longer exists -- already renamed by an "
-                         "earlier decision in this batch?")
+        # Same reasoning as _apply_duplicate's missing-id case -- the
+        # only way this id stops existing is an earlier decision in
+        # this batch already resolving it (a merge that consumed this
+        # row). Resolve, don't bounce back to 'open'.
+        return "already resolved -- entity no longer exists (renamed/merged by an earlier decision in this batch)"
     result = _cleanup.apply_genericize(conn, review["entity_type"], old_name, new_name)
     return f"genericized {result['dropped']!r} -> {result['kept']!r}"
 

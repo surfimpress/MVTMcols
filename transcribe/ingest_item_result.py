@@ -553,14 +553,50 @@ def normalise_key(name: str) -> str:
     return _NORM_RE.sub("", name.lower()).strip()
 
 
+def _recurs_as_first_word(conn: sqlite3.Connection, token: str) -> int:
+    """How many *other* people have `token` as the first word of their
+    full_name. Same check as terminology_cleanup.py's identically-named/
+    purposed function (kept local here rather than imported, to avoid
+    this foundational ingest module depending on the higher-level
+    cleanup pass) -- tested against the live corpus 2026-08-09: known
+    first names (David, Gerry, Charlie, Betty, Marion, Richard) all
+    scored 3-8; known bare surnames (Harris, Rogers, Robinson, Pierce,
+    Cochran, Kirby, Dunlop, Morton) all scored 0. A first name recurs
+    across many different people; a surname essentially never opens
+    someone else's full name. Data-driven, no maintained name list.
+    """
+    rows = conn.execute(
+        "SELECT 1 FROM people WHERE full_name LIKE ? AND full_name != ?",
+        (f"{token} %", token),
+    ).fetchall()
+    return len(rows)
+
+
 def upsert_entity(conn: sqlite3.Connection,
                   table: str,
                   *,
                   name: str,
                   extra_cols: dict | None = None,
                   mention_date: str | None = None,
-                  alias: str | None = None) -> str:
-    """Find-or-insert. Returns entity id.
+                  alias: str | None = None) -> str | None:
+    """Find-or-insert. Returns entity id, or None if entity creation was
+    refused (see the bare-first-name guard below) -- callers must handle
+    a None return rather than assuming a mention always resolves.
+
+    Guard: refuses to CREATE a new bare single-word ``people`` row when
+    that word recurs as the first word of other people's full_name --
+    i.e. it's a common first name, not a distinctive surname. This is a
+    mechanical backstop for an instruction already given to every
+    extraction agent ("don't record a bare first name as its own person
+    entity") that turned out not to be reliably followed -- confirmed
+    2026-08-10: one extraction batch alone created 54 single-word
+    person rows, the large majority genuine first names (Glen, Stacey,
+    Loraine, Bill, John, Dave...), each one then generating repeated
+    terminology_review noise against every unrelated person who happens
+    to share that first name. Existing rows (an *already-hit* lookup)
+    are never affected -- this only blocks minting a brand new one.
+    Bare surnames are unaffected: they score 0 on this same check, per
+    the empirical validation above.
 
     ``extra_cols`` carries the type-specific columns (first_name,
     last_name, title etc.) that get filled in on insert. On lookup,
@@ -602,6 +638,14 @@ def upsert_entity(conn: sqlite3.Connection,
                 notes = (notes + "; " + alias_note).strip("; ")
                 conn.execute(f"UPDATE {table} SET notes=? WHERE id=?", (notes, row["id"]))
         return row["id"]
+
+    if table == "people" and " " not in name.strip():
+        recurrence = _recurs_as_first_word(conn, name.strip())
+        if recurrence >= 1:
+            print(f"upsert_entity: refusing to create bare-first-name person "
+                  f"{name!r} (recurs as first name of {recurrence} other people) "
+                  f"-- mention dropped, not recorded as a new entity")
+            return None
 
     new_id = _db.new_uuid()
     cols = ["id", "normalised_key", "created_at"]
@@ -733,6 +777,11 @@ def _insert_mentions(conn: sqlite3.Connection,
         eid = upsert_entity(conn, entity_table,
                             name=name, extra_cols=extra,
                             mention_date=mention_date, alias=alias)
+        if eid is None:
+            # Entity creation was refused (bare-first-name guard) --
+            # skip this mention entirely rather than inserting a
+            # junction row with no entity to point at.
+            continue
 
         span_start = int(m.get("span_start") or 0)
         span_end   = m.get("span_end")
