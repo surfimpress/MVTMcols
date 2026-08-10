@@ -128,6 +128,10 @@
   .dialog-body { padding: 0.5rem 1.25rem 1.25rem; overflow-y: auto; max-height: calc(80vh - 4rem); }
   .context-columns { display: flex; gap: 1.25rem; flex-wrap: wrap; }
   .context-col { flex: 1 1 320px; min-width: 280px; }
+  .context-col-title {
+    font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--muted); margin: 0 0 0.5rem;
+  }
   .mention-item {
     border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem 0.7rem;
     margin-bottom: 0.5rem; background: var(--row-alt);
@@ -136,6 +140,15 @@
   .mention-excerpt { font-size: 0.85rem; white-space: pre-wrap; }
   .mention-excerpt mark.hl-mention { background: var(--warn); color: #1a1a1a; padding: 0 0.1em; }
   .mention-excerpt mark.hl-canonical { background: var(--accent); color: #fff; padding: 0 0.1em; }
+  .meta-fields { list-style: none; margin: 0; padding: 0; }
+  .meta-fields li {
+    display: flex; gap: 0.6rem; padding: 0.35rem 0;
+    border-bottom: 1px solid var(--border); font-size: 0.85rem;
+  }
+  .meta-fields li:last-child { border-bottom: none; }
+  .meta-fields .meta-label { flex: 0 0 9rem; color: var(--muted); }
+  .meta-fields .meta-value { flex: 1; word-break: break-word; }
+  .meta-fields .meta-value.empty { color: var(--muted); font-style: italic; }
 
   /* --- merge dialog specifics --- */
   .merge-pair { font-size: 0.95rem; margin: 0 0 0.5rem; }
@@ -675,6 +688,36 @@
       });
   }
 
+  // Field labels per entity type, in display order. Matches schema.sql
+  // exactly (people/organizations/places/products/events) -- add here
+  // whenever a column is added to one of those tables, so the modal
+  // stays in sync with the DB rather than silently dropping new fields.
+  var META_FIELD_LABELS = {
+    people: [['title', 'Title'], ['first_name', 'First name'], ['last_name', 'Last name'], ['suffix', 'Suffix']],
+    organizations: [['org_type', 'Type']],
+    places: [['place_type', 'Type'], ['parent_place_name', 'Parent place']],
+    products: [
+      ['manufacturer', 'Manufacturer'], ['product_type', 'Type'],
+      ['external_terminology', 'Nomenclature vocabulary'], ['external_category', 'Nomenclature category'],
+      ['external_reference', 'Nomenclature ref #'], ['external_uri', 'Nomenclature URI'],
+    ],
+    events: [['event_type', 'Type'], ['year_known', 'Year'], ['date_known', 'Date']],
+  };
+
+  function metaFieldsHtml(e) {
+    var m = e.meta || {};
+    var fields = (META_FIELD_LABELS[e.type] || []).concat([['notes', 'Notes (aliases)'], ['created_at', 'Created']]);
+    var items = fields.map(function(f) {
+      var key = f[0], label = f[1];
+      var val = m[key];
+      var valHtml = (val === null || val === undefined || val === '')
+        ? '<span class="meta-value empty">—</span>'
+        : '<span class="meta-value">' + escapeHtml(String(val)) + '</span>';
+      return '<li><span class="meta-label">' + escapeHtml(label) + '</span>' + valHtml + '</li>';
+    }).join('');
+    return '<ul class="meta-fields">' + items + '</ul>';
+  }
+
   function renderDetailDialog(e) {
     var dialog = document.getElementById('detail-dialog');
     var title = document.getElementById('detail-dialog-title');
@@ -683,13 +726,18 @@
     title.textContent = e.name + ' (' + e.type + ')';
     var entry = state.contextData[e.id];
     var ctx = (entry && entry.context) || [];
-    var meta = '<p class="meta">First seen: ' + (e.first_seen || '—') + ' · Last seen: ' +
+    var summary = '<p class="meta">First seen: ' + (e.first_seen || '—') + ' · Last seen: ' +
       (e.last_seen || '—') + ' · ' + e.mentions + ' mention(s)</p>';
-    var col = '<div class="context-col">' +
+    var mentionsCol = '<div class="context-col">' +
+      '<h3 class="context-col-title">Mentions</h3>' +
       (ctx.length ? ctx.map(function(m) { return mentionCard(m, e.name); }).join('')
                   : '<p class="empty" style="padding:0.5rem 0">No mentions found.</p>') +
       '</div>';
-    body.innerHTML = meta + '<div class="context-columns">' + col + '</div>';
+    var metaCol = '<div class="context-col">' +
+      '<h3 class="context-col-title">Details</h3>' +
+      metaFieldsHtml(e) +
+      '</div>';
+    body.innerHTML = summary + '<div class="context-columns">' + mentionsCol + metaCol + '</div>';
     dialog.showModal();
   }
 

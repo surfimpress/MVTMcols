@@ -57,6 +57,21 @@ fuller canonical name.
   than a first name is.
 - A joint mention ("John & Jane Smith", "Mr. and Mrs. Smith") is two
   people, not one — list each separately.
+- **Places**: expand a trailing street-suffix abbreviation in `name`
+  ("Elgin St." -> "Elgin Street", "Bridge Rd." -> "Bridge Road", "Mill
+  Ave." -> "Mill Avenue") — `mention_text` keeps the original printed
+  abbreviation. Add disambiguating context to `name` based on where the
+  place is, since this paper is itself Ontario-based and most place
+  mentions are local:
+  - Ontario (the common case): bare name, no province — "Almonte", not
+    "Almonte, Ontario".
+  - Elsewhere in Canada: append the province/territory — "Charlottetown,
+    PEI".
+  - United States: append the state — "Ann Arbor, Michigan".
+  - Anywhere else: append the country — "Canton, England".
+  Only add this context when the item's own text makes the place's
+  location clear (a dateline, "of Winnipeg", a state/country named
+  nearby) — don't guess at a location the text doesn't support.
 - **Products**: `name` is the **generic** product ("Baking Powder"),
   not the branded form as printed ("White Swan Baking Powder") — put
   the brand in `manufacturer` and let `mention_text` carry the full

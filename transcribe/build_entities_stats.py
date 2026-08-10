@@ -42,11 +42,27 @@ TABLES = [
     ("events", "name", "item_events_mentions", "event_id"),
 ]
 
+# Extra per-table DB columns for the detail modal, beyond the universal
+# notes/created_at every table carries -- deliberately NOT folded into
+# entity_candidates.all_rows, which stays minimal on purpose (it also
+# feeds the LLM-facing candidate lists trimmed down earlier this
+# session to cut per-issue token cost). This is a browsing-UI-only
+# fetch, so it can afford the full row.
+EXTRA_COLS = {
+    "people": ["first_name", "last_name", "title", "suffix"],
+    "organizations": ["org_type"],
+    "places": ["place_type", "parent_place_id"],
+    "products": ["manufacturer", "product_type", "external_terminology",
+                 "external_category", "external_uri", "external_reference"],
+    "events": ["event_type", "year_known", "date_known"],
+}
+
 
 def build_stats(conn) -> tuple[dict, dict]:
     """Returns (entities_stats, context_stats) -- the two JSON payloads."""
     entities = []
     context = {}
+    place_names = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM places")}
     for table, namecol, junction, fk in TABLES:
         # Same base row-fetch the item-markup pass's candidate-list
         # prefetch uses (entity_candidates.all_rows) -- one query per
@@ -73,6 +89,15 @@ def build_stats(conn) -> tuple[dict, dict]:
             dates_by_id.setdefault(r["id"], set()).add(
                 (r["year"], r["month"], r["day"], r["page"]))
 
+        meta_cols = ["notes", "created_at"] + EXTRA_COLS[table]
+        meta_by_id = {
+            row["id"]: {c: row[c] for c in meta_cols}
+            for row in conn.execute(f"SELECT id, {', '.join(meta_cols)} FROM {table}")
+        }
+        if table == "places":
+            for m in meta_by_id.values():
+                m["parent_place_name"] = place_names.get(m.get("parent_place_id"))
+
         for r in rows:
             n = mention_counts.get(r["id"], 0)
             entities.append({
@@ -80,6 +105,7 @@ def build_stats(conn) -> tuple[dict, dict]:
                 "first_seen": r["first_seen_date"], "last_seen": r["last_seen_date"],
                 "mentions": n,
                 "dates": sorted(dates_by_id.get(r["id"], set())),
+                "meta": meta_by_id.get(r["id"], {}),
             })
             if n > 0:  # nothing to show for a zero-mention entity
                 context[r["id"]] = {"context": _review_stats.entity_context(conn, table, r["id"])}
