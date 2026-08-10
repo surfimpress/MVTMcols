@@ -97,6 +97,15 @@
   .card-actions button.on.ignore { background: var(--ignore-border); color: #fff; border-color: var(--ignore-border); }
   .card-actions button.on.always { border-style: solid; box-shadow: 0 0 0 2px var(--warn) inset; }
   .scope-note { font-size: 0.72rem; color: var(--warn); margin-top: 0.3rem; }
+  .keep-choice { margin: 0.5rem 0; }
+  .keep-choice-label { font-size: 0.72rem; color: var(--muted); display: block; margin-bottom: 0.3rem; }
+  .keep-option {
+    display: flex; align-items: flex-start; gap: 0.5rem;
+    font-size: 0.85rem; padding: 0.4rem 0.6rem; margin-bottom: 0.3rem;
+    border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+  }
+  .keep-option:has(input:checked) { border-color: var(--accent); background: var(--approve-bg); }
+  .keep-option input { flex-shrink: 0; margin: 0.15rem 0 0; }
   .empty { color: var(--muted); padding: 2rem 0; text-align: center; }
   footer { margin-top: 1.5rem; color: var(--muted); font-size: 0.78rem; }
 
@@ -296,6 +305,29 @@
       var contextBtn = hasContext
         ? '<button class="context-btn" data-context-id="' + r.id + '">Show mentions</button>'
         : '';
+      // Which side survives is a real judgment call, not something
+      // entity_id (whichever side a Python heuristic or the LLM tier
+      // happened to raise first) should be blindly trusted for -- the
+      // 2026-08-10 Canadian-spelling and genericization-altitude fixes
+      // both caught entity_id landing wrong. Same explicit choice
+      // entities.html's manual-merge dialog already has, defaulting to
+      // the higher-mention-count side but always visible/changeable.
+      var isMergeChoice = r.review_kind === 'duplicate_candidate' && r.entity_id && r.other_entity_id;
+      var keepChoice = '';
+      if (isMergeChoice) {
+        var aMentions = r.entity_mentions || 0, bMentions = r.other_entity_mentions || 0;
+        var savedKeep = d && d.keep;
+        var aDefault = savedKeep ? savedKeep === 'a' : aMentions >= bMentions;
+        keepChoice = '<div class="keep-choice">' +
+          '<span class="keep-choice-label">Which name should survive?</span>' +
+          '<label class="keep-option"><input type="radio" name="keep-' + r.id + '" value="a"' +
+            (aDefault ? ' checked' : '') + '> Keep <strong>' + escapeHtml(r.entity_name || '') + '</strong> (' +
+            aMentions + ' mentions), merge away ' + escapeHtml(r.other_entity_name || '') + '</label>' +
+          '<label class="keep-option"><input type="radio" name="keep-' + r.id + '" value="b"' +
+            (aDefault ? '' : ' checked') + '> Keep <strong>' + escapeHtml(r.other_entity_name || '') + '</strong> (' +
+            bMentions + ' mentions), merge away ' + escapeHtml(r.entity_name || '') + '</label>' +
+          '</div>';
+      }
       return '<div class="' + cardClass + '" data-id="' + r.id + '">' +
         '<div class="card-top">' +
           '<span class="card-top-eyebrow">' +
@@ -307,6 +339,7 @@
         '</div>' +
         '<p class="desc">' + (r.description || '').replace(/</g, '&lt;') + '</p>' +
         '<p class="meta">' + r.entity_type + ' · raised ' + fmtAgo(r.raised_at) + ' by ' + r.raised_by + '</p>' +
+        keepChoice +
         '<div class="card-actions">' +
           '<div class="action-group">' +
             '<span class="group-label">This match:</span>' +
@@ -323,6 +356,10 @@
 
     container.querySelectorAll('.card').forEach(function(card) {
       var id = card.dataset.id;
+      function currentKeep() {
+        var checked = card.querySelector('input[name="keep-' + id + '"]:checked');
+        return checked ? checked.value : undefined;
+      }
       card.querySelectorAll('.act-btn').forEach(function(btn) {
         btn.addEventListener('click', function() {
           var decision = btn.dataset.decision, scope = btn.dataset.scope;
@@ -340,7 +377,22 @@
             );
             if (!ok) return;
           }
-          setDecision(id, { decision: decision, scope: scope });
+          var entry = { decision: decision, scope: scope };
+          var keep = currentKeep();
+          if (keep) entry.keep = keep;
+          setDecision(id, entry);
+        });
+      });
+      // Changing the keep/drop choice after a decision is already made
+      // (e.g. re-approving with the other side kept) updates it live,
+      // in place, without wiping the decision or resetting scroll
+      // position the way a full re-render on every radio click would.
+      card.querySelectorAll('input[name="keep-' + id + '"]').forEach(function(radio) {
+        radio.addEventListener('change', function() {
+          var existing = state.decisions[id];
+          if (!existing) return;
+          existing.keep = currentKeep();
+          saveDecisionsLocal();
         });
       });
       var contextBtn = card.querySelector('.context-btn');
@@ -509,10 +561,27 @@
       var r = byId[id];
       var d = state.decisions[id];
       if (!r || !d) return;
+      // d.keep === 'b' means the reviewer explicitly chose the OTHER
+      // side to survive, overriding whichever side entity_id happened
+      // to be raised as -- apply_terminology_decisions.py always
+      // treats entity_id as "keep", so the swap has to happen here,
+      // at export time, not downstream.
+      var keepA = d.keep !== 'b';
+      var keepName = keepA ? r.entity_name : r.other_entity_name;
+      var dropName = keepA ? r.other_entity_name : r.entity_name;
       var entry = {
         id: r.id, review_kind: r.review_kind, entity_type: r.entity_type,
-        entity_id: r.entity_id, other_entity_id: r.other_entity_id,
-        description: r.description, suggested_cli: r.suggested_cli,
+        entity_id: keepA ? r.entity_id : r.other_entity_id,
+        other_entity_id: keepA ? r.other_entity_id : r.entity_id,
+        description: r.description,
+        // suggested_cli is display-only (never parsed by
+        // apply_terminology_decisions.py) -- regenerated here so it
+        // still reads correctly when the reviewer flipped keep/drop,
+        // not regex-patched against the original.
+        suggested_cli: r.review_kind === 'duplicate_candidate'
+          ? 'python3 -m transcribe.merge_entity ' + r.entity_type + ' ' +
+            JSON.stringify(keepName) + ' ' + JSON.stringify(dropName) + ' --alias'
+          : r.suggested_cli,
         scope: d.scope,
       };
       if (d.decision === 'approve') approved.push(entry);

@@ -79,6 +79,14 @@ def _entity_name(conn, table: str, entity_id: str | None) -> str | None:
     return row["name"] if row else None
 
 
+def _mention_count(conn, table: str, entity_id: str | None) -> int:
+    if not entity_id:
+        return 0
+    junction, fk, _namecol = _merge_entity.JUNCTIONS[table]
+    row = conn.execute(f"SELECT count(*) AS n FROM {junction} WHERE {fk}=?", (entity_id,)).fetchone()
+    return row["n"]
+
+
 def build_stats(conn) -> dict:
     rows = conn.execute(
         """SELECT id, entity_type, entity_id, other_entity_id, review_kind,
@@ -100,6 +108,15 @@ def build_stats(conn) -> dict:
                           if r["other_entity_id"] else [])
         r["entity_name"] = _entity_name(conn, r["entity_type"], r["entity_id"])
         r["other_entity_name"] = _entity_name(conn, r["entity_type"], r["other_entity_id"])
+        # Mention counts, not just the CONTEXT_LIMIT-capped sample above --
+        # entities.html's manual-merge dialog defaults its keep/drop radio
+        # to whichever side has more mentions, and a review here can be
+        # just as wrong about which side is "entity_id" as a manual pick
+        # used to be (see the 2026-08-10 Canadian-spelling and
+        # genericization-altitude fixes) -- the human reviewing needs the
+        # same real signal, not just trust that entity_id is right.
+        r["entity_mentions"] = _mention_count(conn, r["entity_type"], r["entity_id"])
+        r["other_entity_mentions"] = _mention_count(conn, r["entity_type"], r["other_entity_id"])
 
     counts_by_kind = {}
     counts_by_status = {}
