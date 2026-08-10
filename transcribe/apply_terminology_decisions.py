@@ -228,6 +228,26 @@ def apply_decisions(conn, decisions: dict) -> dict:
                 continue
         else:
             live = dict(live)
+            # The decision file's entity_id/other_entity_id reflects
+            # the human's actual keep/drop choice from
+            # terminology_review.html's radio picker -- entity_id there
+            # is NOT necessarily the same side as the DB row's own
+            # entity_id (raised in whatever order the Python/LLM tier
+            # happened to propose, see the 2026-08-10 Canadian-spelling
+            # and genericization fixes for why that order is often
+            # wrong). Confirmed live: ignoring this and blindly reusing
+            # live's original order silently re-applied the wrong
+            # direction even after the reviewer explicitly picked the
+            # other side in the UI. Only ever REORDER the same known
+            # pair here, never substitute a different id -- a decision
+            # file can't smuggle in an id the DB review didn't already
+            # have.
+            file_pair = {review.get("entity_id"), review.get("other_entity_id")}
+            live_pair = {live["entity_id"], live["other_entity_id"]}
+            if (file_pair == live_pair and review.get("entity_id") != live["entity_id"]
+                    and None not in file_pair):
+                live["entity_id"], live["other_entity_id"] = (
+                    review["entity_id"], review["other_entity_id"])
         if live["status"] != "open":
             failed.append({"id": review["id"], "error": f"already {live['status']}, skipped"})
             continue
