@@ -25,6 +25,7 @@ import os
 from PIL import Image, ImageDraw
 
 from . import _support as _sup
+from . import detect_bands as _bands
 from . import detect_columns as _cols
 
 OUT_DIR = os.path.join(_sup.REPO_ROOT, "preview", "scaled")
@@ -84,6 +85,18 @@ def render_page(conn, page_row, out_path: str) -> str | None:
              _sup.pct_to_px(r["right_pct"], w), _sup.pct_to_px(r["bottom_pct"], h)],
             outline=(0, 150, 90), width=3)
 
+    # Bands (stage 2 for 1980+): horizontal strip + its own column edges.
+    bres = _bands.detect(conn, page_row["id"])
+    for b in bres.get("bands", []):
+        yt = _sup.pct_to_px(b["top_pct"], h)
+        yb = _sup.pct_to_px(b["bottom_pct"], h)
+        d.rectangle([2, yt, w - 3, yb], outline=(150, 0, 200), width=4)
+        for e in b["edges"]:
+            x = _sup.pct_to_px(e, w)
+            d.rectangle([x - 2, yt, x + 2, yb], fill=(150, 0, 200))
+        d.text((6, yt + 4), f"band {b['band_idx']}: {b['n_columns']} col "
+                            f"reg={b['regularity']:.2f}", fill=(150, 0, 200))
+
     y = h + 10
     d.text((12, y), f"{page_row['year']}-{page_row['month']:02d}-{page_row['day']:02d} "
                     f"p{page_row['page']}   confidence={res['confidence']}   "
@@ -99,6 +112,10 @@ def render_page(conn, page_row, out_path: str) -> str | None:
         y += 20
     d.rectangle([12, y + 4, 46, y + 8], fill=(0, 150, 90))
     d.text((56, y), "ocr_photo regions (Tesseract's own)", fill=(0, 0, 0))
+    y += 20
+    d.rectangle([12, y + 4, 46, y + 8], fill=(150, 0, 200))
+    d.text((56, y), f"BANDS + per-band columns — conf={bres.get('confidence')} "
+                    f"{bres.get('confidence_parts', '')}", fill=(0, 0, 0))
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     canvas.save(out_path, quality=88)
