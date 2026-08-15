@@ -94,10 +94,15 @@
     <option value="lines">lines</option>
     <option value="all">blocks + lines</option>
   </select>
+  <!-- TIFY hidden 2026-08-15: it does not render overlays for these
+       manifests (unresolved). Mirador is forced below. Restore by
+       un-commenting this block -- all TIFY code below is intact and
+       still reachable with ?viewer=tify.
   <select id="viewer" aria-label="Viewer">
     <option value="mirador">Mirador</option>
     <option value="tify">TIFY</option>
   </select>
+  -->
   <a class="btn" id="manifest-link" target="_blank" rel="noopener">manifest ↗</a>
 </header>
 <div id="stage"></div>
@@ -118,18 +123,19 @@ window.__cfg = (function () {
                                       : '/manifest_' + layers + '.json');
   var abs = new URL(rel, location.href).href;
 
-  var si = document.getElementById('issue'), sv = document.getElementById('viewer'),
-      sl = document.getElementById('layers');
+  var si = document.getElementById('issue'), sl = document.getElementById('layers');
+  // May be absent while the TIFY selector is commented out of the DOM.
+  var sv = document.getElementById('viewer');
   if ([].some.call(si.options, function (o) { return o.value === issue; })) si.value = issue;
-  if ([].some.call(sv.options, function (o) { return o.value === viewer; })) sv.value = viewer;
+  if (sv && [].some.call(sv.options, function (o) { return o.value === viewer; })) sv.value = viewer;
   if ([].some.call(sl.options, function (o) { return o.value === layers; })) sl.value = layers;
   function go() {
     location.search = '?issue=' + si.value + '&layers=' + sl.value +
-                      '&viewer=' + sv.value +
+                      (sv ? '&viewer=' + sv.value : '') +
                       (view !== 'fulltext' ? '&view=' + view : '');
   }
   si.addEventListener('change', go);
-  sv.addEventListener('change', go);
+  if (sv) sv.addEventListener('change', go);
   sl.addEventListener('change', go);
 
   document.getElementById('manifest-link').href = rel;

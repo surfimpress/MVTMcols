@@ -397,6 +397,28 @@ CREATE TABLE IF NOT EXISTS page_columns (
 
 CREATE INDEX IF NOT EXISTS idx_page_columns_page ON page_columns (page_id);
 
+-- Scaled track (schema v16). For 1980+ the layout unit is a BAND (a
+-- horizontal strip bounded by a wide rule or a whitespace gap), and
+-- columns exist only WITHIN a band -- full-height columns are the wrong
+-- model for that era (97.8% escalation; see instructions/scaled_pipeline.md).
+CREATE TABLE IF NOT EXISTS page_bands (
+    id                TEXT PRIMARY KEY,
+    page_id           TEXT NOT NULL,
+    band_idx          INTEGER NOT NULL,     -- 0-based, top to bottom
+    top_pct           REAL NOT NULL,
+    bottom_pct        REAL NOT NULL,
+    n_columns         INTEGER NOT NULL,
+    column_edges_json TEXT,                 -- JSON list of x-edges, left..right
+    regularity        REAL,                 -- 1 - CV of column widths in this band
+    n_lines           INTEGER,
+    confidence        REAL,                 -- page-level score, repeated per band
+    created_at        TEXT NOT NULL,
+    notes             TEXT,
+    FOREIGN KEY (page_id) REFERENCES pages(id),
+    UNIQUE (page_id, band_idx)
+);
+CREATE INDEX IF NOT EXISTS idx_page_bands_page ON page_bands (page_id);
+
 
 CREATE TABLE IF NOT EXISTS items_ocr_ext (
     item_id             TEXT PRIMARY KEY,
@@ -878,7 +900,12 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 --                                    route is untouched and keeps
 --                                    running. See
 --                                    instructions/scaled_pipeline.md
+--  16 — scaled track, bands (2026-08-15): page_bands. For 1980+
+--                                    the layout unit is a horizontal
+--                                    band and columns exist only
+--                                    within one; full-height columns
+--                                    escalated 97.8% of pages
 INSERT OR IGNORE INTO schema_meta (key, value)
-    VALUES ('schema_version', '15');
+    VALUES ('schema_version', '16');
 INSERT OR IGNORE INTO schema_meta (key, value)
     VALUES ('created_at_iso', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
