@@ -140,25 +140,54 @@ window.__cfg = (function () {
   // same way.
   var abs = new URL(rel, location.href).href;
 
+  // Switching layer reloads the page, so where the reader was looking has
+  // to survive in the URL. `page` is the important one -- comparing
+  // stage 2 against stage 1 on a DIFFERENT page is useless. x/y/z restore
+  // the zoom and pan too.
+  //
+  // Canvas ids are IDENTICAL across every manifest variant (verified:
+  // .../canvas/p5 in blocks, grid, hlines and boxes alike), so the page
+  // carries across cleanly and can be rebuilt from its number alone.
+  var page = parseInt(q.get('page'), 10);
+  if (!(page > 0)) page = null;
+  var vx = parseFloat(q.get('x')), vy = parseFloat(q.get('y')),
+      vz = parseFloat(q.get('z'));
+  var canvasBase = new URL(issue + '/canvas/', location.href).href;
+
   var si = document.getElementById('issue'), sl = document.getElementById('layers');
   // May be absent while the TIFY selector is commented out of the DOM.
   var sv = document.getElementById('viewer');
   if ([].some.call(si.options, function (o) { return o.value === issue; })) si.value = issue;
   if (sv && [].some.call(sv.options, function (o) { return o.value === viewer; })) sv.value = viewer;
   if ([].some.call(sl.options, function (o) { return o.value === layers; })) sl.value = layers;
-  function go() {
-    location.search = '?issue=' + si.value + '&layers=' + sl.value +
-                      (sv ? '&viewer=' + sv.value : '') +
-                      (view !== 'fulltext' ? '&view=' + view : '');
+
+  // Filled in by the Mirador block below as the reader moves around.
+  window.__here = { page: page, x: vx, y: vy, z: vz };
+
+  function go(keepPosition) {
+    var h = window.__here || {};
+    var s = '?issue=' + si.value + '&layers=' + sl.value +
+            (sv ? '&viewer=' + sv.value : '') +
+            (view !== 'fulltext' ? '&view=' + view : '');
+    // Changing ISSUE means a different document, so position is dropped.
+    if (keepPosition && h.page) {
+      s += '&page=' + h.page;
+      if (isFinite(h.x) && isFinite(h.y) && isFinite(h.z)) {
+        s += '&x=' + Math.round(h.x) + '&y=' + Math.round(h.y) +
+             '&z=' + h.z.toPrecision(6);
+      }
+    }
+    location.search = s;
   }
-  si.addEventListener('change', go);
-  if (sv) sv.addEventListener('change', go);
-  sl.addEventListener('change', go);
+  si.addEventListener('change', function () { go(false); });
+  if (sv) sv.addEventListener('change', function () { go(true); });
+  sl.addEventListener('change', function () { go(true); });
 
   document.getElementById('manifest-link').href = rel;
 
   return { issue: issue, viewer: viewer, view: view, layers: layers,
-           rel: rel, abs: abs };
+           rel: rel, abs: abs, page: page, canvasBase: canvasBase,
+           x: vx, y: vy, z: vz };
 })();
 </script>
 
@@ -174,9 +203,24 @@ window.__cfg = (function () {
   if (cfg.viewer === 'mirador') {
     if (typeof Mirador === 'undefined') return fail('Mirador failed to load from the CDN.');
     stage.innerHTML = '<div id="mirador"></div>';
-    Mirador.viewer({
+    // An explicit window id, so the store can be read back below without
+    // having to guess Mirador's generated one.
+    var WID = 'w';
+    var win = { id: WID, manifestId: cfg.abs };
+    // Reopen on the page the reader was on. `canvasId` is the documented
+    // per-window key for this (Mirador config reference, "Initial Windows
+    // Configuration").
+    if (cfg.page) win.canvasId = cfg.canvasBase + 'p' + cfg.page;
+    // ...and at the same zoom and pan. `initialViewerConfig` is the
+    // documented way to set the opening viewport; image position (x, y,
+    // zoom) lives under the state's `viewers` key, which is what the
+    // subscription below reads.
+    if (isFinite(cfg.x) && isFinite(cfg.y) && isFinite(cfg.z)) {
+      win.initialViewerConfig = { x: cfg.x, y: cfg.y, zoom: cfg.z };
+    }
+    var mi = Mirador.viewer({
       id: 'mirador',
-      windows: [{ manifestId: cfg.abs }],
+      windows: [win],
       window: {
         // Draw every annotation boundary on load instead of only on
         // hover/selection. Verified against the Mirador 3.4.2 bundle:
@@ -209,6 +253,33 @@ window.__cfg = (function () {
                               'oa:commenting', 'oa:tagging']
       }
     });
+
+    // Track where the reader is, so switching layer can reopen there.
+    // Everything is defensive: if a future Mirador changes the state
+    // shape, this degrades to "reopens at page 1" rather than throwing
+    // and taking the viewer down with it.
+    try {
+      mi.store.subscribe(function () {
+        try {
+          var st = mi.store.getState();
+          var w = st.windows && st.windows[WID];
+          var h = window.__here || (window.__here = {});
+          // Page comes from the canvas id, not an index: we mint those ids
+          // ourselves as .../canvas/p<N>, so this needs no assumption
+          // about how Mirador orders or numbers canvases.
+          var cid = w && (w.canvasId ||
+                          (w.visibleCanvases && w.visibleCanvases[0]));
+          if (cid) {
+            var m = /\/canvas\/p(\d+)$/.exec(cid);
+            if (m) h.page = parseInt(m[1], 10);
+          }
+          var v = st.viewers && st.viewers[WID];
+          if (v && isFinite(v.x) && isFinite(v.y) && isFinite(v.zoom)) {
+            h.x = v.x; h.y = v.y; h.z = v.zoom;
+          }
+        } catch (e) { /* leave __here as it was */ }
+      });
+    } catch (e) { /* no store: page/zoom simply won't persist */ }
     return;
   }
 
