@@ -2,116 +2,147 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>MVTM — raw Tesseract hOCR (IIIF)</title>
 <!--
-  Lightweight starting point for the scaled experiment's IIIF layer.
+  Shows the UNMODIFIED Tesseract hOCR as IIIF annotation layers,
+  including the ocr_separator / ocr_photo "stray" blocks that the
+  production parser (ocr_llm.parse_hocr) discards. Nothing here is
+  derived, scored or corrected -- it is the input every later stage
+  builds on, so later stages can be added as further layers and compared
+  against it.
 
-  It shows the UNMODIFIED Tesseract hOCR as annotation layers, including
-  the ocr_separator / ocr_photo "stray" blocks that the production
-  parser (ocr_llm.parse_hocr) discards. Nothing shown here is derived,
-  scored or corrected -- this is the input every later stage builds on,
-  so later stages can be added as further layers and compared against it.
+  Annotations are switched ON in each viewer's own config:
 
-  Viewer: TIFY (github.com/subugoe/tify), which is built on
-  OpenSeadragon, is ~141 kB gzipped, and needs no build step. Loaded from
-  jsDelivr for now; vendor it into the repo when this stops being a
-  prototype (the rest of this site is behind Cloudflare Access, so a
-  self-hosted copy is the more durable choice long-term).
+  - TIFY     annotationsVisible: true      (clickable overlays)
+  - Mirador  annotations.filteredMotivations MUST include 'supplementing'.
+             Mirador's default list is
+             ['oa:commenting','oa:tagging','sc:painting','commenting','tagging']
+             which EXCLUDES supplementing -- the motivation every one of
+             our annotations uses (required by the IIIF Text Granularity
+             extension). Without this override Mirador silently shows
+             nothing. This is also why we embed Mirador ourselves rather
+             than linking to a hosted instance we cannot configure.
+  - Theseus  hosted only, no config injection possible -> plain link.
 -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tify@0.33/dist/tify.css">
 <style>
-  :root { color-scheme: light dark; }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
-    display: flex; flex-direction: column; height: 100vh;
-    background: #fff; color: #16181d;
-  }
+  :root { color-scheme: light dark; --bar: #f6f8fa; --line: #d8dde5; --fg: #16181d; }
   @media (prefers-color-scheme: dark) {
-    body { background: #14161a; color: #e8eaed; }
-    header { background: #1c1f25 !important; border-color: #2c313a !important; }
-    select, a.btn { background: #22262e !important; color: #e8eaed !important; border-color: #39414f !important; }
-    .note { color: #9aa4b2 !important; }
+    :root { --bar: #1c1f25; --line: #2c313a; --fg: #e8eaed; }
   }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; font: 13px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column; color: var(--fg);
+  }
+  /* One compact row. On mobile this is ~34px so the viewer gets the rest. */
   header {
-    padding: .6rem .9rem; border-bottom: 1px solid #d8dde5; background: #f6f8fa;
-    display: flex; gap: .7rem; align-items: center; flex-wrap: wrap;
+    flex: 0 0 auto; display: flex; gap: .35rem; align-items: center;
+    padding: .25rem .4rem; padding-left: max(.4rem, env(safe-area-inset-left));
+    padding-right: max(.4rem, env(safe-area-inset-right));
+    background: var(--bar); border-bottom: 1px solid var(--line);
+    overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
   }
-  h1 { font-size: .95rem; margin: 0 .4rem 0 0; font-weight: 650; }
+  header::-webkit-scrollbar { display: none; }
   select, a.btn {
-    font: inherit; font-size: .85rem; padding: .3rem .55rem; border-radius: 6px;
-    border: 1px solid #c4ccd8; background: #fff; color: #16181d;
-    text-decoration: none; cursor: pointer;
+    font: inherit; font-size: 12px; padding: .18rem .4rem; border-radius: 5px;
+    border: 1px solid var(--line); background: transparent; color: inherit;
+    text-decoration: none; white-space: nowrap; flex: 0 0 auto;
   }
-  .note { font-size: .78rem; color: #5b6472; flex-basis: 100%; margin: 0; }
-  #tify { flex: 1 1 auto; min-height: 0; }
-  .err { padding: 1.2rem; }
-  code { font-size: .82em; }
+  #stage { flex: 1 1 auto; min-height: 0; position: relative; }
+  #tify, #mirador { position: absolute; inset: 0; }
+  .err { padding: 1rem; font-size: 13px; }
+  code { font-size: .85em; }
 </style>
 </head>
 <body>
 <header>
-  <h1>Raw Tesseract hOCR</h1>
-  <label>Issue
-    <select id="issue">
-      <option value="1980-04-06">1980-04-06</option>
-      <option value="1997-07-16">1997-07-16</option>
-    </select>
-  </label>
-  <a class="btn" id="manifest-link" href="#" target="_blank" rel="noopener">manifest.json</a>
-  <a class="btn" id="mirador-link" href="#" target="_blank" rel="noopener">open in Mirador</a>
-  <a class="btn" id="theseus-link" href="#" target="_blank" rel="noopener">open in Theseus</a>
-  <p class="note">
-    Turn layers on in the <strong>Annotations</strong> panel (☰ → Annotations).
-    Layers include the <em>ocr_separator</em> and <em>ocr_photo</em> blocks the
-    production parser throws away. External viewers need the manifest to be
-    publicly reachable — this site sits behind Cloudflare Access, so those two
-    buttons will only work once the manifest is served publicly.
-  </p>
+  <select id="issue" aria-label="Issue">
+    <option value="1980-04-06">1980-04-06</option>
+    <option value="1997-07-16">1997-07-16</option>
+  </select>
+  <select id="viewer" aria-label="Viewer">
+    <option value="tify">TIFY</option>
+    <option value="mirador">Mirador</option>
+  </select>
+  <a class="btn" id="theseus-link" target="_blank" rel="noopener">Theseus ↗</a>
+  <a class="btn" id="manifest-link" target="_blank" rel="noopener">manifest ↗</a>
 </header>
-<div id="tify"></div>
+<div id="stage"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/tify@0.33/dist/tify.js"></script>
 <script>
-(function () {
-  var sel = document.getElementById('issue');
-  var params = new URLSearchParams(location.search);
-  var issue = params.get('issue') || sel.value;
-  if ([].some.call(sel.options, function (o) { return o.value === issue; })) sel.value = issue;
-
-  // Manifest sits next to this file, so a relative path keeps everything
-  // same-origin -- which matters because the whole site is behind
-  // Cloudflare Access and a cross-origin fetch would not carry the session.
+window.__cfg = (function () {
+  var q = new URLSearchParams(location.search);
+  var issue = q.get('issue') || '1980-04-06';
+  var viewer = q.get('viewer') || 'tify';
   var rel = issue + '/manifest.json';
   var abs = new URL(rel, location.href).href;
 
+  var si = document.getElementById('issue'), sv = document.getElementById('viewer');
+  if ([].some.call(si.options, function (o) { return o.value === issue; })) si.value = issue;
+  if ([].some.call(sv.options, function (o) { return o.value === viewer; })) sv.value = viewer;
+  function go() { location.search = '?issue=' + si.value + '&viewer=' + sv.value; }
+  si.addEventListener('change', go);
+  sv.addEventListener('change', go);
+
   document.getElementById('manifest-link').href = rel;
-  // IIIF Content State API: the parameter is `iiif-content`, and a plain
-  // manifest URI must NOT be encoded (Content State API 1.0).
-  document.getElementById('mirador-link').href =
-    'https://projectmirador.org/embed/?iiif-content=' + abs;
+  // IIIF Content State API: parameter is `iiif-content`; a plain manifest
+  // URI must NOT be encoded.
   document.getElementById('theseus-link').href =
     'https://theseusviewer.org/?iiif-content=' + abs;
 
-  sel.addEventListener('change', function () {
-    location.search = '?issue=' + sel.value;
-  });
+  return { issue: issue, viewer: viewer, rel: rel, abs: abs };
+})();
+</script>
 
-  if (typeof Tify === 'undefined') {
-    document.getElementById('tify').innerHTML =
-      '<div class="err">TIFY failed to load from the CDN. ' +
-      'Open <code>' + rel + '</code> directly, or vendor TIFY into the repo.</div>';
+<script src="https://cdn.jsdelivr.net/npm/tify@0.33/dist/tify.js"></script>
+<script src="https://unpkg.com/mirador@3.4.2/dist/mirador.min.js"></script>
+<script>
+(function () {
+  var cfg = window.__cfg;
+  var stage = document.getElementById('stage');
+
+  function fail(msg) { stage.innerHTML = '<div class="err">' + msg + '</div>'; }
+
+  if (cfg.viewer === 'mirador') {
+    if (typeof Mirador === 'undefined') return fail('Mirador failed to load from the CDN.');
+    stage.innerHTML = '<div id="mirador"></div>';
+    Mirador.viewer({
+      id: 'mirador',
+      windows: [{
+        manifestId: cfg.abs,
+        // Open straight onto the annotation list rather than making the
+        // reviewer dig for it.
+        defaultSideBarPanel: 'annotations',
+        sideBarOpen: true
+      }],
+      window: { allowFullscreen: true, allowMaximize: false },
+      workspaceControlPanel: { enabled: false },
+      annotations: {
+        // MUST include 'supplementing' -- see the note at the top of this
+        // file. Mirador's default list omits it and our annotations would
+        // be filtered out entirely.
+        filteredMotivations: ['supplementing', 'commenting', 'tagging',
+                              'oa:commenting', 'oa:tagging']
+      }
+    });
     return;
   }
 
+  if (typeof Tify === 'undefined') {
+    return fail('TIFY failed to load from the CDN. Open <code>' + cfg.rel +
+                '</code> directly, or switch viewer.');
+  }
+  stage.innerHTML = '<div id="tify"></div>';
   new Tify({
     container: '#tify',
-    manifestUrl: rel,
-    view: 'info',
-    annotationsVisible: true,   // clickable overlays on the image
-    urlQueryKey: 'tify',        // bookmarkable page/zoom/pan state
-    viewer: { immediateRender: true }  // passed through to OpenSeadragon
+    manifestUrl: cfg.rel,   // relative keeps it same-origin behind Cloudflare Access
+    annotationsVisible: true,
+    view: null,             // media only -- no side panel stealing width on mobile
+    urlQueryKey: 'tify',
+    viewer: { immediateRender: true }
   });
 })();
 </script>
