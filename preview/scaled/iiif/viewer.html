@@ -83,6 +83,11 @@
     <option value="1980-04-06">1980-04-06</option>
     <option value="1997-07-16">1997-07-16</option>
   </select>
+  <select id="layers" aria-label="Layers">
+    <option value="blocks">blocks</option>
+    <option value="lines">lines</option>
+    <option value="all">blocks + lines</option>
+  </select>
   <select id="viewer" aria-label="Viewer">
     <option value="mirador">Mirador</option>
     <option value="tify">TIFY</option>
@@ -99,22 +104,32 @@ window.__cfg = (function () {
   // 'fulltext' is required for TIFY to load/draw annotations at all
   // (see the note at the Tify() call). Overridable for experimentation.
   var view = q.get('view') || 'fulltext';
-  var rel = issue + '/manifest.json';
+  // Block and line boxes overlap heavily when drawn together, so each
+  // set has its own manifest. Default to blocks: that is the view that
+  // makes column structure legible.
+  var layers = q.get('layers') || 'blocks';
+  var rel = issue + (layers === 'all' ? '/manifest.json'
+                                      : '/manifest_' + layers + '.json');
   var abs = new URL(rel, location.href).href;
 
-  var si = document.getElementById('issue'), sv = document.getElementById('viewer');
+  var si = document.getElementById('issue'), sv = document.getElementById('viewer'),
+      sl = document.getElementById('layers');
   if ([].some.call(si.options, function (o) { return o.value === issue; })) si.value = issue;
   if ([].some.call(sv.options, function (o) { return o.value === viewer; })) sv.value = viewer;
+  if ([].some.call(sl.options, function (o) { return o.value === layers; })) sl.value = layers;
   function go() {
-    location.search = '?issue=' + si.value + '&viewer=' + sv.value +
+    location.search = '?issue=' + si.value + '&layers=' + sl.value +
+                      '&viewer=' + sv.value +
                       (view !== 'fulltext' ? '&view=' + view : '');
   }
   si.addEventListener('change', go);
   sv.addEventListener('change', go);
+  sl.addEventListener('change', go);
 
   document.getElementById('manifest-link').href = rel;
 
-  return { issue: issue, viewer: viewer, view: view, rel: rel, abs: abs };
+  return { issue: issue, viewer: viewer, view: view, layers: layers,
+           rel: rel, abs: abs };
 })();
 </script>
 

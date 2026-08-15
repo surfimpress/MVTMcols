@@ -52,6 +52,10 @@ LINE_LAYERS = [
 ]
 
 
+def _manifest_name(variant: str) -> str:
+    return "manifest.json" if variant == "all" else f"manifest_{variant}.json"
+
+
 def _rel_url(abs_path: str) -> str:
     rel = os.path.relpath(abs_path, _sup.REPO_ROOT).replace(os.sep, "/")
     return f"{PUBLIC_BASE}/{rel}"
@@ -84,7 +88,20 @@ def _anno(anno_id, canvas_id, x, y, w, h, text, label, granularity=None):
     return a
 
 
-def build_manifest(conn, date: str, base: str) -> dict:
+# Layer subsets. Block and line boxes overlap heavily when drawn
+# together, which makes column structure hard to read -- so each subset
+# also gets its own manifest. "blocks" is the one to study columns with
+# (careas plus the vertical rules that ARE column boundaries); "lines"
+# shows the flush-left edges that the leftedge signal clusters on.
+VARIANTS = {
+    "all": (True, True),
+    "blocks": (True, False),
+    "lines": (False, True),
+}
+
+
+def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
+    want_blocks, want_lines = VARIANTS[variant]
     y, m, d = (int(v) for v in date.split("-"))
     pages = [dict(r) for r in conn.execute(
         "SELECT id, page, display_image_path, display_width_px, display_height_px "
@@ -121,7 +138,7 @@ def build_manifest(conn, date: str, base: str) -> dict:
         }
 
         # --- block layers, straight from page_ocr_blocks / regions ---
-        for cls, label, _colour in BLOCK_LAYERS:
+        for cls, label, _colour in (BLOCK_LAYERS if want_blocks else []):
             items = []
             if cls == "ocr_carea":
                 rows = conn.execute(
@@ -161,7 +178,7 @@ def build_manifest(conn, date: str, base: str) -> dict:
                 })
 
         # --- line layers, with the x_size Tesseract reported ---
-        for cls, label, _colour in LINE_LAYERS:
+        for cls, label, _colour in (LINE_LAYERS if want_lines else []):
             rows = conn.execute(
                 "SELECT left_pct l, top_pct t, right_pct r, bottom_pct b, "
                 "x_size, text FROM page_hocr_lines WHERE page_id=? AND line_class=? "
@@ -193,9 +210,11 @@ def build_manifest(conn, date: str, base: str) -> dict:
             # block-level transcription from a line-level one.
             "http://iiif.io/api/extension/text-granularity/context.json",
         ],
-        "id": f"{base}/manifest.json",
+        "id": f"{base}/{_manifest_name(variant)}",
         "type": "Manifest",
-        "label": {"en": [f"Almonte Gazette {date} — raw Tesseract hOCR"]},
+        "label": {"en": [
+            f"Almonte Gazette {date} — raw Tesseract hOCR"
+            + {"blocks": " (blocks only)", "lines": " (lines only)"}.get(variant, "")]},
         "summary": {"en": [
             "Unmodified Tesseract hOCR rendered as IIIF annotation layers, "
             "including the ocr_separator and ocr_photo blocks the production "
@@ -218,19 +237,24 @@ def _cmd(args):
         built = []
         for date in args.dates:
             base = f"{PUBLIC_BASE}/{OUT_REL.replace(os.sep, '/')}/{date}"
-            man = build_manifest(conn, date, base)
-            if not man["items"]:
-                print(f"  {date}: no canvases (no display images on disk) -- skipped")
-                continue
             d = os.path.join(out_root, date)
             os.makedirs(d, exist_ok=True)
-            path = os.path.join(d, "manifest.json")
-            with open(path, "w") as f:
-                json.dump(man, f, indent=1)
-            n_annos = sum(len(ap["items"]) for c in man["items"] for ap in c["annotations"])
-            n_layers = max((len(c["annotations"]) for c in man["items"]), default=0)
-            print(f"  {date}: {len(man['items'])} canvases, up to {n_layers} layers/page, "
-                  f"{n_annos} annotations -> {path}")
+            wrote_any = False
+            for variant in VARIANTS:
+                man = build_manifest(conn, date, base, variant)
+                if not man["items"]:
+                    continue
+                path = os.path.join(d, _manifest_name(variant))
+                with open(path, "w") as f:
+                    json.dump(man, f, indent=1)
+                n_annos = sum(len(ap["items"]) for c in man["items"]
+                              for ap in c["annotations"])
+                print(f"  {date} [{variant:6s}]: {len(man['items'])} canvases, "
+                      f"{n_annos} annotations -> {os.path.basename(path)}")
+                wrote_any = True
+            if not wrote_any:
+                print(f"  {date}: no canvases (no display images on disk) -- skipped")
+                continue
             built.append(date)
         if built:
             print("\nOpen:")

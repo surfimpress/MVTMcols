@@ -72,5 +72,5 @@ transcribe/terminology_review.json
 # transcribe/scaled/build_iiif.py (multi-MB, regenerable). The viewer
 # itself IS tracked. The web server serves the working tree, so these
 # are reachable without being committed.
-preview/scaled/iiif/*/manifest.json
+preview/scaled/iiif/*/manifest*.json
 preview/scaled/*/*.jpg
