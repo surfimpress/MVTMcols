@@ -45,6 +45,7 @@ import argparse
 import statistics
 
 from . import _support as _sup
+from . import detect_content_area as _ca
 
 # An edge counts as "on the grid" within this distance (% of page width).
 # Generous enough to absorb scan skew and OCR bbox jitter, tight enough
@@ -359,11 +360,20 @@ def _score_lattice(peaks: list[tuple[float, int]], offset: float, pitch: float,
 
 def fit_grid(lefts: list[float], rights: list[float],
              lw: list[float] | None = None,
-             rw: list[float] | None = None) -> dict | None:
+             rw: list[float] | None = None,
+             content: tuple[float, float] | None = None) -> dict | None:
     """Fit margin / column width / gutter / column count.
 
     `lw`/`rw` are per-edge weights -- item heights. Passing them makes a
     tall block count for more than a small fragment at the same x.
+
+    `content` is the (left, right) content area from stage 1c and is
+    AUTHORITATIVE when given. Deriving the span from the extremes of the
+    peak distribution instead was a real, measured bug: a scan artefact
+    at the sheet edge put text_left at 0.00% on many pages -- up to 7.2%
+    left of where type actually starts -- which displaced every column on
+    the page. The content area is established by its own step precisely
+    so this fit cannot get it wrong.
     """
     if len(lefts) + len(rights) < MIN_EDGES:
         return None
@@ -374,8 +384,11 @@ def fit_grid(lefts: list[float], rights: list[float],
         return None
     all_peaks = left_peaks + right_peaks
 
-    text_left = min(p for p, _ in left_peaks)
-    text_right = max(p for p, _ in right_peaks)
+    if content is not None:
+        text_left, text_right = content
+    else:
+        text_left = min(p for p, _ in left_peaks)
+        text_right = max(p for p, _ in right_peaks)
     span = text_right - text_left
     if span < MIN_PITCH_PCT:
         return None
@@ -507,7 +520,14 @@ def analyse(conn, page_id: str, blocks: list[dict] | None = None,
     br = tall_edges(items, "right")
     bh = item_weights(items)
     w = bh if (WEIGHT_BY_HEIGHT and len(bh) == len(bl)) else None
-    return fit_grid(bl, br, w, w)
+
+    # Stage 1c owns the content area. Without it the fit would re-derive
+    # its own bounds from edge extremes and inherit the sheet-edge bug.
+    box = _ca.content_box(conn, page_id)
+    content = ((box["left"], box["right"])
+               if box.get("left") is not None and box.get("right") is not None
+               else None)
+    return fit_grid(bl, br, w, w, content=content)
 
 
 def item_weights(items: list[dict]) -> list[float]:

@@ -282,6 +282,40 @@ exists for exactly this.**
 
 ---
 
+### 5i. Stage 1c — THE PAGE CONTENT AREA (built 2026-08-15)
+
+`transcribe/scaled/detect_content_area.py`. Runs **before** columns and
+owns the page's content rectangle; `pages.content_left_pct` /
+`content_right_pct` / `content_top_pct` / `content_bottom_pct`.
+
+**Why it exists as its own step.** The column fitter was deriving its own
+left/right bounds from the extremes of the block-edge peak distribution,
+so one scan artefact at the sheet edge anchored the whole lattice to the
+physical page edge instead of the type. Measured over 90 pages:
+
+- `text_left` was **0.00%** on many pages — up to **7.2%** left of where
+  type actually starts (1980-04-06 p4: 0.00% vs a real content left of
+  7.08%). **Every column on those pages was displaced.**
+- error >1.5% on **31%** of pages at the left edge, **53%** at the right.
+
+After: column 0's left edge is within 1% of the content left on **100%**
+of pages (median 0.30%), none beyond 3%.
+
+**Lines, not blocks.** A block bbox can be inflated by an artefact swept
+into it; a line with ≥2 recognised words is a real run of type.
+
+**Left/right and top/bottom are found DIFFERENTLY, and this is the
+point.** Top and bottom are EXTREMES — the first and last line of type,
+with nothing above or below. Left and right are **clusters**: body text
+is flush left in every column, so hundreds of lines start at the same x,
+and the content's left edge is the leftmost position a meaningful number
+of lines actually start at. Taking the minimum is precisely what produced
+the 0.00% failures; a hanging indent or one overhanging headline must not
+be able to move the margin.
+
+Stage 3 no longer computes its own top/bottom — it delegates here, so two
+stages cannot disagree about where the page's content is.
+
 ### 5f. Stage 2 — COLUMNS (one pass; pass 2 archived)
 
 Following `instructions/typesetting_practice.md`: the page was set on a
@@ -748,3 +782,7 @@ python3 -m transcribe.scaled.render_overlay YYYY-MM-DD [--page N]
   IIIF layer `manifest_hlines.json` tiered by agreeing-column count. See
   §5h, including the measured reason §5d's band approach failed (it
   discarded ~99% of horizontal rules by requiring page-wide extent).
+- **2026-08-15** — Stage 1c added (`detect_content_area.py`): the content
+  rectangle is now established before columns and is authoritative for the
+  fit. Fixes a measured bug where `text_left` was 0.00% on many pages,
+  displacing every column by up to 7.2%. See §5i.

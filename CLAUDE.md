@@ -30,6 +30,18 @@ that.
     of the coordinate and db helpers. Same DB (additive schema-v15 tables
     only), so results are comparable in one query. Delete the package and
     production is unaffected.
+  - **Stage 1c is the PAGE CONTENT AREA** (`detect_content_area.py`),
+    and it runs BEFORE columns. It owns `pages.content_left_pct`/
+    `content_right_pct`/`content_top_pct`/`content_bottom_pct`, and stage
+    2 takes its span from here rather than re-deriving one. **Why it's a
+    separate step:** the fitter used to take its bounds from block-edge
+    extremes, so a single sheet-edge artefact anchored the lattice to the
+    physical page edge — `text_left` was 0.00% on many pages, up to 7.2%
+    off, displacing every column. Now col 0's left is within 1% of the
+    content left on 100% of pages. Uses text LINES with >=2 words.
+    **Left/right are CLUSTERS, top/bottom are EXTREMES** — body text is
+    flush left so hundreds of lines share an x; taking the minimum is what
+    caused the bug. Stage 3 delegates its top/bottom here.
   - **Stage 2 is COLUMNS — ONE pass** (`detect_grid.py`). Per
     `instructions/typesetting_practice.md`, fit a few numbers (margin,
     column width, gutter, count) rather than discover boundaries. Two

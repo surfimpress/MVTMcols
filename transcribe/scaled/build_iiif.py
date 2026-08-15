@@ -32,6 +32,7 @@ import os
 from . import _support as _sup
 from . import detect_grid as _detect_grid
 from . import detect_hlines as _detect_hlines
+from . import detect_content_area as _detect_content_area
 
 # The repo root is served here (behind Cloudflare Access -- a browser
 # session can read it, an unauthenticated third-party server cannot).
@@ -190,14 +191,21 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
             if boxes:
                 out.append((f"Horizontal alignments — {label} ({len(boxes)})", boxes))
 
-        ct, cb = res.get("content_top"), res.get("content_bottom")
-        if ct is not None and cb is not None:
-            out.append(("Content extent (top / bottom)", [
-                _anno(f"{cid}/anno/hl/content/{k}", cid, 0,
-                      max(0, _sup.pct_to_px(v, H) - 2), W, 4, "",
-                      f"content {k}", kind="content extent",
-                      detail=f"content {k} at {v}%")
-                for k, v in (("top", ct), ("bottom", cb))]))
+        # Stage 1c's content rectangle, drawn whole. Every later stage is
+        # measured from it, so it is the first thing to check when a page
+        # looks displaced.
+        box = _detect_content_area.content_box(conn, page_id)
+        if box.get("left") is not None and box.get("top") is not None:
+            x0, x1 = _sup.pct_to_px(box["left"], W), _sup.pct_to_px(box["right"], W)
+            y0, y1 = _sup.pct_to_px(box["top"], H), _sup.pct_to_px(box["bottom"], H)
+            out.append(("Content area (stage 1c)", [_anno(
+                f"{cid}/anno/content/box", cid, x0, y0,
+                max(1, x1 - x0), max(1, y1 - y0), "", "content area",
+                kind="content area",
+                detail=f"{box['left']}%-{box['right']}% x "
+                       f"{box['top']}%-{box['bottom']}% "
+                       f"(w {box['width']}% h {box['height']}%) "
+                       f"from {box['n_lines']} text lines")]))
     return out
 
 

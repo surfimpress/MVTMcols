@@ -54,6 +54,7 @@ import statistics
 
 from . import _support as _sup
 from . import detect_grid as _grid
+from . import detect_content_area as _ca
 
 # --- tuning, all with a stated reason ---------------------------------
 
@@ -211,19 +212,12 @@ def cluster(cands: list[dict], tol: float) -> list[dict]:
 def content_extent(conn, page_id: str) -> tuple[float | None, float | None]:
     """The page's content top and bottom lines.
 
-    Taken from TEXT LINES, not blocks: a block bbox can be inflated by a
-    scan artefact swept into it, while a line is a real run of recognised
-    words. Items in the outer margins are ignored for the same reason
-    stage 2 ignores page-edge separators.
+    Delegates to stage 1c (`detect_content_area`), which owns the whole
+    content rectangle. This used to compute its own top/bottom, which
+    meant two stages could disagree about where the page's content is.
     """
-    ys = [(r["T"], r["B"]) for r in conn.execute(
-        "SELECT top_pct T, bottom_pct B, left_pct L, right_pct R "
-        "FROM page_hocr_lines WHERE page_id=? AND n_words >= ?",
-        (page_id, MIN_CONTENT_WORDS))
-        if r["L"] >= CONTENT_MARGIN_PCT and r["R"] <= 100 - CONTENT_MARGIN_PCT]
-    if not ys:
-        return None, None
-    return round(min(t for t, _ in ys), 2), round(max(b for _, b in ys), 2)
+    box = _ca.content_box(conn, page_id)
+    return box.get("top"), box.get("bottom")
 
 
 def detect(conn, page_id: str) -> dict:
