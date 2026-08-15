@@ -274,15 +274,78 @@ exists for exactly this.**
 
 ---
 
+### 5d. Band-first segmentation — the fix for 5b, and its own limit
+
+Because full-height columns are the wrong model for 1980+ (5b), stage 2
+was re-cut around **bands**: a horizontal strip bounded by a wide
+`ocr_separator` rule or by a y-gap no text line crosses. Columns are then
+found *within* a band. `transcribe/scaled/detect_bands.py`, schema v16
+adds `page_bands`.
+
+Result:
+
+| | full-height columns | band-first |
+|---|---|---|
+| Escalation | 97.8% (88/90) | **31.5% (28/89)** |
+| Median confidence | 0.29 | **0.72** |
+| Bands found | — | 266 (1–6 per page) |
+
+The 266 figure was reproduced independently by a throwaway prototype
+before the module existed — a useful check that the detector does what
+it is believed to do.
+
+**But rendering it shows the score is still too generous.** On the
+*best*-scoring page (1980-04-06 p4, confidence 0.917):
+
+```
+band 0   y  3.6–20.2%   (16.6% tall)   2 col
+band 1   y 21.6–36.8%   (15.2% tall)   2 col
+band 2   y 36.8–99.2%   (62.4% tall)   2 col   <- 346 lines
+```
+
+Band 2 covers 62% of the page and contains several distinct articles with
+different internal column counts, all described as one 2-column strip.
+Bands 0 and 1 put column edges through the masthead and a photo.
+
+So the band unit is still **too coarse**, and `coverage` + `regularity`
+do not penalise a band that is internally heterogeneous — structurally
+the same weakness as 5c, one level up. **The likely fix is recursive
+splitting (an XY-cut): after finding a band, look for cuts inside it
+rather than stopping at the first pass. Not built.**
+
+### 5e. Stage navigation in the viewer
+
+`preview/scaled/iiif/viewer.html`'s selector is grouped by pipeline
+stage, so the stages can be stepped through and compared on the same
+canvases:
+
+```
+1 · Tesseract   blocks | lines | blocks + lines
+2 · Columns     bands | full-height
+3 · Items       (disabled — not built)
+4 · Refined     (disabled — not built)
+```
+
+Items and Refined are rendered `disabled` rather than hidden: the shape
+of the pipeline stays visible without implying they exist.
+
+Each stage has its own manifest (`build_iiif.py`): `manifest_blocks`,
+`manifest_lines`, `manifest.json`, `manifest_columns` (with each raw
+signal — separator / left-edge / valley — as its own layer so
+disagreement is inspectable), `manifest_bands`. A layer is omitted
+entirely when a stage produced nothing for a page, so an empty layer
+never masquerades as a real result.
+
+
 ## 6. What this implies for the plan
 
 1. **Recovering hOCR signal is worth doing regardless** — free photos,
    captions, headings, rules and font size, already proven.
-2. **Columns are the wrong first stage for 1980+.** The era needs
-   *band-first* segmentation (find horizontal bands, then columns within
-   each band). `tools/post1980/page_layout.py:237 find_whitespace_bands`
-   and `column_grid.py:145 pick_measurement_bands` already implement
-   this and should be the reference.
+2. **Columns are the wrong first stage for 1980+ — band-first is
+   better but not yet sufficient.** Built and measured (5d): escalation
+   97.8% -> 31.5%. Next step is recursive splitting inside a band.
+   `tools/post1980/page_layout.py:237 find_whitespace_bands` and
+   `column_grid.py:145 pick_measurement_bands` remain useful references.
 3. **Column detection likely pays off on pre-1980** — 63.6% of the
    corpus (44,595 pages), real printed column grids, and
    `find_columns.py` already proves the signal exists there. Untested
@@ -294,6 +357,14 @@ exists for exactly this.**
 ## 7. How to run
 
 ```bash
+# 2. bands (the working stage-2 model for 1980+)
+python3 -m transcribe.scaled.detect_bands run [--date YYYY-MM-DD]
+python3 -m transcribe.scaled.detect_bands show YYYY-MM-DD --page N
+python3 -m transcribe.scaled.detect_bands report
+
+# IIIF manifests for every stage + the stage-grouped viewer
+python3 -m transcribe.scaled.build_iiif YYYY-MM-DD [YYYY-MM-DD ...]
+
 # 1b. recover hOCR signal (no OCR, no LLM, idempotent)
 python3 -m transcribe.scaled.hocr_parse backfill [--date YYYY-MM-DD] [--force]
 python3 -m transcribe.scaled.hocr_parse show YYYY-MM-DD --page N
@@ -308,7 +379,7 @@ python3 -m transcribe.scaled.render_overlay YYYY-MM-DD [--page N]
 # -> preview/scaled/<date>/pN_columns.jpg
 ```
 
-## 8. Schema v15 (all additive)
+## 8. Schema v15 / v16 (all additive)
 
 - `pages.hocr_parsed_at`, `scan_res_x`, `scan_res_y`
 - `page_ocr_blocks.block_class`, `x_size_median`
@@ -316,9 +387,18 @@ python3 -m transcribe.scaled.render_overlay YYYY-MM-DD [--page N]
 - `page_hocr_regions` — separators and photos, with derived `orientation`
 - `page_columns` — one row per column per `method`, so each raw signal
   stays inspectable next to the combined answer
+- **v16** `page_bands` — one row per band: extent, column count, column
+  edges, regularity, line count. The layout unit for 1980+
 
 ## Update history
 
+- **2026-08-15 (later)** — Band-first stage 2 built
+  (`detect_bands.py`, schema v16 `page_bands`): escalation 97.8% ->
+  31.5%. Visual check shows bands are still too coarse (a 62%-tall band
+  scored 0.917) — recursive splitting is the next step, not built.
+  Viewer selector regrouped by pipeline stage; per-stage IIIF manifests
+  added. TIFY hidden (does not render overlays; code retained).
+  hocr_font_info tested: adds only `x_fsize`, no bold/italic.
 - **2026-08-15** — Created. hOCR full-fidelity parse built and
   backfilled (90/93 pages). Column detector built; **97.8% escalation on
   1980+, a negative result explained by modular layout**. Confidence

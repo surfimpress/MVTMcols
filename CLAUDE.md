@@ -30,11 +30,14 @@ that.
     of the coordinate and db helpers. Same DB (additive schema-v15 tables
     only), so results are comparable in one query. Delete the package and
     production is unaffected.
-  - **Column detection: negative result, 97.8% escalation on 1980+.**
-    Not a bug — full-height columns are the wrong model for that era
-    (`layout_observations.md` already said "modular, no page-level grid").
-    Proven by measurement, see the doc. Where a printed grid does exist
-    (1980-04-06 p11) it resolves a clean 7-column page, visually verified.
+  - **Stage 2 is BANDS, not full-height columns** (`detect_bands.py`,
+    schema v16 `page_bands`). Full-height columns escalated 97.8% of
+    1980+ pages — a wrong-model result, not a tuning failure, since that
+    era is modular (`layout_observations.md` already said so). Band-first
+    (horizontal strip, then columns within it) cuts escalation to
+    **31.5%**. Still imperfect: bands remain too coarse (a 62%-tall band
+    containing several articles scored 0.917), and the next step is
+    recursive splitting inside a band — **not built**.
   - **Process lesson worth keeping:** the confidence metric initially
     scored a visibly-wrong page 0.853 because it measured only precision,
     never recall — the exact self-flattering-metrics failure
