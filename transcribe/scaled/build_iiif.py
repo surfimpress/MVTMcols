@@ -124,7 +124,7 @@ VARIANTS = {
 # the pipeline: Tesseract (raw) -> Columns -> Items -> Refined. Items and
 # Refined are not built yet; the viewer shows them disabled rather than
 # pretending they exist.
-DERIVED = ("grid", "hlines", "boxes")
+DERIVED = ("grid", "hlines", "boxes", "separators")
 
 
 def _derived_layers(conn, page_id, cid, W, H, variant):
@@ -158,6 +158,38 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
         if res.get("low_evidence"):
             label += f" · LOW EVIDENCE ({res['n_lines']} text lines)"
         out.append((label, boxes))
+    if variant == "separators":
+        # Tesseract's raw ocr_separator regions, undigested. This is the
+        # signal every ruled-structure stage is built on, so being able to
+        # see it directly is what makes those stages debuggable -- it is
+        # how the box detector's failures were diagnosed.
+        for orient, label in (("vertical", "Vertical rules"),
+                              ("horizontal", "Horizontal rules")):
+            rows = [dict(r) for r in conn.execute(
+                "SELECT left_pct L, top_pct T, right_pct R, bottom_pct B, "
+                "width_px wd, height_px ht FROM page_hocr_regions "
+                "WHERE page_id=? AND region_class='ocr_separator' "
+                "AND orientation=? ORDER BY top_pct, left_pct",
+                (page_id, orient))]
+            if not rows:
+                continue
+            boxes = []
+            for i, r in enumerate(rows):
+                x0, x1 = _sup.pct_to_px(r["L"], W), _sup.pct_to_px(r["R"], W)
+                y0, y1 = _sup.pct_to_px(r["T"], H), _sup.pct_to_px(r["B"], H)
+                # Thickness is the point of this layer as much as position
+                # -- it distinguishes a hairline from a drop shadow -- so
+                # the box is drawn at its true size, never padded.
+                thick = r["wd"] if orient == "vertical" else r["ht"]
+                boxes.append(_anno(
+                    f"{cid}/anno/sep/{orient}/{i}", cid, x0, y0,
+                    max(1, x1 - x0), max(1, y1 - y0), "",
+                    f"{orient} rule", kind=f"ocr_separator ({orient})",
+                    detail=f"{r['L']:.2f}%-{r['R']:.2f}% x "
+                           f"{r['T']:.2f}%-{r['B']:.2f}% · "
+                           f"{thick or '?'}px thick"))
+            out.append((f"{label} ({len(boxes)})", boxes))
+
     if variant == "boxes":
         # Ruled rectangles. Tiered by how many sides were actually found:
         # 4-sided boxes are near-perfect by eye, 2-sided ones are where
@@ -366,6 +398,7 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
             "grid": "stage 2: columns",
             "hlines": "stage 3: horizontal alignments",
             "boxes": "stage 2b: boxed zones",
+            "separators": "stage 1: raw ocr_separator rules",
         }.get(variant, variant)]},
         "summary": {"en": [
             "Unmodified Tesseract hOCR rendered as IIIF annotation layers, "

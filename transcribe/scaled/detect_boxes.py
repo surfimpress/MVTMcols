@@ -6,25 +6,40 @@ Knowing where they are matters for its own sake, and because a box's
 interior is set to its OWN grid, not the page's (see
 `instructions/scaled_pipeline.md` §5f on display-ad grid contamination).
 
-THE SIGNATURE, AND WHY IT IS NOT CORNERS
------------------------------------------
-The obvious method is to look for `ocr_separator` rules meeting at their
-corners. **Measured across the corpus, that does not work:** of 4,452
-horizontal-rule endpoints, only **22%** sit within 0.5% of a vertical
-rule's end (26% within 1%, 33% within 3%; median distance **9.0%**).
-Tesseract simply does not report all four sides of a box reliably --
-often the verticals are missing, merged into adjacent text, or reported
-as one long rule spanning several stacked boxes.
+THE SIGNATURE: FOUR SIDES, WITH THE PRINT'S OWN QUIRKS ALLOWED FOR
+------------------------------------------------------------------
+A box is two verticals and two horizontals. Reading them naively fails,
+because printed boxes are not clean rectangles. Three properties of the
+actual print, each confirmed in the data:
 
-What does work is a **top and bottom rule sharing the same x-extent**.
-That pair is the box's real signature, and it survives the verticals
-being absent. Measured: 921 such pairs, 10.2 per page, median box
-13.9% wide x 6.3% tall.
+1. **Rounded corners mean the sides never meet.** On 1980-04-06 p8 the
+   Fastball standings box has horizontals spanning x 50.82-72.00 while
+   its verticals sit at x 50.35 and 72.40 -- the rules stop ~0.5% SHORT
+   of the join. CENTENNIAL DOLLARS, with an ornate border, is inset by
+   2.5-3.9%. This is why corner-matching scored only 22% when it was
+   tried: the corners genuinely do not touch. A side therefore has to
+   BRIDGE the box within `INSET_PCT`, not land on its corner.
 
-Vertical sides are then recorded as CORROBORATION, not required: 59% of
-pairs have at least one matching vertical. `n_sides` carries this, so a
-consumer can demand 4-sided boxes if it wants them without this stage
-having thrown the 2-sided ones away.
+2. **Drop shadows make opposite sides uneven.** A box with a shadow has a
+   markedly heavier rule on the shadowed sides. p8's Sidewalk Sale is
+   28px on top against 48px at the bottom; another box measures
+   [32, 26, 19, 23]. An earlier version REQUIRED the four sides to match
+   in weight and found only 2 boxes on the whole page as a result.
+   Thickness is RECORDED (`side_px`) and never used as a filter.
+
+3. **Stacked boxes share their verticals.** POLICE CONSTABLE and
+   Congratulations sit in one column inside a single pair of verticals
+   running y 39-73. So every horizontal that bridges a vertical pair is
+   collected, and a box is emitted between each CONSECUTIVE pair of them
+   -- plus one for the whole enclosure, which is the container the strips
+   sit inside. That yields Fraser's Meat Market as one box AND its price
+   rows, the Sidewalk Sale grid AND its cells.
+
+KNOWN LIMIT, not a bug in this code: some boxes are simply incomplete in
+Tesseract's output. Smithson Motor Sales and CENTENNIAL DOLLARS on p8
+have no bottom border reported at all, so no geometry over the separators
+can recover them. See instructions/scaled_pipeline.md 5k -- pixel-level
+rule detection is the route, and Tesseract config tuning is ruled out.
 
 Usage::
 
@@ -54,91 +69,92 @@ MIN_WIDTH_PCT = 3.0
 # single rule set (a double rule, or a rule and its scan echo).
 MIN_HEIGHT_PCT = 1.0
 
-# A vertical rule counts as a side if it runs the box's height (allowing
-# this much shortfall at each end) and sits near a left/right edge.
-SIDE_SLACK_PCT = 2.0
+# How far a side may stop SHORT of the corner and still count as bridging
+# the box. Rounded corners mean the sides never actually meet: measured at
+# ~0.5% on a plain box and 2.5-3.9% on an ornate one.
+INSET_PCT = 2.5
 
+# A vertical this close to a page edge is a scan artefact, not a box side.
+EDGE_MARGIN_PCT = 2.0
 
-def _extent_match(a: dict, b: dict) -> tuple[float, float] | None:
-    """Do two horizontal rules bound the same box? If so, its x-extent.
-
-    STRICT: both ends must agree. Nothing clever.
-
-    A containment variant was tried (allowing a wide rule to pair with a
-    narrow one, on the theory that Tesseract merges collinear rules from
-    adjacent boxes) and it was a clear failure -- boxes went from 6.8 to
-    20.8 per page and the render showed overlapping rectangles cutting
-    across body text on 1980-04-06 p6. It let almost any rule pair with
-    almost any other. REVERTED; do not reintroduce it.
-
-    The lesson, which the page render made obvious: Tesseract's separator
-    rules ALREADY trace these boxes. On p6 the rules alone outline the
-    Pakenham Seniors panel, the Beach Party ad, the Sidewalk Sale, HI
-    MOM/RELAX and the I.D.A. ad correctly. The job is to read them, not
-    to infer boxes they do not support.
-    """
-    if (abs(a["L"] - b["L"]) <= EDGE_TOL_PCT
-            and abs(a["R"] - b["R"]) <= EDGE_TOL_PCT):
-        return min(a["L"], b["L"]), max(a["R"], b["R"])
-    return None
+# Boxes agreeing within this on all four edges are the same box seen from
+# two different vertical pairs.
+DEDUPE_PCT = 1.5
 
 
 def _rules(conn, page_id: str, orientation: str) -> list[dict]:
     return [dict(r) for r in conn.execute(
-        "SELECT left_pct L, top_pct T, right_pct R, bottom_pct B "
+        "SELECT left_pct L, top_pct T, right_pct R, bottom_pct B, "
+        "width_px wd, height_px ht "
         "FROM page_hocr_regions WHERE page_id=? AND region_class='ocr_separator' "
         "AND orientation=?", (page_id, orientation))]
 
 
 def find_boxes(conn, page_id: str, cols: list[dict]) -> list[dict]:
-    """Ruled rectangles, from top/bottom rule pairs sharing an x-extent."""
-    H = sorted(({"L": r["L"], "R": r["R"], "y": (r["T"] + r["B"]) / 2}
-                for r in _rules(conn, page_id, "horizontal")),
-               key=lambda d: d["y"])
-    V = [{"x": (r["L"] + r["R"]) / 2, "T": r["T"], "B": r["B"]}
-         for r in _rules(conn, page_id, "vertical")]
+    """Ruled rectangles from four sides. See the module docstring."""
+    H = [{"y": (r["T"] + r["B"]) / 2, "x0": r["L"], "x1": r["R"],
+          "t": r["ht"] or 0} for r in _rules(conn, page_id, "horizontal")]
+    # Page-edge verticals are the sheet edge and binding shadow, not box
+    # sides -- the same artefacts detect_grid filters out, and letting one
+    # act as a side stretched boxes across the whole page width.
+    V = [{"x": (r["L"] + r["R"]) / 2, "y0": r["T"], "y1": r["B"],
+          "t": r["wd"] or 0} for r in _rules(conn, page_id, "vertical")
+         if EDGE_MARGIN_PCT <= (r["L"] + r["R"]) / 2 <= 100 - EDGE_MARGIN_PCT]
 
-    boxes = []
-    for i, a in enumerate(H):
-        if a["R"] - a["L"] < MIN_WIDTH_PCT:
-            continue
-        # Nearest rule BELOW that shares the extent. Nearest, not widest:
-        # stacked boxes share a left/right edge, and taking the furthest
-        # match would swallow every box in the stack into one.
-        for j in range(i + 1, len(H)):
-            b = H[j]
-            if b["y"] - a["y"] < MIN_HEIGHT_PCT:
+    raw = []
+    for i, vl in enumerate(V):
+        for vr in V[i + 1:]:
+            if vr["x"] - vl["x"] < MIN_WIDTH_PCT:
                 continue
-            m = _extent_match(a, b)
-            if m:
-                left, right = m
-                sides = 2
-                for v in V:
-                    if v["T"] > a["y"] + SIDE_SLACK_PCT:
-                        continue
-                    if v["B"] < b["y"] - SIDE_SLACK_PCT:
-                        continue
-                    if (abs(v["x"] - left) <= EDGE_TOL_PCT
-                            or abs(v["x"] - right) <= EDGE_TOL_PCT):
-                        sides += 1
-                if sides < 3:
-                    # No vertical side found between these two rules, so
-                    # there is no evidence of a box -- just two rules that
-                    # happen to share an x-extent (a story's top and
-                    # bottom cutoff rules, for instance).
-                    break
-                span = _hl.column_span(left, right, cols) if cols else None
-                boxes.append({
-                    "left_pct": round(left, 2), "right_pct": round(right, 2),
-                    "top_pct": round(a["y"], 2), "bottom_pct": round(b["y"], 2),
-                    "width_pct": round(right - left, 2),
-                    "height_pct": round(b["y"] - a["y"], 2),
-                    "n_sides": min(4, sides),
-                    "col_lo": span[0] if span else None,
-                    "col_hi": span[1] if span else None,
-                })
-                break
-    return boxes
+            y0 = max(vl["y0"], vr["y0"])
+            y1 = min(vl["y1"], vr["y1"])
+            if y1 - y0 < MIN_HEIGHT_PCT:
+                continue
+            # Horizontals that BRIDGE both verticals. The inset allowance
+            # is what makes rounded corners work.
+            span = sorted(
+                (h for h in H
+                 if y0 - INSET_PCT <= h["y"] <= y1 + INSET_PCT
+                 and h["x0"] <= vl["x"] + INSET_PCT
+                 and h["x1"] >= vr["x"] - INSET_PCT),
+                key=lambda h: h["y"])
+            if len(span) < 2:
+                continue
+            # The VERTICALS define the sides. Extending to the
+            # horizontals' ends was wrong: a bridging rule often belongs
+            # to a neighbouring box too and overshoots, which stretched
+            # POLICE CONSTABLE and Congratulations a whole column left
+            # into the body text on 1980-04-06 p8.
+            L, R = vl["x"], vr["x"]
+            # Each consecutive pair is a box (stacked boxes share
+            # verticals) ...
+            for a, b in zip(span, span[1:]):
+                if b["y"] - a["y"] >= MIN_HEIGHT_PCT:
+                    raw.append((L, a["y"], R, b["y"],
+                                [vl["t"], vr["t"], a["t"], b["t"]]))
+            # ... and the whole enclosure is the container they sit in.
+            if span[-1]["y"] - span[0]["y"] >= MIN_HEIGHT_PCT:
+                raw.append((L, span[0]["y"], R, span[-1]["y"],
+                            [vl["t"], vr["t"], span[0]["t"], span[-1]["t"]]))
+
+    out = []
+    for L, T, R, B, side_px in sorted(
+            raw, key=lambda b: -(b[2] - b[0]) * (b[3] - b[1])):
+        if any(abs(o["left_pct"] - L) < DEDUPE_PCT
+               and abs(o["right_pct"] - R) < DEDUPE_PCT
+               and abs(o["top_pct"] - T) < DEDUPE_PCT
+               and abs(o["bottom_pct"] - B) < DEDUPE_PCT for o in out):
+            continue
+        span = _hl.column_span(L, R, cols) if cols else None
+        out.append({
+            "left_pct": round(L, 2), "right_pct": round(R, 2),
+            "top_pct": round(T, 2), "bottom_pct": round(B, 2),
+            "width_pct": round(R - L, 2), "height_pct": round(B - T, 2),
+            "n_sides": 4, "side_px": ",".join(str(x) for x in side_px),
+            "col_lo": span[0] if span else None,
+            "col_hi": span[1] if span else None,
+        })
+    return sorted(out, key=lambda b: (b["top_pct"], b["left_pct"]))
 
 
 def detect(conn, page_id: str) -> dict:
@@ -154,11 +170,11 @@ def store(conn, page_id: str, res: dict) -> None:
         conn.execute(
             """INSERT INTO page_boxes
                (id, page_id, left_pct, top_pct, right_pct, bottom_pct,
-                n_sides, col_lo, col_hi, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                n_sides, col_lo, col_hi, side_px, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             (_sup.new_uuid(), page_id, b["left_pct"], b["top_pct"],
              b["right_pct"], b["bottom_pct"], b["n_sides"],
-             b["col_lo"], b["col_hi"], now))
+             b["col_lo"], b["col_hi"], b.get("side_px"), now))
     conn.commit()
 
 

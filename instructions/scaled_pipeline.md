@@ -542,33 +542,45 @@ ad. Verified by rendering, not by the fit number.
 area is a deliberate page landmark — mostly display ads, but notices,
 tenders, standing panels and section headers use the same device.
 
-**Corner-matching does NOT work — measured, don't retry it.** The obvious
-method is `ocr_separator` rules meeting at their corners. Of 4,452
-horizontal-rule endpoints, only **22%** sit within 0.5% of a vertical
-rule's end (26% within 1%, 33% within 3%; **median distance 9.0%**).
-Tesseract does not reliably report all four sides.
+**Four sides, with the print's own quirks allowed for.** Three
+properties of the actual print, each confirmed in the data, and each one
+of which breaks a naive reading:
 
-**What works: a top and bottom rule sharing an x-extent.** That pair is
-the box's signature and survives the verticals being absent.
+1. **Rounded corners mean the sides never meet.** On p8 the Fastball
+   standings box has horizontals spanning x 50.82–72.00 while its
+   verticals sit at 50.35 and 72.40 — the rules stop ~0.5% SHORT of the
+   join. CENTENNIAL DOLLARS, ornately bordered, is inset 2.5–3.9%. **This
+   is why corner-matching scored only 22%** when measured (4,452 endpoints;
+   26% within 1%, median distance 9.0%): the corners genuinely do not
+   touch. A side must BRIDGE the box within `INSET_PCT`, not meet a corner.
 
-**Containment matching was tried and REVERTED — do not reintroduce it.**
-The theory was that Tesseract merges collinear rules from adjacent boxes,
-so a wide rule should be allowed to pair with a narrow one. It raised
-recall on paper but let almost any rule pair with almost any other: boxes
-went from 6.8 to **20.8 per page**, and the render of 1980-04-06 p6 was a
-thicket of overlapping rectangles cutting across body text. The user's
-verdict — *"The box detection is not working out … overcomplication of
-your detection methods more than anything else"* — was correct.
+2. **Drop shadows make opposite sides uneven.** p8's Sidewalk Sale is
+   28px on top against 48px at the bottom; another box is
+   [32, 26, 19, 23]. An earlier version REQUIRED matching side weights and
+   found **2 boxes on the whole page**. Thickness is recorded (`side_px`)
+   and never filtered on.
 
-**The lesson, and it generalises.** Rendering the raw `ocr_separator`
-regions over p5 and p6 shows that **Tesseract's rules already trace these
-boxes**: the Pakenham Seniors panel, the Beach Party ad, the Sidewalk
-Sale, HI MOM/RELAX and Heritage IDA are each outlined by their own four
-rules. The job was to READ that, not to infer boxes the rules do not
-support. Current rule: strict extent match on the horizontal pair, and a
-vertical side must be present between them (`n_sides >= 3`) — a box has
-sides. Result: **p6 gives 7 boxes and all 7 are correct**; corpus median
-2/page.
+3. **Stacked boxes share their verticals.** POLICE CONSTABLE and
+   Congratulations sit inside one pair of verticals running y 39–73. So
+   every bridging horizontal is collected and a box emitted between each
+   CONSECUTIVE pair, plus one for the whole enclosure. That yields
+   Fraser's Meat Market as one box AND its price rows, the Sidewalk Sale
+   grid AND its cells.
+
+**The verticals define the sides, not the horizontals.** Extending a box
+to the horizontals' ends stretched POLICE CONSTABLE and Congratulations a
+whole column left into the body text, because a bridging rule frequently
+belongs to a neighbouring box too and overshoots. Page-edge verticals are
+excluded as scan artefacts, as in `detect_grid`.
+
+**Result on p8:** Fastball standings, Fraser's, POLICE CONSTABLE,
+Congratulations and the Sidewalk Sale grid all correct, at container and
+cell level.
+
+**KNOWN LIMIT, not a bug here:** Smithson Motor Sales and CENTENNIAL
+DOLLARS have **no bottom border in Tesseract's output at all**, so no
+geometry over the separators can recover them. See §5k — pixel-level rule
+detection is the route and Tesseract config tuning is ruled out.
 
 **`n_sides` is recorded, never filtered on at write time.** 4-sided boxes
 are near-perfect; 2-sided ones are where only a top and bottom were
