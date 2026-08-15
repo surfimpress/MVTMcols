@@ -260,6 +260,46 @@ First issue from the 1970s. Much denser advertising than earlier decades.
 - All-ad supplement pages can fail editorial detection entirely; the
   pipeline records the failure rather than fabricating a grid.
 
+### Two issues scanned under one date bucket (source archive error)
+- Confirmed 2026-08-08 on **1930-04-04, 1962-01-25, 1973-01-04**: each
+  has ~110 `file_assets` columns across 16 pages instead of the ~50-58
+  typical for neighbouring issues. The masthead on physical page 9
+  reads as a *different* issue than physical page 1 — i.e. the source
+  archive filed two consecutive weekly issues under a single scan
+  date, back to back, rather than as two dates.
+- **Detection signal:** compare an issue's column/page count against
+  its immediate neighbours (same interval). A ~2x jump with no era
+  justification (unlike the genuinely-large late-1970s/1980 holiday
+  editions, e.g. 1979-01-03 at 184 columns/24 pages, which check out
+  as real via page_layouts) is the tell. Confirm by reading the
+  masthead/running-header on physical page ~9 via a `page_raw.png`
+  crop — a volume/issue number or date that doesn't match physical
+  page 1 confirms the merge.
+- **Not always a clean split.** 1962-01-25 and 1973-01-04 split
+  cleanly 1:1 (physical page 9 = the second issue's own Page One,
+  sequential through page 16). 1930-04-04 did not: physical pages 9
+  *and* 11 are both scans of the second issue's Page Three (a
+  duplicate/misplaced scan), that issue's own Page One and Two were
+  never scanned at all, and physical page 10's header is illegibly
+  ink-damaged. Read every page's own header individually — don't
+  assume a fixed offset transfers between scanning batches from
+  different years/operators.
+- **This lives in `mvtm.db`, which `transcribe/` cannot write** (the
+  ATTACH is read-only by convention). The fix applied was at the
+  `column_transcripts` level only: reallocate the misdated rows'
+  `year/month/day/page` to the correct issue and record a provenance
+  note. `file_assets`/`page_layouts` in `mvtm.db` still list those
+  pages under the original merged date — if you're working in the
+  cutting/QA pipeline (not `transcribe/`) and land on one of these
+  three dates, expect the same 2x-oversized page count, and know it's
+  real archive structure, not a cutter bug. See
+  `transcribe/work/experiments.jsonl` (event `date_reallocation`,
+  2026-08-08) for the exact row-level mapping.
+- **Worth a corpus-wide sweep eventually** — this was found by chance
+  (three dates deliberately picked for a high column count) among only
+  5 issues checked. A systematic check (column count vs. neighbours,
+  corpus-wide) would surface any others; not done as of this writing.
+
 ---
 
 ## Recurring layout patterns
@@ -319,6 +359,17 @@ other.
 This file evolves issue-by-issue. When a new pattern, era boundary, or
 scan condition is observed, append it here.
 
+- **2026-08-08 — Two-issues-one-date scanning error found and fixed
+  (1930-04-04, 1962-01-25, 1973-01-04).** See "Two issues scanned
+  under one date bucket" under Scan conditions above for the full
+  writeup. Short version: these three dates had ~2x their neighbours'
+  column count because the source archive scanned two consecutive
+  weekly issues under one date. 160 `column_transcripts` rows were
+  reallocated to the correct real date (1930-04-11, 1962-02-01,
+  1973-01-11); `mvtm.db` itself was not and cannot be touched from
+  `transcribe/`, so those three new dates won't show up in any
+  `mvtm.db`-driven corpus listing. Not swept corpus-wide — only these
+  three (out of 5 checked) were confirmed.
 - **2026-05-16 — Post-1980 visual characterisation (Phase 0).**
   Rendered and reviewed 10 issues across 1985/1990/1995/2000/2007.
   Established that the classical column-grid paradigm does not

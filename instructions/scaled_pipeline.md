@@ -367,6 +367,75 @@ INDEPENDENT ground truth for grading the fit. They are now inputs, so
 that comparison is circular — any future validation must use a signal
 these do not contribute to.
 
+#### Evidence is weighted by kind (2026-08-15)
+
+Not every item is equally trustworthy about where a column edge lies:
+
+| item | weight | edge mapping |
+|---|---|---|
+| text block (`ocr_carea`) | full | straight through |
+| vertical rule (`ocr_separator`) | half | **crossed over** — sits in the gutter |
+| photo region (`ocr_photo`) | half | straight through — sits ON the columns |
+
+Rules and photos are real evidence but looser: Tesseract reports photo
+borders and box edges as separators, and its photo boxes are only
+approximately placed. Both get the same minimum-height and full-height
+truncation as blocks.
+
+#### Lines enter the geometry in exactly one place
+
+The **last** column's right edge may not sit left of the rightmost hOCR
+line in the rightmost block. A block bbox can under-report its extent;
+its lines cannot. Fires on 57/90 pages.
+
+#### Column-count sense check
+
+A page cannot have each of its columns divided in two. Three guards:
+
+- **`MIN_PITCH_PCT` 8.0** — a column must be wide enough to set body text
+  in. Halved fits sit at 6.25–7.20% pitch and every sound fit at 11.30%+,
+  so the threshold sits in an empty gap, not against a cluster edge.
+  ~7 picas, well under the 11–13 of `typesetting_practice.md`.
+- **Pass 2 may correct pass 1's count by one, never double it.**
+  Subsuming stray blocks legitimately sharpens the reading; a jump to 2×
+  means pass 2 found a sub-division (an ad's price columns, a table's
+  cells). Fires on 1 page in 90 (1980-04-06 p12, 4 → 8).
+- **`low_evidence`** below 60 text lines. 1980-04-06 p7 is a full-page
+  picture spread with 25 lines, all captions — it cannot evidence a grid
+  and a fit there is a guess dressed as a measurement. 4 pages in 90.
+
+#### `col_width` comes from the slot's END ZONE only
+
+Accepting the heaviest right peak *anywhere* inside a slot let a wide
+item that stopped early set the width, inflating gutters to 8–13% on
+pages whose real gutter is ~1 pica. This was the actual cause of the
+regression the weighting and photo changes appeared to cause — found by
+isolating the two changes, not by guessing. `COL_END_ZONE_FRAC = 0.70`.
+
+Result over 90 pages: gutters median **0.53%**, 3% above 2.5%,
+within-page stdev **0.42%**.
+
+#### Negative results worth keeping
+
+Four candidate column-count discriminators were measured and **none
+separates cleanly** — p3, p7 and p12 are correctly fitted yet score like
+the halved pages, because multi-column headlines and ads legitimately
+straddle gutters and inflate line widths:
+
+- median line width ÷ column width
+- modal line width ÷ column width
+- fraction of lines matching exactly one column
+- fraction of lines straddling a gutter
+
+Do not reach for these again expecting them to work. The measure floor
+(`MIN_PITCH_PCT`) is what actually separates.
+
+**Still wrong:** 1980-04-06 p2 no longer halves (14 slots → 7) but the
+page's true grid is 8 at ~10.5%, visible in the obituary text and the
+grocery ad's five product columns. Over-columned has become
+under-columned there; the page's evidence is dominated by one full-page
+ad. Verified by rendering, not by the fit number.
+
 ### 5d. ARCHIVED — band-first segmentation
 
 Because full-height columns are the wrong model for 1980+ (5b), stage 2
@@ -526,3 +595,9 @@ python3 -m transcribe.scaled.render_overlay YYYY-MM-DD [--page N]
   metric found flattering itself via visual check and fixed with a
   multiplicative recall term. Viewer research completed (TIFY primary,
   Theseus/Mirador via `iiif-content`).
+- **2026-08-15** — §5f: evidence weighted by kind (blocks full, rules and
+  photo regions half); lines constrain the last column's right edge;
+  column-count sense check (measure floor, pass-2 doubling guard,
+  low-evidence flag); `col_width` restricted to the slot end zone. Four
+  column-count discriminators measured and recorded as negative results.
+  Viewer: combined "columns (1) + (2)" option removed.

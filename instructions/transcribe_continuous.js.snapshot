@@ -1,0 +1,457 @@
+export const meta = {
+  name: 'transcribe-continuous',
+  description: 'Continuous rolling column-transcription pipeline for MVTM. Produce mode: orchestrator claims+queries the DB directly via Bash (no agent, no tokens) before invoking this Workflow with a pre-built items array; the Workflow itself only transcribes (full automatic concurrency across issue boundaries, auto-retries content-filter blocks via Tier-2 per-slice fallback) and reconciles before reporting done. Validate mode still claims/queries via agent internally (comparison-only, not bulk).',
+  phases: [
+    { title: 'Claim & query' },
+    { title: 'Transcribe' },
+    { title: 'Review' },
+    { title: 'Reconcile' },
+  ],
+}
+
+// args shape:
+//   Production mode (default):
+//     { mode: 'produce', dates: ["YYYY-MM-DD", ...], items: [{id,page,col_idx,n_slices,date,y,m,day}, ...], model: 'sonnet'|'haiku'|'opus', effort: 'low'|'medium'|'high'|'xhigh'|'max'|null, limit: number|null }
+//     `effort` overrides the reasoning effort for every Tier-1 dispatch (omit/null to
+//     inherit the session default). Added 2026-08-06 for the low/medium-vs-high
+//     effort-comparison work -- see experiments.jsonl for the timing/quality findings
+//     that motivated testing lower effort at production scale.
+//     `items` MUST be pre-built by the orchestrator (Bash: orchestrator_claim_query.py)
+//     before this Workflow is invoked -- claim/query no longer runs inside the script.
+//     dates are processed as ONE continuous queue -- no barrier between issues, so the
+//     tail of one issue overlaps with the head of the next (fixes idle-slot-at-issue-boundary).
+//   Validation mode:
+//     { mode: 'validate', validateDate: "YYYY-MM-DD", validateCount: number (default 15) }
+//     Dual-dispatches Haiku and Sonnet on the same columns (no ingest), then a review
+//     agent checks Haiku's transcript against the source image and Sonnet's transcript.
+//     (Still does its own claim/query via agent -- small comparison batches, not bulk.)
+//   Effort-comparison mode:
+//     { mode: 'effort_compare', items: [{id,page,col_idx,n_slices,highTranscript,highDurationMs,highToolCalls}, ...] }
+//     `items` MUST be pre-built by the orchestrator from already-DONE DB rows (a plain
+//     SQL SELECT, not an LLM call) -- the existing "high"-effort transcript and its real
+//     production agent_duration_ms are reused as the baseline, so only medium and low
+//     effort are actually dispatched (2 agents/column, distinct result-file suffixes, no
+//     ingest). A review agent then checks medium+low against the image AND the high
+//     baseline. Wall-clock per effort level is read post-hoc from each agent's own
+//     transcript timestamps (first Read to last Write) -- no self-timing needed.
+
+function parseDate(d) {
+  const parts = d.split('-').map(s => parseInt(s, 10))
+  return { y: parts[0], m: parts[1], day: parts[2] }
+}
+
+async function claimAndQuery(dateStr) {
+  const { y, m, day } = parseDate(dateStr)
+  await agent(
+    `Run this exact command and report its final summary line only: python3 -m transcribe.claim_columns ${dateStr}`,
+    { label: `claim-${dateStr}`, phase: 'Claim & query' }
+  )
+  // NOTE: deliberately does NOT fetch ticket content here. A prior
+  // version tried inlining each item's full ticket JSON into this
+  // query's structured output, to save the per-column agent a Read
+  // call later. Measured in production: for 28-56 columns it made the
+  // query step itself take 6+ minutes and 100K+ tokens, because a
+  // Workflow script has no file access -- any data that reaches the
+  // script has to be regenerated as output tokens by an agent, and
+  // batching dozens of multi-KB tickets through one structured-output
+  // call is far more expensive than each Tier-1 agent just Reading its
+  // own ticket file directly (measured ~0.4-0.8s per the sampled
+  // traces). Don't reintroduce this without re-measuring at real scale
+  // first, not just reasoning it should be cheap.
+  const q = await agent(
+    `Run this exact command, then report the JSON array it prints via your structured output tool as the "items" field:
+
+python3 -c "
+import sqlite3, json, os
+conn = sqlite3.connect('transcribe/data/transcribe.db')
+conn.row_factory = sqlite3.Row
+rows = conn.execute('SELECT id, page, col_idx FROM column_transcripts ct WHERE year=${y} AND month=${m} AND day=${day} AND status != \\'done\\' AND created_at = (SELECT MAX(created_at) FROM column_transcripts ct2 WHERE ct2.year=ct.year AND ct2.month=ct.month AND ct2.day=ct.day AND ct2.page=ct.page AND ct2.col_idx=ct.col_idx) ORDER BY page, col_idx').fetchall()
+out = []
+for r in rows:
+    p = f'transcribe/work/columns/{r[\\"id\\"]}.json'
+    n = 0
+    if os.path.exists(p):
+        with open(p) as f:
+            n = len(json.load(f).get('slices', []))
+    out.append({'id': r['id'], 'page': r['page'], 'col_idx': r['col_idx'], 'n_slices': n})
+print(json.dumps(out))
+"
+
+Do not summarize or truncate the array -- report every item exactly as printed.`,
+    {
+      label: `query-${dateStr}`,
+      phase: 'Claim & query',
+      schema: {
+        type: 'object',
+        properties: {
+          items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                page: { type: 'number' },
+                col_idx: { type: 'number' },
+                n_slices: { type: 'number' },
+              },
+              required: ['id', 'page', 'col_idx', 'n_slices'],
+            },
+          },
+        },
+        required: ['items'],
+      },
+    }
+  )
+  return q.items.map(it => Object.assign({}, it, { date: dateStr, y, m, day }))
+}
+
+function tier1Prompt(item) {
+  // Slice paths are deterministic (transcribe/work/slices/<id>/sliceNN.png,
+  // verified against real ticket output) and known here without reading
+  // the ticket first -- listing them upfront lets the agent batch the
+  // ticket + every slice into ONE first turn instead of discovering paths
+  // from the ticket then reading slices in a second wave. Measurement
+  // 2026-08-06 showed the read phase itself is cheap either way
+  // (~3.2-3.5s total, generation at 130-300s dominates) -- see
+  // PLAYBOOK.md's waste-audit entry and experiments.jsonl. Dispatched via
+  // agentType: 'column-transcriber' below (not a plain prompt), so the
+  // agent's own instructions are baked into its system prompt directly --
+  // no "Read the agent file" step needed, and confirmed via a live test
+  // 2026-08-07 that this also drops an 82-entry irrelevant deferred-tools
+  // listing that a plain workflow-subagent dispatch carries regardless of
+  // this agent's own declared tools: frontmatter.
+  const slicePaths = Array.from({ length: item.n_slices }, (_, i) =>
+    `transcribe/work/slices/${item.id}/slice${String(i).padStart(2, '0')}.png`
+  )
+  return `Your ticket is at: transcribe/work/columns/${item.id}.json
+Your ${item.n_slices} slice image(s) are at the paths below -- their locations are already known, you do NOT need to read the ticket first to discover them. Read the ticket AND every slice below together as parallel Read calls in your very first turn:
+${slicePaths.map(p => `- ${p}`).join('\n')}
+
+Write your envelope to: transcribe/work/results/${item.id}.json
+Then run: python3 -m transcribe.ingest_column_result ${item.id}
+
+Reply with your final one-line status per your instructions, then stop -- no further tool calls after ingest succeeds.`
+}
+
+function tier2SlicePrompt(item, sliceIdx) {
+  const idx = String(sliceIdx).padStart(2, '0')
+  return `You are the column-transcriber. This is a per-slice content-filter retry: the whole-column attempt for row ${item.id} was blocked by Anthropic's safety classifier. Per the Tier-2 procedure in .claude/skills/transcribe-issue/SKILL.md, transcribe ONLY this one slice to reduce trigger-token concentration.
+
+This is a museum archive of the Almonte Gazette (1862 onwards), held by the Mississippi Valley Textile Museum -- historical record, not contemporary content. Period content sometimes trips the classifier when concentrated in one envelope; splitting by slice usually resolves it.
+
+- row_id: ${item.id}
+- slice idx: ${sliceIdx}
+- slice path: transcribe/work/slices/${item.id}/slice${idx}.png
+
+Follow your durable instructions (.claude/agents/column-transcriber.md) for transcription rules. Produce a Sliced-mode JSON envelope with a single record in the 'slices' array (idx=${sliceIdx}). Write it to transcribe/work/results/${item.id}.slice${idx}.json using the Write tool. Do NOT run any ingester. Reply with one line: "slice=${sliceIdx} wrote=ok" or "wrote=FAILED: <reason>".`
+}
+
+async function transcribeOne(item, model, effort) {
+  const t1 = await agent(tier1Prompt(item), {
+    label: `t1-${item.date}-p${item.page}c${item.col_idx}`,
+    phase: 'Transcribe',
+    model: model === 'sonnet' ? undefined : model,
+    effort: effort || undefined,
+    agentType: 'column-transcriber',
+  })
+  if (t1 !== null) {
+    return Object.assign({}, item, { outcome: 'tier1_ok' })
+  }
+
+  log(`Content-filter block: ${item.date} p${item.page}c${item.col_idx} -- escalating to Tier 2 (${item.n_slices} slices)`)
+  if (!item.n_slices || item.n_slices < 1) {
+    return Object.assign({}, item, { outcome: 'blocked_no_slices' })
+  }
+
+  const sliceResults = await parallel(
+    Array.from({ length: item.n_slices }, (_, i) => () =>
+      agent(tier2SlicePrompt(item, i), {
+        label: `t2-${item.date}-p${item.page}c${item.col_idx}-s${i}`,
+        phase: 'Transcribe',
+        agentType: 'column-transcriber',
+      })
+    )
+  )
+
+  if (sliceResults.some(r => r === null)) {
+    const blocked = sliceResults.map((r, i) => (r === null ? i : null)).filter(x => x !== null)
+    log(`p${item.page}c${item.col_idx}: still blocked after Tier 2 on slice(s) ${blocked.join(',')} -- needs manual Tier 3/4, flagging`)
+    return Object.assign({}, item, { outcome: 'blocked_after_tier2', slicesBlocked: blocked })
+  }
+
+  const merge = await agent(
+    `Run this exact command and report the result: python3 -m transcribe.merge_slice_results ${item.id}
+
+Then, following the self-timing convention in .claude/agents/column-transcriber.md, run a single combined Bash command that captures elapsed time for your work and calls:
+python3 -m transcribe.record_usage ${item.id} <elapsed_ms> ${item.n_slices + 2}
+(estimate elapsed_ms as best you can for this merge step; it will under-count the true multi-agent Tier-2 effort, that's a known, accepted limitation -- do not try to reconstruct the sub-agents' durations.)
+
+Reply with one line: "merge=ok" or "merge=FAILED: <reason>".`,
+    { label: `merge-${item.date}-p${item.page}c${item.col_idx}`, phase: 'Transcribe' }
+  )
+
+  if (merge === null) {
+    return Object.assign({}, item, { outcome: 'merge_failed_no_response' })
+  }
+  return Object.assign({}, item, { outcome: 'tier2_ok' })
+}
+
+async function reconcileDate(dateStr, model) {
+  const { y, m, day } = parseDate(dateStr)
+  const recon = await agent(
+    `Run this exact Python and report the counts via your structured output tool:
+
+python3 -c "
+import sqlite3, json
+conn = sqlite3.connect('transcribe/data/transcribe.db')
+rows = conn.execute('SELECT status, COUNT(*) n FROM column_transcripts ct WHERE year=${y} AND month=${m} AND day=${day} AND created_at = (SELECT MAX(created_at) FROM column_transcripts ct2 WHERE ct2.year=ct.year AND ct2.month=ct.month AND ct2.day=ct.day AND ct2.page=ct.page AND ct2.col_idx=ct.col_idx) GROUP BY status').fetchall()
+counts = {row[0]: row[1] for row in rows}
+print(json.dumps({'done': counts.get('done', 0), 'claimed': sum(v for k, v in counts.items() if k != 'done')}))
+"`,
+    {
+      label: `reconcile-${dateStr}`,
+      phase: 'Reconcile',
+      schema: { type: 'object', properties: { done: { type: 'number' }, claimed: { type: 'number' } } },
+    }
+  )
+  const doneCount = (recon && recon.done) || 0
+  const claimedCount = (recon && recon.claimed) || 0
+  log(`${dateStr}: done=${doneCount} claimed(outstanding)=${claimedCount}`)
+
+  if (claimedCount === 0 && doneCount > 0) {
+    await agent(
+      `This issue (${dateStr}) is now fully transcribed. Do the following:
+1. Run: python3 -c "from transcribe.download import remove_issue_downloads; from transcribe.db import REPO_ROOT; print(remove_issue_downloads(REPO_ROOT, '${dateStr}'), 'files removed')"
+2. Run: python3 -m transcribe.build_repair_stats
+3. Append ONE line to transcribe/work/experiments.jsonl recording completion. Use Bash with this exact pattern (single Python call, so JSON escaping is handled correctly, not manual string concatenation):
+python3 -c "
+import json
+entry = {'issue': '${dateStr}', 'event': 'issue_complete', 'model': '${model}', 'note': 'Completed via Workflow-based continuous pipeline (transcribe-continuous.js).'}
+with open('transcribe/work/experiments.jsonl', 'a') as f:
+    f.write(json.dumps(entry) + chr(10))
+"
+Report done.`,
+      { label: `cleanup-${dateStr}`, phase: 'Reconcile' }
+    )
+  }
+  return { date: dateStr, done: doneCount, claimed: claimedCount, complete: claimedCount === 0 && doneCount > 0 }
+}
+
+function compareTicketPrompt(item, modelLabel) {
+  return `You are the column-transcriber. Read .claude/agents/column-transcriber.md and follow it exactly, EXCEPT: this is a model-comparison validation run, not production.
+
+Ticket: transcribe/work/columns/${item.id}.json
+Write your envelope to: transcribe/work/results/${item.id}.${modelLabel}.json
+Do NOT run the ingester. Do NOT call record_usage. Do NOT self-time.
+Reply with one line: "wrote=ok" or "wrote=FAILED: <reason>".`
+}
+
+function reviewPrompt(item) {
+  return `You are reviewing a Haiku-vs-Sonnet transcription comparison for row ${item.id} (page ${item.page}, column ${item.col_idx}), part of a validation batch deciding whether Haiku's newly-added self-check hardening (see the "Self-check before writing the envelope" section of .claude/agents/column-transcriber.md) actually reduced its hallucination rate.
+
+Read BOTH result files:
+- transcribe/work/results/${item.id}.haiku.json
+- transcribe/work/results/${item.id}.sonnet.json
+
+Then read the actual source slice image(s) at transcribe/work/slices/${item.id}/ (list the directory first) directly, and compare each transcript against what is genuinely printed, word by word wherever they differ. Treat Sonnet's transcript as a second opinion, not ground truth -- verify disputed words against the IMAGE itself, not just against Sonnet.
+
+Report via your structured output tool: page, col_idx, the count of genuine word-level errors (substitutions, not omissions or [illegible] markers) you personally confirmed against the image in Haiku's transcript, and a short note on the worst one found (empty string if none).`
+}
+
+function effortTicketPrompt(item, effortLabel) {
+  const slicePaths = Array.from({ length: item.n_slices }, (_, i) =>
+    `transcribe/work/slices/${item.id}/slice${String(i).padStart(2, '0')}.png`
+  )
+  return `You are the column-transcriber. Read .claude/agents/column-transcriber.md and follow it exactly, EXCEPT: this is a reasoning-effort comparison test, not production.
+
+Your ticket is at: transcribe/work/columns/${item.id}.json
+Your ${item.n_slices} slice image(s) are at:
+${slicePaths.map(p => `- ${p}`).join('\n')}
+
+Write your envelope to: transcribe/work/results/${item.id}.${effortLabel}.json
+Do NOT run the ingester. Do NOT call record_usage. Do NOT self-time.
+Reply with one line: "wrote=ok" or "wrote=FAILED: <reason>".`
+}
+
+function effortReviewPrompt(item) {
+  return `You are reviewing a reasoning-effort comparison for row ${item.id} (page ${item.page}, column ${item.col_idx}), part of a test deciding whether lower reasoning effort can safely replace the current "high" effort default in production column transcription.
+
+First fetch the existing HIGH-effort transcript (already in production, from the real column-transcriber run) by running:
+sqlite3 transcribe/data/transcribe.db "SELECT transcript_text FROM column_transcripts WHERE id='${item.id}'"
+
+Now read these two new result files, written at lower effort levels:
+- transcribe/work/results/${item.id}.medium.json
+- transcribe/work/results/${item.id}.low.json
+
+Then read the actual source slice image(s) at transcribe/work/slices/${item.id}/ (list the directory first) directly. Compare BOTH the medium and low transcripts against what is genuinely printed in the image, word by word wherever either differs from the image or from the high-effort transcript above. Treat the high-effort transcript as a second opinion, not ground truth -- verify disputed words against the IMAGE itself.
+
+Report via your structured output tool: page, col_idx, the count of genuine word-level errors (substitutions, not omissions or [illegible] markers) you personally confirmed against the image in the MEDIUM transcript, the count for the LOW transcript, and a short note on the worst error found in each (empty string if none).`
+}
+
+// Defensive: this harness has been observed passing `args` as a
+// JSON-encoded STRING rather than a parsed object, contrary to the
+// documented behavior. Normalize either shape here so the rest of
+// the script can just use `runArgs` as a real object.
+const runArgs = typeof args === 'string' ? JSON.parse(args) : (args || {})
+
+if (runArgs.mode === 'effort_compare') {
+  phase('Transcribe')
+  const items = runArgs.items
+  if (!items || !items.length) throw new Error('args.items is required for effort_compare mode (pre-built by the orchestrator: id/page/col_idx/n_slices/highTranscript/highDurationMs from already-done DB rows)')
+  log(`Effort comparison: ${items.length} columns, dispatching medium+low (high effort reused from existing DB transcripts, not re-run)`)
+
+  const dispatches = await pipeline(
+    items,
+    item =>
+      parallel([
+        () => agent(effortTicketPrompt(item, 'medium'), { label: `medium-p${item.page}c${item.col_idx}`, phase: 'Transcribe', effort: 'medium' }),
+        () => agent(effortTicketPrompt(item, 'low'), { label: `low-p${item.page}c${item.col_idx}`, phase: 'Transcribe', effort: 'low' }),
+      ]).then(([m, l]) => (m && l ? item : null))
+  )
+
+  phase('Review')
+  const validDispatches = dispatches.filter(Boolean)
+  log(`${validDispatches.length} of ${items.length} columns produced both medium and low output; reviewing each against the high baseline`)
+
+  const reviews = await pipeline(
+    validDispatches,
+    item =>
+      agent(effortReviewPrompt(item), {
+        label: `review-p${item.page}c${item.col_idx}`,
+        phase: 'Review',
+        schema: {
+          type: 'object',
+          properties: {
+            page: { type: 'number' },
+            col_idx: { type: 'number' },
+            medium_issues_found: { type: 'number' },
+            medium_notes: { type: 'string' },
+            low_issues_found: { type: 'number' },
+            low_notes: { type: 'string' },
+          },
+          required: ['page', 'col_idx', 'medium_issues_found', 'medium_notes', 'low_issues_found', 'low_notes'],
+        },
+      })
+  )
+
+  const validReviews = reviews.filter(Boolean)
+  const totalMedium = validReviews.reduce((s, r) => s + (r.medium_issues_found || 0), 0)
+  const totalLow = validReviews.reduce((s, r) => s + (r.low_issues_found || 0), 0)
+  log(`Effort comparison complete: ${validReviews.length} columns reviewed. medium errors=${totalMedium} low errors=${totalLow}`)
+
+  return {
+    columnsAttempted: items.length,
+    columnsDispatched: validDispatches.length,
+    columnsReviewed: validReviews.length,
+    totalMediumErrors: totalMedium,
+    totalLowErrors: totalLow,
+    reviews: validReviews,
+  }
+} else if (runArgs.mode === 'validate') {
+  phase('Claim & query')
+  const validateDate = runArgs.validateDate
+  if (!validateDate) throw new Error('args.validateDate is required for validate mode, e.g. "1869-01-29"')
+  const count = runArgs.validateCount || 15
+
+  const allItems = await claimAndQuery(validateDate)
+  const items = allItems.slice(0, count)
+  log(`Validation batch: ${items.length} of ${allItems.length} remaining columns from ${validateDate}, dual-dispatching Haiku vs Sonnet`)
+
+  phase('Transcribe')
+  const comparisons = await pipeline(
+    items,
+    item =>
+      parallel([
+        () => agent(compareTicketPrompt(item, 'haiku'), { label: `haiku-p${item.page}c${item.col_idx}`, phase: 'Transcribe', model: 'haiku' }),
+        () => agent(compareTicketPrompt(item, 'sonnet'), { label: `sonnet-p${item.page}c${item.col_idx}`, phase: 'Transcribe' }),
+      ]).then(([h, s]) => (h && s ? item : null))
+  )
+
+  phase('Reconcile')
+  const validComparisons = comparisons.filter(Boolean)
+  log(`${validComparisons.length} of ${items.length} columns produced both Haiku and Sonnet output; reviewing each`)
+
+  const reviews = await pipeline(
+    validComparisons,
+    item =>
+      agent(reviewPrompt(item), {
+        label: `review-p${item.page}c${item.col_idx}`,
+        phase: 'Reconcile',
+        schema: {
+          type: 'object',
+          properties: {
+            page: { type: 'number' },
+            col_idx: { type: 'number' },
+            haiku_issues_found: { type: 'number' },
+            haiku_notes: { type: 'string' },
+          },
+          required: ['page', 'col_idx', 'haiku_issues_found', 'haiku_notes'],
+        },
+      })
+  )
+
+  const validReviews = reviews.filter(Boolean)
+  const totalIssues = validReviews.reduce((s, r) => s + (r.haiku_issues_found || 0), 0)
+  log(`Validation complete: ${validReviews.length} columns reviewed, ${totalIssues} total confirmed Haiku word-level errors`)
+
+  return {
+    validateDate,
+    columnsAttempted: items.length,
+    columnsCompared: validComparisons.length,
+    columnsReviewed: validReviews.length,
+    totalConfirmedHaikuErrors: totalIssues,
+    reviews: validReviews,
+  }
+} else {
+  const dates = Array.isArray(runArgs.dates) ? runArgs.dates : (runArgs.date ? [runArgs.date] : null)
+  if (!dates || dates.length === 0) {
+    throw new Error('args.dates (array of "YYYY-MM-DD") or args.date (single string) is required for produce mode')
+  }
+  const model = runArgs.model || 'sonnet'
+  const effort = runArgs.effort || null
+
+  // Factory-system design (confirmed 2026-08-05): claim + query is
+  // deterministic, mechanical work with zero LLM judgment involved, so
+  // it now runs directly by the orchestrator via Bash/Python
+  // (orchestrator_claim_query.py: transcribe.claim_columns + a raw
+  // sqlite3 query) BEFORE this Workflow is even invoked -- not as a
+  // dispatched agent inside it. Measured: 4.4s / zero tokens for 134
+  // columns across 3 issues, versus 10+ minutes / 100K+ tokens per
+  // issue for the prior agent-dispatched version (see PLAYBOOK.md).
+  // This script no longer derives allItems itself for produce mode --
+  // it must be handed a pre-built array via args.items.
+  let allItems = Array.isArray(runArgs.items) ? runArgs.items : null
+  if (!allItems) {
+    throw new Error('args.items (pre-built array from orchestrator_claim_query.py, run directly via Bash before invoking this Workflow) is required for produce mode -- claim/query no longer runs inside this script')
+  }
+  if (runArgs.limit) allItems = allItems.slice(0, runArgs.limit)
+  log(`Total continuous queue: ${allItems.length} columns across ${dates.length} issue(s), model=${model}, effort=${effort || 'inherited'}`)
+
+  if (allItems.length === 0) {
+    return { dates, done: true, message: 'Nothing to do -- already complete.' }
+  }
+
+  phase('Transcribe')
+  const results = await pipeline(allItems, item => transcribeOne(item, model, effort))
+
+  phase('Reconcile')
+  const flagged = results.filter(r => r && r.outcome !== 'tier1_ok' && r.outcome !== 'tier2_ok')
+  if (flagged.length) {
+    log(`${flagged.length} column(s) still need manual Tier-3/4 or human transcription: ` +
+      flagged.map(f => `${f.date} p${f.page}c${f.col_idx}`).join(', '))
+  }
+
+  const reconciliation = []
+  for (const d of dates) {
+    reconciliation.push(await reconcileDate(d, model))
+  }
+
+  return {
+    dates,
+    totalItems: allItems.length,
+    tier1: results.filter(r => r && r.outcome === 'tier1_ok').length,
+    tier2: results.filter(r => r && r.outcome === 'tier2_ok').length,
+    flagged,
+    reconciliation,
+  }
+}
