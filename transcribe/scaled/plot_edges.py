@@ -33,7 +33,8 @@ BIN_PCT = 0.25
 
 LEFT_COLOUR = (10, 90, 200)      # blue
 RIGHT_COLOUR = (0, 95, 55)       # dark green
-GRID_COLOUR = (200, 120, 0)      # darker orange, drawn on top of the bars
+GRID_COLOUR = (235, 185, 10)     # yellow-gold; read as too red at (200,120,0)
+GUTTER_COLOUR = (252, 240, 190)  # pale wash marking the gutter band
 
 
 def plot_page(conn, page_row, out_path: str) -> str:
@@ -75,6 +76,17 @@ def plot_page(conn, page_row, out_path: str) -> str:
         d.line([(PAD_L - 6, y), (PAD_L, y)], fill=(0, 0, 0), width=1)
         d.text((PAD_L - 34, y - 6), f"{c}", fill=(0, 0, 0))
 
+    # (gutter wash is painted before the bars -- see below)
+    if g:
+        for i in range(len(g["edges"]) - 1):
+            l = g["edges"][i]
+            r = min(100.0, l + g["col_width"])
+            nxt = g["edges"][i + 1]
+            xr = PAD_L + pw * (r / 100.0)
+            xn = PAD_L + pw * (nxt / 100.0)
+            if xn > xr:
+                d.rectangle([xr, PAD_T, xn, PAD_T + ph], fill=GUTTER_COLOUR)
+
     # Bars sit at their TRUE x position -- no side-by-side offset, so a
     # bar's position is exactly the measured edge position. Where both
     # series land in the same bin, the taller is drawn first so the
@@ -91,11 +103,18 @@ def plot_page(conn, page_row, out_path: str) -> str:
             y = PAD_T + ph - ph * (cnt / peak)
             d.rectangle([x, y, x + bw, PAD_T + ph], fill=colour)
 
-    # Predicted grid LAST, so it reads on top of the bars.
+    # Predicted grid LAST, so it reads on top of the bars. Both edges of
+    # every column are drawn -- start AND start+col_width -- so the
+    # GUTTER between one column's right edge and the next column's left
+    # edge is visible as a gap, rather than being implied by a single
+    # line per slot.
     if g:
-        for e in g["edges"]:
-            x = PAD_L + pw * (e / 100.0)
-            d.line([(x, PAD_T), (x, PAD_T + ph)], fill=GRID_COLOUR, width=3)
+        for i in range(len(g["edges"]) - 1):
+            l = g["edges"][i]
+            r = min(100.0, l + g["col_width"])
+            for x_pct in (l, r):
+                x = PAD_L + pw * (x_pct / 100.0)
+                d.line([(x, PAD_T), (x, PAD_T + ph)], fill=GRID_COLOUR, width=3)
 
     date = f"{page_row['year']}-{page_row['month']:02d}-{page_row['day']:02d}"
     d.text((PAD_L, 12), f"{date} p{page_row['page']} — block edges, "
@@ -107,9 +126,11 @@ def plot_page(conn, page_row, out_path: str) -> str:
     d.rectangle([lx, 32, lx + 16, 42], fill=RIGHT_COLOUR)
     d.text((lx + 22, 30), "right edges", fill=(0, 0, 0))
     lx += 118
-    d.rectangle([lx, 32, lx + 16, 42], fill=GRID_COLOUR)
+    d.rectangle([lx, 32, lx + 16, 42], fill=GUTTER_COLOUR)
+    d.rectangle([lx, 32, lx + 2, 42], fill=GRID_COLOUR)
+    d.rectangle([lx + 14, 32, lx + 16, 42], fill=GRID_COLOUR)
     if g:
-        d.text((lx + 22, 30), f"predicted grid — {g['n_columns']} slots, "
+        d.text((lx + 22, 30), f"column edges + gutter — {g['n_columns']} slots, "
                               f"pitch {g['pitch']}%, col {g['col_width']}%, "
                               f"gutter {g['gutter']}%, fit {res['fit']:.2f}",
                fill=(0, 0, 0))
