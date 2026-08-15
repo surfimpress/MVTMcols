@@ -9,6 +9,14 @@ This file is the durable record of what was measured, what was decided,
 and what was learned. It is written to be read by a future session with
 no memory of this one. **Read it before touching `transcribe/scaled/`.**
 
+> **Read `instructions/typesetting_practice.md` first.** A newspaper page
+> is a designed, quantised artefact assembled on a fixed grid — four
+> numbers (margin, column width, gutter, column count) with everything
+> snapping to integer column spans. Most of the complexity in the earlier
+> stages of this experiment came from treating that regular, designed
+> object as an unknown natural signal. **Thinking like a typesetter is
+> key to this project.**
+
 ---
 
 ## 1. Why this exists — the cost problem, measured

@@ -330,10 +330,34 @@ Self-contained pages like `entities.html` are exempt and the checker
 skips them. Run `python3 tools/check_css_scoping.py` before committing
 such a page.
 
+## Think like a typesetter
+
+`instructions/typesetting_practice.md` — **read this before designing any
+layout detector.** These pages were assembled on a fixed, physical grid
+(non-repro blue guides on a pasteboard; later QuarkXPress/PageMaker
+master-page guides). The grid is an *input* to the page, not something to
+be discovered from it: four numbers — margin, column width, gutter,
+column count — measured in picas, with every photo, ad and story block
+occupying an **integer** number of columns, never a fraction. Ads were
+sold by the column inch, so they were quantised commercially before
+anyone laid anything out; they are dummied first and editorial fills the
+news hole around them. By the 1980s modular layout had won, so a page is
+a packing of rectangles onto that grid.
+
+The practical consequence: **fit a small number of parameters, don't
+cluster freely and score each guess.** A deviation from the grid is far
+more likely to be OCR noise, a photo, or scan distortion than a genuine
+new column width. Most of the complexity in the scaled experiment's early
+stages came from ignoring this.
+
 ## `instructions/` is the durable knowledge base — keep it current
 
-Three files in `instructions/` document things that don't live in the code,
-and that future agents (including future-me) will rely on as context:
+Several files in `instructions/` document things that don't live in the
+code, and that future agents (including future-me) will rely on as
+context. Besides the three detailed below, see
+`typesetting_practice.md` (how these pages were physically made — read
+before designing any layout detector), `scaled_pipeline.md` (the
+classic-first experiment's design record) and `css_standards.md`.
 
 - **`detection_methods_review.md`** — the catalogue of detection
   strategies in the pipeline. Each strategy has a file/function pointer,
