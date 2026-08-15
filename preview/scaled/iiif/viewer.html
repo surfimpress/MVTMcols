@@ -89,10 +89,24 @@
     <option value="1980-04-06">1980-04-06</option>
     <option value="1997-07-16">1997-07-16</option>
   </select>
-  <select id="layers" aria-label="Layers">
-    <option value="blocks">blocks</option>
-    <option value="lines">lines</option>
-    <option value="all">blocks + lines</option>
+  <select id="layers" aria-label="Pipeline stage">
+    <optgroup label="1 · Tesseract (raw OCR)">
+      <option value="blocks">blocks</option>
+      <option value="lines">lines</option>
+      <option value="all">blocks + lines</option>
+    </optgroup>
+    <optgroup label="2 · Columns">
+      <option value="bands">bands + per-band columns</option>
+      <option value="columns">full-height columns</option>
+    </optgroup>
+    <!-- Not built yet. Shown disabled so the pipeline shape is visible
+         without implying these exist. -->
+    <optgroup label="3 · Items">
+      <option value="items" disabled>items — not built</option>
+    </optgroup>
+    <optgroup label="4 · Refined (after LLM QA)">
+      <option value="refined" disabled>refined — not built</option>
+    </optgroup>
   </select>
   <!-- TIFY hidden 2026-08-15: it does not render overlays for these
        manifests (unresolved). Mirador is forced below. Restore by
@@ -121,6 +135,9 @@ window.__cfg = (function () {
   var layers = q.get('layers') || 'blocks';
   var rel = issue + (layers === 'all' ? '/manifest.json'
                                       : '/manifest_' + layers + '.json');
+  // Stage 2 draws far fewer, much larger boxes than stage 1, so its
+  // manifests are small -- no special handling needed, they load the
+  // same way.
   var abs = new URL(rel, location.href).href;
 
   var si = document.getElementById('issue'), sl = document.getElementById('layers');

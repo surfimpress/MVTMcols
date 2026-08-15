@@ -116,9 +116,78 @@ VARIANTS = {
     "lines": (False, True),
 }
 
+# Derived stages get their own manifests so the viewer can step through
+# the pipeline: Tesseract (raw) -> Columns -> Items -> Refined. Items and
+# Refined are not built yet; the viewer shows them disabled rather than
+# pretending they exist.
+DERIVED = ("columns", "bands")
+
+
+def _derived_layers(conn, page_id, cid, W, H, variant):
+    """Annotation pages for a derived stage. Returns [] when the stage has
+    produced nothing for this page, so an empty layer never masquerades as
+    a real result."""
+    out = []
+    if variant == "columns":
+        rows = conn.execute(
+            "SELECT col_idx, left_pct, right_pct, confidence FROM page_columns "
+            "WHERE page_id=? AND method='combined' ORDER BY col_idx", (page_id,)).fetchall()
+        items = []
+        for r in rows:
+            x0, x1 = _sup.pct_to_px(r["left_pct"], W), _sup.pct_to_px(r["right_pct"], W)
+            items.append(_anno(
+                f"{cid}/anno/col/{r['col_idx']}", cid, x0, 0, max(1, x1 - x0), H,
+                "", f"column {r['col_idx']}", kind="column",
+                detail=f"{r['left_pct']:.1f}%-{r['right_pct']:.1f}% · "
+                       f"page conf {r['confidence']}"))
+        if items:
+            out.append((f"Columns (full-height) — {len(items)}", items))
+        for method, label in (("separator", "signal: separator rules"),
+                              ("leftedge", "signal: left-edge clusters"),
+                              ("valley", "signal: coverage valleys")):
+            srows = conn.execute(
+                "SELECT col_idx, left_pct FROM page_columns WHERE page_id=? AND method=? "
+                "ORDER BY col_idx", (page_id, method)).fetchall()
+            sitems = []
+            for r in srows:
+                x = _sup.pct_to_px(r["left_pct"], W)
+                sitems.append(_anno(
+                    f"{cid}/anno/{method}/{r['col_idx']}", cid, max(0, x - 3), 0, 6, H,
+                    "", f"{method} @ {r['left_pct']:.1f}%", kind=method,
+                    detail=f"x={r['left_pct']:.1f}%"))
+            if sitems:
+                out.append((f"{label} — {len(sitems)}", sitems))
+    elif variant == "bands":
+        rows = conn.execute(
+            "SELECT band_idx, top_pct, bottom_pct, n_columns, column_edges_json, "
+            "regularity, n_lines FROM page_bands WHERE page_id=? ORDER BY band_idx",
+            (page_id,)).fetchall()
+        bitems, citems = [], []
+        for r in rows:
+            yt, yb = _sup.pct_to_px(r["top_pct"], H), _sup.pct_to_px(r["bottom_pct"], H)
+            bitems.append(_anno(
+                f"{cid}/anno/band/{r['band_idx']}", cid, 0, yt, W, max(1, yb - yt),
+                "", f"band {r['band_idx']}", kind="band",
+                detail=f"y {r['top_pct']:.1f}-{r['bottom_pct']:.1f}% · "
+                       f"{r['n_columns']} col · reg {r['regularity']:.2f} · "
+                       f"{r['n_lines']} lines"))
+            edges = json.loads(r["column_edges_json"] or "[]")
+            for i in range(len(edges) - 1):
+                x0, x1 = _sup.pct_to_px(edges[i], W), _sup.pct_to_px(edges[i + 1], W)
+                citems.append(_anno(
+                    f"{cid}/anno/bandcol/{r['band_idx']}/{i}", cid, x0, yt,
+                    max(1, x1 - x0), max(1, yb - yt), "",
+                    f"band {r['band_idx']} col {i}", kind="band column",
+                    detail=f"band {r['band_idx']} · {edges[i]:.1f}%-{edges[i+1]:.1f}%"))
+        if bitems:
+            out.append((f"Bands — {len(bitems)}", bitems))
+        if citems:
+            out.append((f"Columns within bands — {len(citems)}", citems))
+    return out
+
 
 def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
-    want_blocks, want_lines = VARIANTS[variant]
+    want_blocks, want_lines = VARIANTS.get(variant, (False, False))
     y, m, d = (int(v) for v in date.split("-"))
     pages = [dict(r) for r in conn.execute(
         "SELECT id, page, display_image_path, display_width_px, display_height_px "
@@ -221,6 +290,14 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
                 "items": items,
             })
 
+        for label, items in _derived_layers(conn, p["id"], cid, W, H, variant):
+            canvas["annotations"].append({
+                "id": f"{cid}/annopage/{label.split(' ')[0].lower()}",
+                "type": "AnnotationPage",
+                "label": {"en": [label]},
+                "items": items,
+            })
+
         canvases.append(canvas)
 
     return {
@@ -232,13 +309,21 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
         ],
         "id": f"{base}/{_manifest_name(variant)}",
         "type": "Manifest",
-        "label": {"en": [
-            f"Almonte Gazette {date} — raw Tesseract hOCR"
-            + {"blocks": " (blocks only)", "lines": " (lines only)"}.get(variant, "")]},
+        "label": {"en": [f"Almonte Gazette {date} — " + {
+            "all": "raw Tesseract hOCR (blocks + lines)",
+            "blocks": "raw Tesseract hOCR (blocks)",
+            "lines": "raw Tesseract hOCR (lines)",
+            "columns": "stage 2: columns (full-height)",
+            "bands": "stage 2: bands + per-band columns",
+        }.get(variant, variant)]},
         "summary": {"en": [
             "Unmodified Tesseract hOCR rendered as IIIF annotation layers, "
             "including the ocr_separator and ocr_photo blocks the production "
-            "parser discards. Nothing here is derived or corrected."]},
+            "parser discards. Nothing here is derived or corrected."
+            if variant in VARIANTS else
+            "Derived layout from transcribe/scaled -- computed from hOCR "
+            "geometry alone, no pixels and no LLM. Compare against the raw "
+            "Tesseract manifests for the same issue."]},
         "requiredStatement": {
             "label": {"en": ["Source"]},
             "value": {"en": [
@@ -260,7 +345,7 @@ def _cmd(args):
             d = os.path.join(out_root, date)
             os.makedirs(d, exist_ok=True)
             wrote_any = False
-            for variant in VARIANTS:
+            for variant in list(VARIANTS) + list(DERIVED):
                 man = build_manifest(conn, date, base, variant)
                 if not man["items"]:
                     continue
