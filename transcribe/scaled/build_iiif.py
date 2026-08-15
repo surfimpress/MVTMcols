@@ -30,6 +30,7 @@ import json
 import os
 
 from . import _support as _sup
+from . import detect_grid as _detect_grid
 
 # The repo root is served here (behind Cloudflare Access -- a browser
 # session can read it, an unauthenticated third-party server cannot).
@@ -129,19 +130,41 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
     a real result."""
     out = []
     if variant == "grid":
-        rows = conn.execute(
-            "SELECT col_idx, left_pct, right_pct, confidence, notes FROM page_columns "
-            "WHERE page_id=? AND method='grid' ORDER BY col_idx", (page_id,)).fetchall()
-        items = []
-        for r in rows:
-            x0, x1 = _sup.pct_to_px(r["left_pct"], W), _sup.pct_to_px(r["right_pct"], W)
-            items.append(_anno(
-                f"{cid}/anno/grid/{r['col_idx']}", cid, x0, 0, max(1, x1 - x0), H,
-                "", f"column slot {r['col_idx']}", kind="grid column",
-                detail=f"slot {r['col_idx']} · {r['left_pct']:.2f}%-{r['right_pct']:.2f}% · "
-                       f"{r['notes'] or ''} · fit {r['confidence']}"))
-        if items:
-            out.append((f"Underlying grid — {len(items)} column slots", items))
+        # Both passes as separate layers, so the refinement can be judged
+        # against what it started from rather than taken on trust.
+        res = _detect_grid.detect(conn, page_id)
+        g = res.get("grid")
+        if not g:
+            return out
+
+        pass1 = []
+        for k in range(g["n_columns"]):
+            l = g["offset"] + k * g["pitch"]
+            r = l + g["col_width"]
+            x0, x1 = _sup.pct_to_px(l, W), _sup.pct_to_px(r, W)
+            pass1.append(_anno(
+                f"{cid}/anno/grid1/{k}", cid, x0, 0, max(1, x1 - x0), H,
+                "", f"slot {k}", kind="grid (1) rigid lattice",
+                detail=f"slot {k} · {l:.2f}%-{r:.2f}% · pitch {g['pitch']}% · "
+                       f"col {g['col_width']}% · gutter {g['gutter']}%"))
+        out.append((f"Underlying grid (1) — rigid lattice, "
+                    f"{g['n_columns']} slots @ pitch {g['pitch']}%", pass1))
+
+        pass2 = []
+        cols = res.get("columns", [])
+        for i, c in enumerate(cols):
+            x0 = _sup.pct_to_px(c["left_pct"], W)
+            x1 = _sup.pct_to_px(c["right_pct"], W)
+            gut = (cols[i + 1]["left_pct"] - c["right_pct"]) if i + 1 < len(cols) else None
+            pass2.append(_anno(
+                f"{cid}/anno/grid2/{c['col_idx']}", cid, x0, 0, max(1, x1 - x0), H,
+                "", f"column {c['col_idx']}", kind="grid (2) leaned to extremes",
+                detail=f"col {c['col_idx']} · {c['left_pct']:.2f}%-{c['right_pct']:.2f}% "
+                       f"(w {c['right_pct'] - c['left_pct']:.2f}%)"
+                       + (f" · gutter {gut:+.2f}%" if gut is not None else " · right margin")))
+        if pass2:
+            out.append((f"Underlying grid (2) — leaned to extremes, "
+                        f"{len(pass2)} columns", pass2))
     return out
 
 

@@ -65,6 +65,47 @@ EDGE_MERGE_PCT = 0.6
 
 MIN_EDGES = 12        # below this a page cannot support a fit
 
+# A vertical rule this close to either page edge is a scan artefact (the
+# sheet edge, the binding shadow), not a column rule. Measured: ~27% of
+# tall vertical separators sit there.
+EDGE_MARGIN_PCT = 2.0
+EDGE_MARGIN_RIGHT_PCT = 97.0
+
+# --- what an edge is WORTH -------------------------------------------
+# Edges are weighted by the HEIGHT of the item that produced them, not by
+# how many items share an x. A tall block running down a column is strong
+# evidence of that column's edge; a pile of small fragments at the same x
+# is not, and counting them let noise outvote structure. (Weighting by
+# count is still available -- see `peak_counts` -- for comparison.)
+#
+# Two truncations, both to stop non-layout objects dominating a
+# height-weighted measure:
+MIN_ITEM_HEIGHT_LINES = 1.5    # taller than one text line, or it says nothing
+MAX_ITEM_HEIGHT_FRAC = 0.90    # full-page-height boxes are scan artefacts
+                               # (photo shadows, page-edge blobs), not columns
+
+# Edge sources and weighting, both measured against an INDEPENDENT ground
+# truth (the printed vertical rules Tesseract reports as ocr_separator,
+# which take no part in the fit). 36 pages carrying >=3 such rules:
+#
+#   variant                          median  mean   p90   within 1%
+#   blocks+lines, COUNT (original)    0.93   2.56   4.56     52%
+#   blocks+lines, HEIGHT              0.94   1.46   2.97     52%
+#   blocks only,  HEIGHT              1.00   1.82   3.11     51%
+#   blocks only,  COUNT               0.89   1.28   3.02     56%
+#
+# Two things that measurement says, neither obvious beforehand:
+#  - Height weighting barely moves the MEDIAN but roughly halves the mean
+#    and cuts the p90 tail. It buys robustness, not typical accuracy.
+#  - Excluding hOCR LINES is the larger effect. A line is one line tall by
+#    definition, so under a height-weighted measure the 538 lines on a
+#    page contribute a flat, low-weight haze that blurs the block peaks.
+# BLOCKS ARE WHAT IS MEASURED. hOCR lines are referred to for exactly one
+# purpose -- deriving the minimum item height (a block must be taller than
+# MIN_ITEM_HEIGHT_LINES text lines to count) -- and contribute no edges of
+# their own.
+WEIGHT_BY_HEIGHT = True        # item height is the Y measure
+
 # `fit` below is a DIAGNOSTIC, not a gate. Confidence scoring with an
 # escalation threshold was tried and abandoned -- see
 # transcribe/scaled/archive/README.md. Report the number, look at the
@@ -80,6 +121,55 @@ MIN_EDGES = 12        # below this a page cannot support a fit
 
 MAX_SUBSUME_WIDTH_FRAC = 0.5   # narrower than half the parent
 MAX_SUBSUME_LINES = 3          # and no more than this many hOCR lines
+
+
+def median_line_height(conn, page_id: str) -> float:
+    """Median hOCR line height on the page, as the unit for truncation."""
+    hs = [r["h"] for r in conn.execute(
+        "SELECT (bottom_pct - top_pct) AS h FROM page_hocr_lines WHERE page_id=?",
+        (page_id,)) if r["h"] > 0]
+    return statistics.median(hs) if hs else 1.0
+
+
+def usable(item: dict, line_h: float) -> bool:
+    """Is this item's height meaningful for locating a column edge?"""
+    h = item["B"] - item["T"]
+    return (h >= line_h * MIN_ITEM_HEIGHT_LINES
+            and h <= 100.0 * MAX_ITEM_HEIGHT_FRAC)
+
+
+def vertical_rules(conn, page_id: str, line_h: float) -> list[dict]:
+    """Printed vertical rules (ocr_separator) as layout items.
+
+    A rule sits INSIDE the gutter, so its edges map to the columns either
+    side of it, crossed over:
+        rule.L  ->  the preceding column's RIGHT edge
+        rule.R  ->  the following column's LEFT edge
+    Mapping left-to-left would place every column an entire rule-width
+    off. Same height minimums as blocks.
+
+    NOTE: separators were previously used as an INDEPENDENT ground truth
+    for grading the fit. Feeding them in makes that comparison circular --
+    any future validation must use something these do not contribute to.
+    """
+    out = []
+    for r in conn.execute(
+        "SELECT left_pct L, top_pct T, right_pct R, bottom_pct B "
+        "FROM page_hocr_regions WHERE page_id=? AND region_class='ocr_separator' "
+        "AND orientation='vertical'", (page_id,),
+    ):
+        centre = (r["L"] + r["R"]) / 2
+        # Page-edge rules are scan artefacts (the sheet edge, binding
+        # shadow), not column rules. ~27% of tall vertical separators sit
+        # there -- measured. Including them dragged column 0's left edge
+        # to 0.60% and squeezed the last column.
+        if centre < EDGE_MARGIN_PCT or centre > EDGE_MARGIN_RIGHT_PCT:
+            continue
+        item = {"block_idx": None, "L": r["L"], "T": r["T"],
+                "R": r["R"], "B": r["B"], "n_lines": 0, "is_rule": True}
+        if usable(item, line_h):
+            out.append(item)
+    return out
 
 
 def page_blocks(conn, page_id: str) -> list[dict]:
@@ -142,17 +232,23 @@ def subsume_stray_blocks(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
     return kept, subsumed
 
 
-def edges_from_blocks(blocks: list[dict]) -> tuple[list[float], list[float]]:
-    return ([round(b["L"], 2) for b in blocks], [round(b["R"], 2) for b in blocks])
+def edges_from_blocks(blocks: list[dict]
+                      ) -> tuple[list[float], list[float], list[float]]:
+    """(lefts, rights, heights) -- heights are the edge weights."""
+    return ([round(b["L"], 2) for b in blocks],
+            [round(b["R"], 2) for b in blocks],
+            [round(b["B"] - b["T"], 3) for b in blocks])
 
 
-def line_edges(conn, page_id: str,
-               exclude_block_idx: set | None = None) -> tuple[list[float], list[float]]:
-    """Line edges, optionally dropping the lines of subsumed blocks."""
-    lefts, rights = [], []
+def line_edges(conn, page_id: str, exclude_block_idx: set | None = None
+               ) -> tuple[list[float], list[float], list[float]]:
+    """Line edges (+ heights). NOT used by the fit -- blocks are what is
+    measured. Retained for inspection and for `pooled_edges`, which the
+    plots use to show what the line-level distribution looks like."""
+    lefts, rights, heights = [], [], []
     for r in conn.execute(
-        "SELECT block_idx, left_pct L, right_pct R FROM page_hocr_lines WHERE page_id=?",
-        (page_id,),
+        "SELECT block_idx, left_pct L, right_pct R, top_pct T, bottom_pct B "
+        "FROM page_hocr_lines WHERE page_id=?", (page_id,),
     ):
         if r["R"] - r["L"] < 0.5:
             continue
@@ -160,7 +256,8 @@ def line_edges(conn, page_id: str,
             continue
         lefts.append(round(r["L"], 2))
         rights.append(round(r["R"], 2))
-    return lefts, rights
+        heights.append(round(r["B"] - r["T"], 3))
+    return lefts, rights, heights
 
 
 def pooled_edges(conn, page_id: str) -> tuple[list[float], list[float]]:
@@ -170,21 +267,42 @@ def pooled_edges(conn, page_id: str) -> tuple[list[float], list[float]]:
     grid, so pooling gives the fit more evidence without adding any new
     assumption.
     """
-    bl, br = edges_from_blocks(page_blocks(conn, page_id))
-    ll, lr = line_edges(conn, page_id)
+    bl, br, _ = edges_from_blocks(page_blocks(conn, page_id))
+    ll, lr, _ = line_edges(conn, page_id)
     return bl + ll, br + lr
 
 
-def _peaks(vals: list[float], bin_pct: float = 0.25,
-           min_share: float = 0.015) -> list[tuple[float, int]]:
-    """Cluster centres of a 1-D edge distribution, with their weights."""
+def peak_counts(vals: list[float], bin_pct: float = 0.25) -> dict[int, int]:
+    """How many edges fall in each bin. Retained for comparison against
+    the height-weighted measure now used for fitting."""
+    out: dict[int, int] = {}
+    for v in vals:
+        b = int(v / bin_pct)
+        out[b] = out.get(b, 0) + 1
+    return out
+
+
+def _peaks(vals: list[float], weights: list[float] | None = None,
+           bin_pct: float = 0.25, min_share: float = 0.015
+           ) -> list[tuple[float, float]]:
+    """Cluster centres of a 1-D edge distribution, with their weights.
+
+    `weights` is the height of the item that produced each edge; without
+    it every edge counts 1 (the old count-based behaviour).
+    """
     if not vals:
         return []
+    if weights is None:
+        weights = [1.0] * len(vals)
     hist: dict[int, list[float]] = {}
-    for v in vals:
-        hist.setdefault(int(v / bin_pct), []).append(v)
-    floor = max(2, int(len(vals) * min_share))
-    keep = sorted(b for b, xs in hist.items() if len(xs) >= floor)
+    wsum: dict[int, float] = {}
+    for v, wt in zip(vals, weights):
+        b = int(v / bin_pct)
+        hist.setdefault(b, []).append(v)
+        wsum[b] = wsum.get(b, 0.0) + wt
+    total = sum(wsum.values())
+    floor = total * min_share
+    keep = sorted(b for b in hist if wsum[b] >= floor)
     if not keep:
         return []
     out, run = [], [keep[0]]
@@ -198,7 +316,8 @@ def _peaks(vals: list[float], bin_pct: float = 0.25,
     peaks = []
     for grp in out:
         xs = [x for b in grp for x in hist[b]]
-        peaks.append((round(statistics.median(xs), 2), len(xs)))
+        peaks.append((round(statistics.median(xs), 2),
+                      round(sum(wsum[b] for b in grp), 2)))
     return peaks
 
 
@@ -244,13 +363,19 @@ def _score_lattice(peaks: list[tuple[float, int]], offset: float, pitch: float,
     return max(0.0, (observed - chance) / (1.0 - chance))
 
 
-def fit_grid(lefts: list[float], rights: list[float]) -> dict | None:
-    """Fit margin / column width / gutter / column count."""
+def fit_grid(lefts: list[float], rights: list[float],
+             lw: list[float] | None = None,
+             rw: list[float] | None = None) -> dict | None:
+    """Fit margin / column width / gutter / column count.
+
+    `lw`/`rw` are per-edge weights -- item heights. Passing them makes a
+    tall block count for more than a small fragment at the same x.
+    """
     if len(lefts) + len(rights) < MIN_EDGES:
         return None
 
-    left_peaks = _peaks(lefts)
-    right_peaks = _peaks(rights)
+    left_peaks = _peaks(lefts, lw)
+    right_peaks = _peaks(rights, rw)
     if not left_peaks or not right_peaks:
         return None
     all_peaks = left_peaks + right_peaks
@@ -317,6 +442,12 @@ def fit_grid(lefts: list[float], rights: list[float]) -> dict | None:
 # enough that a column cannot migrate into its neighbour's slot.
 SNAP_SEARCH_PCT = 2.0
 
+# Blocks in the bottom decile by height are dropped before an edge is
+# chosen. Extreme-lean selection is by definition sensitive to whatever
+# sits furthest out, so the shortest items -- the ones least likely to be
+# real column structure -- must not be allowed to set an edge.
+HEIGHT_PCTL_FLOOR = 10
+
 # For the LAST column only. The right margin is ragged: most lines stop
 # short of the column edge, so the heaviest right-edge cluster sits LEFT
 # of the truth and snapping to it makes the last column too narrow.
@@ -342,59 +473,84 @@ def analyse(conn, page_id: str, blocks: list[dict] | None = None,
     are guaranteed to be the same computation on different input.
     """
     blocks = page_blocks(conn, page_id) if blocks is None else blocks
-    bl, br = edges_from_blocks(blocks)
-    ll, lr = line_edges(conn, page_id, exclude_block_idx)
-    return fit_grid(bl + ll, br + lr)
+    line_h = median_line_height(conn, page_id)
+
+    # Truncation: drop items shorter than MIN_ITEM_HEIGHT_LINES text lines
+    # and taller than MAX_ITEM_HEIGHT_FRAC of the page. The first removes
+    # single-line fragments that carry no column information; the second
+    # removes full-height scan artefacts (photo shadows, page-edge blobs)
+    # that would otherwise dominate a height-weighted fit.
+    ok = [b for b in blocks if usable(b, line_h)]
+    rules = vertical_rules(conn, page_id, line_h)
+    bl = tall_edges(ok + rules, "left")
+    br = tall_edges(ok + rules, "right")
+    bh = [i["B"] - i["T"] for i in (ok + rules)
+          if (i["B"] - i["T"]) >= _decile_floor(ok + rules)]
+    w = bh if (WEIGHT_BY_HEIGHT and len(bh) == len(bl)) else None
+    return fit_grid(bl, br, w, w)
 
 
-def _snap(predicted: float, peaks: list[tuple[float, int]]) -> tuple[float, bool]:
-    """Pull a predicted edge to the heaviest peak within SNAP_SEARCH_PCT.
+def _lean(predicted: float, edges: list[float], window: float,
+          rightward: bool, lo: float | None = None,
+          hi: float | None = None) -> tuple[float, bool]:
+    """Take the most EXTREME edge within `window` of the prediction.
 
-    Ties in weight are broken by proximity, so a distant peak never wins
-    over an equally-supported near one.
+    Averaging a cluster was the wrong move: it pulls an edge towards
+    wherever most items happen to stop, which is INSIDE the column, and
+    it made pass 2 weaker than pass 1. A column's true left edge is the
+    LEFTMOST place its blocks start (anything further right is an indent);
+    its true right edge is the RIGHTMOST place they end (anything further
+    left is just a short line). Leaning to the extreme recovers the real
+    boundary, and a consistent gutter falls out of it.
+
+    `edges` must already have the shortest decile removed -- see
+    `tall_edges`. Extreme selection is by construction sensitive to
+    whatever sits furthest out, so the least trustworthy items must not
+    be able to set an edge.
     """
-    near = [(w, -abs(x - predicted), x) for x, w in peaks
-            if abs(x - predicted) <= SNAP_SEARCH_PCT]
+    near = [x for x in edges if abs(x - predicted) <= window]
+    # Hard bounds keep a column inside its own slot. Without them the
+    # lean grabs the FAR side of the printed rule that separates it from
+    # its neighbour -- the rule is only ~0.5-1% wide, well inside the
+    # search window -- and the gutter collapses to zero.
+    if lo is not None:
+        near = [x for x in near if x >= lo]
+    if hi is not None:
+        near = [x for x in near if x <= hi]
     if not near:
         return predicted, False
-    return round(max(near)[2], 2), True
+    return round(max(near) if rightward else min(near), 2), True
 
 
-def wide_right_edges(conn, page_id: str, kept: list[dict],
-                     exclude_block_idx: set, min_width_pct: float) -> list[float]:
-    """Right edges of blocks and lines at least `min_width_pct` wide.
+def _decile_floor(items: list[dict]) -> float:
+    if not items:
+        return 0.0
+    hs = sorted(i["B"] - i["T"] for i in items)
+    return hs[min(len(hs) - 1, int(len(hs) * HEIGHT_PCTL_FLOOR / 100))]
 
-    Short items are excluded deliberately: at the ragged right margin
-    they mark where a line of text happened to stop, not where the column
-    ends.
+
+def tall_edges(items: list[dict], side: str) -> list[float]:
+    """Edges from all but the shortest decile of items, by height.
+
+    For a printed rule the sides are swapped: the rule lies in the
+    gutter, so its LEFT edge is a column's RIGHT boundary and vice
+    versa.
     """
-    out = [b["R"] for b in kept if (b["R"] - b["L"]) >= min_width_pct]
-    for r in conn.execute(
-        "SELECT block_idx, left_pct L, right_pct R FROM page_hocr_lines WHERE page_id=?",
-        (page_id,),
-    ):
-        if r["block_idx"] in exclude_block_idx:
+    if not items:
+        return []
+    heights = sorted(i["B"] - i["T"] for i in items)
+    idx = min(len(heights) - 1, int(len(heights) * HEIGHT_PCTL_FLOOR / 100))
+    floor = heights[idx]
+    out = []
+    for i in items:
+        if (i["B"] - i["T"]) < floor:
             continue
-        if (r["R"] - r["L"]) >= min_width_pct:
-            out.append(round(r["R"], 2))
+        if i.get("is_rule"):
+            key = "R" if side == "left" else "L"
+        else:
+            key = "L" if side == "left" else "R"
+        out.append(round(i[key], 2))
     return out
-
-
-def _snap_rightmost(predicted: float, peaks: list[tuple[float, int]],
-                    window: float) -> tuple[float, bool]:
-    """Pull an edge to the most RIGHTWARD significant peak in a window.
-
-    For the final column only. `peaks` should already be built from
-    WIDE items alone (see wide_right_edges) -- short items at a ragged
-    margin mark where text stopped, not where the column ends.
-
-    `predicted` comes from the column pitch established by the other
-    columns, so this stays anchored to the grid rather than free-running.
-    """
-    near = [x for x, _w in peaks if abs(x - predicted) <= window]
-    if not near:
-        return predicted, False
-    return round(max(near), 2), True
 
 
 def detect(conn, page_id: str) -> dict:
@@ -428,47 +584,48 @@ def detect(conn, page_id: str) -> dict:
                 "subsumed": len(subsumed), "subsumed_blocks": subsumed}
 
     # Majority-alignment refinement, using the cleaned edge distribution.
-    bl, br = edges_from_blocks(kept)
-    ll, lr = line_edges(conn, page_id, dropped)
-    left_peaks = _peaks(bl + ll)
-    right_peaks = _peaks(br + lr)
-    wide_peaks = _peaks(wide_right_edges(
-        conn, page_id, kept, dropped,
-        grid["col_width"] * LAST_COL_MIN_ITEM_FRAC))
+    line_h = median_line_height(conn, page_id)
+    ok = [b for b in kept if usable(b, line_h)]
+    rules = vertical_rules(conn, page_id, line_h)
+    left_edges = tall_edges(ok + rules, "left")
+    right_edges = tall_edges(ok + rules, "right")
 
-    last = grid["n_columns"] - 1
-    columns, snapped = [], 0
-    for k in range(grid["n_columns"]):
+    # LEFT edges first, for every column. Each leans leftward to the
+    # outermost block start near its predicted slot, bounded so it cannot
+    # cross back past the previous slot.
+    n = grid["n_columns"]
+    lefts, hit_left = [], []
+    for k in range(n):
         pl = grid["offset"] + k * grid["pitch"]
-        left, hit_l = _snap(pl, left_peaks)
-        predicted_right = left + grid["col_width"]
-        if k == last:
-            # Ragged right margin -- lean rightward using WIDE items only,
-            # anchored on the pitch prediction from the other columns.
-            # Window widened a little: this is the edge most likely to be
-            # under-reached.
-            right, hit_r = _snap_rightmost(predicted_right, wide_peaks,
-                                           SNAP_SEARCH_PCT * 1.5)
-        else:
-            right, hit_r = _snap(predicted_right, right_peaks)
-        if right - left < grid["col_width"] * 0.5:   # snapped onto itself
-            right = round(predicted_right, 2)
+        prev_right = (grid["offset"] + (k - 1) * grid["pitch"]
+                      + grid["col_width"]) if k else None
+        x, hit = _lean(pl, left_edges, SNAP_SEARCH_PCT, rightward=False,
+                       lo=prev_right)
+        lefts.append(x)
+        hit_left.append(hit)
+
+    # RIGHT edges second, each bounded by the ACTUAL left edge of the next
+    # column less a minimum gutter. Bounding against the *predicted* next
+    # left was not enough: the next column then leans left to that same
+    # prediction and the two meet, collapsing the gutter to zero.
+    min_gutter = max(0.25, grid["gutter"] * 0.5)
+    columns, moved = [], 0
+    for k in range(n):
+        hi = (lefts[k + 1] - min_gutter) if k + 1 < n else None
+        right, hit_r = _lean(lefts[k] + grid["col_width"], right_edges,
+                             SNAP_SEARCH_PCT, rightward=True, hi=hi)
+        if right - lefts[k] < grid["col_width"] * 0.5:
+            right = round(lefts[k] + grid["col_width"], 2)
             hit_r = False
-        # Columns may not overlap: a snap that crosses the previous
-        # column's right edge would put one column inside another.
-        if columns and left < columns[-1]["right_pct"]:
-            mid = round((left + columns[-1]["right_pct"]) / 2, 2)
-            columns[-1]["right_pct"] = mid
-            left = mid
-        snapped += int(hit_l) + int(hit_r)
-        columns.append({"col_idx": k, "left_pct": round(left, 2),
+        moved += int(hit_left[k]) + int(hit_r)
+        columns.append({"col_idx": k, "left_pct": round(lefts[k], 2),
                         "right_pct": round(right, 2),
-                        "snapped_left": hit_l, "snapped_right": hit_r})
+                        "snapped_left": hit_left[k], "snapped_right": hit_r})
 
     return {"grid": grid, "fit": grid["score"],
             "fit_before_refine": first["score"] if first else None,
             "columns": columns,
-            "edges_snapped": snapped, "edges_total": 2 * grid["n_columns"],
+            "edges_snapped": moved, "edges_total": 2 * grid["n_columns"],
             "n_blocks": len(blocks), "n_kept": len(kept),
             "subsumed": len(subsumed), "subsumed_blocks": subsumed}
 

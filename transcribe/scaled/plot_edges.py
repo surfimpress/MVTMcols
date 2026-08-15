@@ -1,4 +1,11 @@
-"""Plot the raw signal the grid fit rests on: block edge positions.
+"""Plot the signal the grid fit rests on: BLOCK edge positions,
+weighted by block HEIGHT.
+
+Y is summed item height, not item count. A tall block running down a
+column is strong evidence of that column's edge; a pile of small
+fragments at the same x is not. hOCR lines are not plotted and not
+fitted -- they are referred to only to derive the minimum height a block
+must exceed.
 
 Two panels, stacked, so the refinement step can be judged directly:
 
@@ -44,17 +51,23 @@ GUTTER_COLOUR = (252, 240, 190)  # pale wash marking the gutter band
 DROP_COLOUR = (200, 60, 140)     # blocks removed by the refinement
 
 
-def _hist(vals: list[float], nbins: int) -> list[int]:
-    h = [0] * nbins
-    for v in vals:
-        h[min(nbins - 1, max(0, int(v / BIN_PCT)))] += 1
+def _hist(vals: list[float], nbins: int,
+          weights: list[float] | None = None) -> list[float]:
+    """Summed weight per bin. Weights are item HEIGHTS -- the same Y
+    measure the fit uses -- so the chart shows what the detector sees,
+    not a different quantity."""
+    h = [0.0] * nbins
+    for i, v in enumerate(vals):
+        h[min(nbins - 1, max(0, int(v / BIN_PCT)))] += (weights[i] if weights else 1.0)
     return h
 
 
 def _panel(d: ImageDraw.ImageDraw, top: int, title: str,
            lefts: list[float], rights: list[float],
            columns: list[tuple[float, float]],
-           dropped: list[float], peak: int) -> None:
+           dropped: list[float], peak: float,
+           wl: list[float] | None = None, wr: list[float] | None = None,
+           wd: list[float] | None = None) -> None:
     """One histogram panel drawn at vertical offset `top`."""
     nbins = int(100 / BIN_PCT) + 1
     pw = W - PAD_L - PAD_R
@@ -75,14 +88,14 @@ def _panel(d: ImageDraw.ImageDraw, top: int, title: str,
         x = PAD_L + pw * (pct / 100.0)
         d.line([(x, base), (x, base + 5)], fill=(0, 0, 0), width=1)
         d.text((x - 8, base + 10), f"{pct}", fill=(0, 0, 0))
-    step = max(1, peak // 4)
-    for c in range(0, peak + 1, step):
+    for i in range(5):
+        c = peak * i / 4
         y = base - ph * (c / peak)
         d.line([(PAD_L - 5, y), (PAD_L, y)], fill=(0, 0, 0), width=1)
-        d.text((PAD_L - 32, y - 6), f"{c}", fill=(0, 0, 0))
+        d.text((PAD_L - 38, y - 6), f"{c:.0f}", fill=(0, 0, 0))
 
-    hl, hr = _hist(lefts, nbins), _hist(rights, nbins)
-    hd = _hist(dropped, nbins)
+    hl, hr = _hist(lefts, nbins, wl), _hist(rights, nbins, wr)
+    hd = _hist(dropped, nbins, wd)
     bw = max(1, pw / nbins)
 
     # Bars at their TRUE x. Where series share a bin the taller is drawn
@@ -118,11 +131,21 @@ def plot_page(conn, page_row, out_path: str) -> str:
         return ""
     kept, subsumed = _grid.subsume_stray_blocks(blocks)
 
-    raw_l = [b["L"] for b in blocks]
-    raw_r = [b["R"] for b in blocks]
+    # Same truncation the fit applies: taller than MIN_ITEM_HEIGHT_LINES
+    # text lines, shorter than MAX_ITEM_HEIGHT_FRAC of the page.
+    line_h = _grid.median_line_height(conn, pid)
+    kept = [b for b in kept if _grid.usable(b, line_h)]
+    blocks_u = [b for b in blocks if _grid.usable(b, line_h)]
+
+    hgt = lambda bs: [b["B"] - b["T"] for b in bs]
+    raw_l = [b["L"] for b in blocks_u]
+    raw_r = [b["R"] for b in blocks_u]
+    raw_h = hgt(blocks_u)
     kept_l = [b["L"] for b in kept]
     kept_r = [b["R"] for b in kept]
+    kept_h = hgt(kept)
     drop_l = [b["L"] for b in subsumed]
+    drop_h = hgt(subsumed)
 
     # Pass-1 lattice: rigid, every slot the same width.
     before_cols = []
@@ -133,24 +156,24 @@ def plot_page(conn, page_row, out_path: str) -> str:
     after_cols = [(c["left_pct"], c["right_pct"]) for c in res.get("columns", [])]
 
     nbins = int(100 / BIN_PCT) + 1
-    peak = max([1] + _hist(raw_l, nbins) + _hist(raw_r, nbins))
+    peak = max([1.0] + _hist(raw_l, nbins, raw_h) + _hist(raw_r, nbins, raw_h))
 
     img = Image.new("RGB", (W, PANEL_H * 2 + 30), (255, 255, 255))
     d = ImageDraw.Draw(img)
     date = f"{page_row['year']}-{page_row['month']:02d}-{page_row['day']:02d}"
 
     _panel(d, 0,
-           f"{date} p{page_row['page']} — BEFORE refinement: {len(blocks)} blocks, "
-           f"pass-1 rigid lattice"
-           + (f" ({g['n_columns']} slots, pitch {g['pitch']}%, col {g['col_width']}%)"
+           f"{date} p{page_row['page']} — BEFORE refinement: {len(blocks_u)} blocks "
+           f"(of {len(blocks)}, short/full-height truncated), pass-1 rigid lattice"
+           + (f" — {g['n_columns']} slots, pitch {g['pitch']}%, col {g['col_width']}%"
               if g else " (no fit)"),
-           raw_l, raw_r, before_cols, [], peak)
+           raw_l, raw_r, before_cols, [], peak, raw_h, raw_h, None)
 
     _panel(d, PANEL_H + 30,
            f"AFTER refinement: {len(kept)} blocks ({len(subsumed)} stray subsumed), "
            f"pass-2 columns snapped to majority alignment "
            f"({res.get('edges_snapped', 0)}/{res.get('edges_total', 0)} edges moved)",
-           kept_l, kept_r, after_cols, drop_l, peak)
+           kept_l, kept_r, after_cols, drop_l, peak, kept_h, kept_h, drop_h)
 
     # Legend along the bottom.
     y = PANEL_H * 2 + 8
