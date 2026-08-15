@@ -68,10 +68,29 @@ Corpus-wide recovery from the 90 parseable pages:
 **5,081 regions (1,344 vertical rules, 1,511 photos), 560 `ocr_header`
 lines, 447 `ocr_caption` lines** — all previously invisible.
 
-Not enabled but one flag away: `-c hocr_font_info=1` adds `x_font` /
-`x_fsize` and wraps bold/italic in `<strong>`/`<em>`. Confirmed absent
-today (grep for `x_font` → 0 hits). **There is currently no bold/italic
-signal at all.**
+### What more Tesseract can be made to emit — tested, not assumed
+
+Re-ran the exact production command on 1997-07-16 p1 with
+`-c hocr_font_info=1` and diffed the output:
+
+| | production | with `hocr_font_info=1` |
+|---|---|---|
+| title keys | baseline, x_ascenders, x_descenders, x_size, x_wconf | **+ `x_fsize`** |
+| bold/italic tags | none | **still none** |
+| `x_font` (font name) | absent | **still absent** |
+| element classes | (same 10) | (same 10) |
+
+So the only real gain is **`x_fsize` — a per-WORD font size in points**
+(measured: n=1921, min 4, median 9, max 75; 1501 words at 9pt = body).
+That is finer-grained than `x_size`, which is per-line.
+
+**Correction to an earlier note in this file:** bold/italic is *not*
+"one flag away". `hocr_font_info` documents `<strong>`/`<em>` output,
+but with the LSTM engine (`--oem 1`, what we run) Tesseract does not
+report font attributes at all — empirically zero bold/italic tags and
+zero `x_font`. Only the legacy engine reports those, and switching
+engines would cost recognition accuracy. **Treat "no bold/italic
+signal" as a fixed property of this setup, not a config gap.**
 
 ---
 

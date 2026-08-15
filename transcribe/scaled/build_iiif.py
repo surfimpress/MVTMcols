@@ -52,6 +52,10 @@ LINE_LAYERS = [
 ]
 
 
+def _esc(t: str) -> str:
+    return (t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+
 def _manifest_name(variant: str) -> str:
     return "manifest.json" if variant == "all" else f"manifest_{variant}.json"
 
@@ -61,7 +65,8 @@ def _rel_url(abs_path: str) -> str:
     return f"{PUBLIC_BASE}/{rel}"
 
 
-def _anno(anno_id, canvas_id, x, y, w, h, text, label, granularity=None):
+def _anno(anno_id, canvas_id, x, y, w, h, text, label, granularity=None,
+          kind=None, detail=None):
     """One supplementing annotation over a canvas region.
 
     `granularity` emits the IIIF Text Granularity extension's
@@ -74,12 +79,24 @@ def _anno(anno_id, canvas_id, x, y, w, h, text, label, granularity=None):
     Deliberately omitted for ocr_separator / ocr_photo: those regions
     carry no text at all, so no granularity honestly applies to them.
     """
+    # Every annotation carries a type subhead in its own body, so the
+    # structure is legible in the viewer without cross-referencing which
+    # layer you happen to be looking at. Mirador sanitises HTML bodies;
+    # a <small> line plus the text survives that.
+    if kind:
+        head = kind if not detail else f"{kind} &middot; {detail}"
+        value = (f"<small><b>{head}</b></small>"
+                 + (f"<br>{_esc(text)}" if text and not text.startswith("(no text") else ""))
+        body = {"type": "TextualBody", "format": "text/html",
+                "language": "en", "value": value}
+    else:
+        body = {"type": "TextualBody", "format": "text/plain",
+                "language": "en", "value": text}
     a = {
         "id": anno_id,
         "type": "Annotation",
         "motivation": "supplementing",
-        "body": {"type": "TextualBody", "format": "text/plain",
-                 "language": "en", "value": text},
+        "body": body,
         "target": f"{canvas_id}#xywh={x},{y},{w},{h}",
         "label": {"en": [label]},
     }
@@ -143,7 +160,7 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
             if cls == "ocr_carea":
                 rows = conn.execute(
                     "SELECT block_idx, bbox_left_pct l, bbox_top_pct t, "
-                    "bbox_right_pct r, bbox_bottom_pct b, raw_text, conf "
+                    "bbox_right_pct r, bbox_bottom_pct b, raw_text, conf, n_words "
                     "FROM page_ocr_blocks WHERE page_id=? ORDER BY block_idx",
                     (p["id"],)).fetchall()
                 for i, rr in enumerate(rows):
@@ -154,7 +171,9 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
                         f"{cid}/anno/{cls}/{i}", cid, x0, y0, max(1, x1 - x0),
                         max(1, y1 - y0), txt,
                         f"block {rr['block_idx']} · conf {rr['conf']}",
-                        granularity="block"))
+                        granularity="block", kind="ocr_carea",
+                        detail=f"block {rr['block_idx']} · conf {rr['conf']} · "
+                               f"{rr['n_words'] or 0} words"))
             else:
                 rows = conn.execute(
                     "SELECT left_pct l, top_pct t, right_pct r, bottom_pct b, "
@@ -166,9 +185,10 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
                     items.append(_anno(
                         f"{cid}/anno/{cls}/{i}", cid, x0, y0, max(1, x1 - x0),
                         max(1, y1 - y0),
-                        f"{cls} · {rr['orientation']} · "
-                        f"{rr['width_px']}x{rr['height_px']}px (source resolution)",
-                        f"{cls} {rr['orientation']}"))
+                        "(no text — region only)",
+                        f"{cls} {rr['orientation']}", kind=cls,
+                        detail=f"{rr['orientation']} · "
+                               f"{rr['width_px']}x{rr['height_px']}px"))
             if items:
                 canvas["annotations"].append({
                     "id": f"{cid}/annopage/{cls}",
@@ -193,7 +213,7 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
                 items.append(_anno(
                     f"{cid}/anno/{cls}/{i}", cid, x0, y0, max(1, x1 - x0),
                     max(1, y1 - y0), (rr["text"] or "").strip() or "(no text)",
-                    f"{cls} · {xs}", granularity="line"))
+                    f"{cls} · {xs}", granularity="line", kind=cls, detail=xs))
             canvas["annotations"].append({
                 "id": f"{cid}/annopage/{cls}",
                 "type": "AnnotationPage",
