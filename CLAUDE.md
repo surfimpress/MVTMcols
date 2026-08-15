@@ -30,14 +30,19 @@ that.
     of the coordinate and db helpers. Same DB (additive schema-v15 tables
     only), so results are comparable in one query. Delete the package and
     production is unaffected.
-  - **Stage 2 is BANDS, not full-height columns** (`detect_bands.py`,
-    schema v16 `page_bands`). Full-height columns escalated 97.8% of
-    1980+ pages — a wrong-model result, not a tuning failure, since that
-    era is modular (`layout_observations.md` already said so). Band-first
-    (horizontal strip, then columns within it) cuts escalation to
-    **31.5%**. Still imperfect: bands remain too coarse (a 62%-tall band
-    containing several articles scored 0.917), and the next step is
-    recursive splitting inside a band — **not built**.
+  - **Stage 2 is the UNDERLYING GRID** (`detect_grid.py`). Per
+    `instructions/typesetting_practice.md`, fit four numbers (margin,
+    column width, gutter, column count) rather than discover boundaries.
+    Validated against physical evidence: on 1980-04-06 p11 the fitted
+    lattice matches the page's own printed column rules within ~0.3% on
+    every boundary, with a 0.86% gutter (≈1 pica). 90 pages fitted,
+    median fit 0.75. **Everything else builds up from this.**
+  - **Confidence scoring is an ARCHIVED DEAD END**
+    (`transcribe/scaled/archive/`). Earlier detectors discovered layout
+    from weak signals then scored their own trustworthiness; every
+    version certified itself, and each failure was caught only by
+    rendering the page. `detect_grid` reports `fit` as a **diagnostic,
+    with no gate**.
   - **Process lesson worth keeping:** the confidence metric initially
     scored a visibly-wrong page 0.853 because it measured only precision,
     never recall — the exact self-flattering-metrics failure

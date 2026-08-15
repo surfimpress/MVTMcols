@@ -224,7 +224,7 @@ why it is read defensively.
 files from an old comparison run). Zero block-count regression. 5,081
 regions and 1,007 header/caption lines recovered for free.
 
-### 5b. Column detection — negative result, and *why* matters
+### 5b. ARCHIVED — full-height column detection — negative result
 
 **Escalation rate: 88/90 = 97.8%.** Confidence min 0.00, median 0.29,
 max 0.78.
@@ -282,7 +282,56 @@ exists for exactly this.**
 
 ---
 
-### 5d. Band-first segmentation — the fix for 5b, and its own limit
+### 5f. Stage 2 is now the UNDERLYING GRID — everything builds up from it
+
+Following `instructions/typesetting_practice.md`: the page was set on a
+fixed grid, so **fit four numbers, don't discover boundaries.**
+`transcribe/scaled/detect_grid.py`:
+
+1. Pool left+right edges of every block and line (per PAGE, not per
+   issue — the photography varies too much between pages, and one page
+   carries plenty of edges).
+2. Cluster into peaks — the alignment positions the page actually uses.
+3. Grid-search pitch and offset; keep the lattice explaining most peak
+   weight.
+4. Derive column width from each slot's dominant right-edge peak;
+   gutter is the remainder of the pitch.
+
+**Validated against the physical evidence** on 1980-04-06 p11 — the
+fitted lattice vs the page's own printed column rules:
+
+| grid | printed rule | error |
+|---|---|---|
+| 15.49 | 15.2 | 0.29 |
+| 27.14 | 26.1–27.4 | 0.26 |
+| 38.79 | 38.1–39.1 | 0.31 |
+| 50.44 | 49.7–50.7 | 0.26 |
+| 62.09 | 61.0–62.0 | 0.09 |
+| 73.74 | 72.8–73.9 | 0.16 |
+
+Every boundary within ~0.3%, gutter 0.86% (≈1 pica, as expected). The
+8th slot at 85.4 has no printed rule because an ad spans two slots —
+which is the model working, not failing.
+
+Corpus: 90 pages fitted, median fit 0.75. Modal column counts 8 (39
+pages) and 6 (27).
+
+**Three bugs worth remembering**, all found by plotting/rendering rather
+than by reading numbers:
+- Raw hit-rate scoring made finer lattices always win, so a 7-column
+  page fitted as 15 columns. Fixed with chance correction (each lattice
+  line accepts ±tol, so random hit probability is 2·tol/pitch).
+- Scoring every edge rather than peaks understated a *visually correct*
+  grid at 0.20 — most edges on a newspaper page are ad interiors and
+  centred headlines that never touch the grid.
+- `pitch = span/n` silently assumed the last column *starts* at the text
+  right edge; it *ends* there. The lattice drifted left by ≈gutter/n.
+  Pitch is now searched, not derived.
+
+`fit` is reported as a **diagnostic only — there is no gate.** Scoring
+with escalation thresholds is archived as a dead end (see below).
+
+### 5d. ARCHIVED — band-first segmentation
 
 Because full-height columns are the wrong model for 1980+ (5b), stage 2
 was re-cut around **bands**: a horizontal strip bounded by a wide
@@ -344,6 +393,17 @@ disagreement is inspectable), `manifest_bands`. A layer is omitted
 entirely when a stage produced nothing for a page, so an empty layer
 never masquerades as a real result.
 
+
+### 5g. Archived dead end: confidence scoring
+
+`detect_columns.py` and `detect_bands.py` are in
+`transcribe/scaled/archive/` with a README explaining why. Short version:
+they tried to *discover* layout from weak signals and then score how much
+to trust the answer. Every version of that score ended up certifying its
+own detector, and each failure was caught only by looking at a rendered
+page. On a designed grid the question is simply "do the page's alignment
+positions land on this lattice?" — which needs a fit, not a confidence
+model.
 
 ## 6. What this implies for the plan
 

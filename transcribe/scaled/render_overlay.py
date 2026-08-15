@@ -1,20 +1,23 @@
-"""Render detected structure over the real page image.
+"""Draw the fitted grid over the real page image.
 
-Exists because this project has already been burned by trusting derived
-numbers: `post1980_layout_observations.md` records a run whose own
-quality flags reported 97% clean while the cuts were, in the user's
-words, "beyond useless" -- because the metrics shared authorship with
-the code they graded. Counting rows in `page_columns` is internal
-consistency, not validation. This puts the answer back on the pixels.
+Exists because this project has been burned by trusting derived numbers.
+`post1980_layout_observations.md` records a run whose own quality flags
+reported 97% clean while the cuts were "beyond useless" -- the metrics
+shared authorship with the code they graded. This experiment reproduced
+that failure three times (see transcribe/scaled/archive/README.md), each
+caught only by looking at the page.
 
-Colours are chosen to stay distinguishable for a colour-blind viewer
-(blue / orange / black, varied dash patterns) rather than relying on a
-red/green distinction.
+So: `detect_grid` reports a fit number, and this puts that number back on
+the pixels. Counting rows in `page_columns` is internal consistency, not
+validation.
+
+Colours stay distinguishable without hue discrimination (orange grid,
+green photo regions, varied stroke).
 
 Usage::
 
-    python3 -m transcribe.scaled.render_overlay 1990-10-10 --page 2
-    python3 -m transcribe.scaled.render_overlay 1980-04-06        # whole issue
+    python3 -m transcribe.scaled.render_overlay 1980-04-06 --page 11
+    python3 -m transcribe.scaled.render_overlay 1980-04-06
 """
 
 from __future__ import annotations
@@ -25,29 +28,12 @@ import os
 from PIL import Image, ImageDraw
 
 from . import _support as _sup
-from . import detect_bands as _bands
-from . import detect_columns as _cols
+from . import detect_grid as _grid
 
 OUT_DIR = os.path.join(_sup.REPO_ROOT, "preview", "scaled")
 
-# Blue / orange / black, distinguishable without hue discrimination.
-STYLE = {
-    "separator": {"colour": (0, 90, 200), "dash": None, "width": 5, "label": "separator rule"},
-    "leftedge": {"colour": (230, 120, 0), "dash": (18, 12), "width": 4, "label": "left-edge cluster"},
-    "valley": {"colour": (20, 20, 20), "dash": (6, 10), "width": 3, "label": "coverage valley"},
-    "combined": {"colour": (200, 0, 120), "dash": None, "width": 3, "label": "COMBINED column edges"},
-}
-
-
-def _vline(draw, x, top, bottom, colour, width, dash):
-    if not dash:
-        draw.rectangle([x - width // 2, top, x + width // 2, bottom], fill=colour)
-        return
-    on, off = dash
-    y = top
-    while y < bottom:
-        draw.rectangle([x - width // 2, y, x + width // 2, min(y + on, bottom)], fill=colour)
-        y += on + off
+GRID_COLOUR = (255, 140, 0)
+PHOTO_COLOUR = (0, 150, 90)
 
 
 def render_page(conn, page_row, out_path: str) -> str | None:
@@ -57,25 +43,25 @@ def render_page(conn, page_row, out_path: str) -> str | None:
     img = Image.open(img_path).convert("RGB")
     w, h = img.size
 
-    res = _cols.detect(conn, page_row["id"])
-
-    # Widen the canvas so the legend never covers the page itself.
-    band = 210
+    band = 96
     canvas = Image.new("RGB", (w, h + band), (255, 255, 255))
     canvas.paste(img, (0, 0))
     d = ImageDraw.Draw(canvas)
 
-    for name in ("separator", "leftedge", "valley"):
-        st = STYLE[name]
-        for b in res["signals"][name]:
-            _vline(d, _sup.pct_to_px(b, w), 0, h, st["colour"], st["width"], st["dash"])
+    res = _grid.detect(conn, page_row["id"])
+    g = res.get("grid")
 
-    st = STYLE["combined"]
-    for e in res["edges"]:
-        _vline(d, _sup.pct_to_px(e, w), 0, h, st["colour"], st["width"], st["dash"])
+    # Grid slots. An ad or photo spanning 2-3 slots is expected and
+    # correct -- slots are the page's underlying measure, not a claim
+    # about where visible text columns happen to fall.
+    if g:
+        for i in range(len(g["edges"]) - 1):
+            x0 = _sup.pct_to_px(g["edges"][i], w)
+            x1 = _sup.pct_to_px(min(100.0, g["edges"][i] + g["col_width"]), w)
+            d.rectangle([x0, 0, x1, h - 1], outline=GRID_COLOUR, width=2)
+            d.rectangle([x0 - 1, 0, x0 + 1, h], fill=GRID_COLOUR)
 
-    # Photo regions Tesseract found -- free signal the LLM is currently
-    # asked to derive by eye.
+    # Tesseract's own photo regions -- free signal, drawn for context.
     for r in conn.execute(
         "SELECT left_pct, top_pct, right_pct, bottom_pct FROM page_hocr_regions "
         "WHERE page_id=? AND region_class='ocr_photo'", (page_row["id"],)
@@ -83,39 +69,27 @@ def render_page(conn, page_row, out_path: str) -> str | None:
         d.rectangle(
             [_sup.pct_to_px(r["left_pct"], w), _sup.pct_to_px(r["top_pct"], h),
              _sup.pct_to_px(r["right_pct"], w), _sup.pct_to_px(r["bottom_pct"], h)],
-            outline=(0, 150, 90), width=3)
-
-    # Bands (stage 2 for 1980+): horizontal strip + its own column edges.
-    bres = _bands.detect(conn, page_row["id"])
-    for b in bres.get("bands", []):
-        yt = _sup.pct_to_px(b["top_pct"], h)
-        yb = _sup.pct_to_px(b["bottom_pct"], h)
-        d.rectangle([2, yt, w - 3, yb], outline=(150, 0, 200), width=4)
-        for e in b["edges"]:
-            x = _sup.pct_to_px(e, w)
-            d.rectangle([x - 2, yt, x + 2, yb], fill=(150, 0, 200))
-        d.text((6, yt + 4), f"band {b['band_idx']}: {b['n_columns']} col "
-                            f"reg={b['regularity']:.2f}", fill=(150, 0, 200))
+            outline=PHOTO_COLOUR, width=3)
 
     y = h + 10
-    d.text((12, y), f"{page_row['year']}-{page_row['month']:02d}-{page_row['day']:02d} "
-                    f"p{page_row['page']}   confidence={res['confidence']}   "
-                    f"{'ESCALATE' if res['escalate'] else 'accepted'}", fill=(0, 0, 0))
-    y += 18
-    d.text((12, y), f"parts: {res['confidence_parts']}", fill=(60, 60, 60))
-    y += 22
-    for name in ("separator", "leftedge", "valley", "combined"):
-        st = STYLE[name]
-        d.rectangle([12, y + 4, 46, y + 8], fill=st["colour"])
-        vals = res["edges"] if name == "combined" else res["signals"][name]
-        d.text((56, y), f"{st['label']}: {[round(v, 1) for v in vals]}", fill=(0, 0, 0))
-        y += 20
-    d.rectangle([12, y + 4, 46, y + 8], fill=(0, 150, 90))
-    d.text((56, y), "ocr_photo regions (Tesseract's own)", fill=(0, 0, 0))
+    d.text((12, y), f"{page_row['year']}-{page_row['month']:02d}-"
+                    f"{page_row['day']:02d} p{page_row['page']}", fill=(0, 0, 0))
     y += 20
-    d.rectangle([12, y + 4, 46, y + 8], fill=(150, 0, 200))
-    d.text((56, y), f"BANDS + per-band columns — conf={bres.get('confidence')} "
-                    f"{bres.get('confidence_parts', '')}", fill=(0, 0, 0))
+    d.rectangle([12, y + 4, 46, y + 8], fill=GRID_COLOUR)
+    if g:
+        d.text((56, y), f"UNDERLYING GRID — {g['n_columns']} slots · "
+                        f"pitch {g['pitch']}% · column {g['col_width']}% · "
+                        f"gutter {g['gutter']}% · fit {res['fit']:.2f} (diagnostic)",
+               fill=(0, 0, 0))
+        y += 20
+        d.text((56, y), f"edges: {[round(e, 1) for e in g['edges']]}", fill=(60, 60, 60))
+    else:
+        d.text((56, y), f"UNDERLYING GRID — no fit ({res.get('note', '')})",
+               fill=(0, 0, 0))
+        y += 20
+    y += 20
+    d.rectangle([12, y + 4, 46, y + 8], fill=PHOTO_COLOUR)
+    d.text((56, y), "ocr_photo regions (Tesseract's own)", fill=(0, 0, 0))
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     canvas.save(out_path, quality=88)
@@ -132,23 +106,21 @@ def _cmd(args):
         if args.page:
             sql += " AND page=?"
             params.append(args.page)
-        sql += " ORDER BY page"
-        rows = [dict(r) for r in conn.execute(sql, params)]
+        rows = [dict(r) for r in conn.execute(sql + " ORDER BY page", params)]
         if not rows:
             print(f"No pages for {args.date}")
             return
         out_dir = os.path.join(OUT_DIR, args.date)
-        written = []
+        n = 0
         for r in rows:
-            p = os.path.join(out_dir, f"p{r['page']}_columns.jpg")
-            got = render_page(conn, r, p)
+            got = render_page(conn, r, os.path.join(out_dir, f"p{r['page']}_grid.jpg"))
             if got:
-                written.append(got)
+                n += 1
                 print(f"  wrote {got}")
             else:
                 print(f"  SKIP p{r['page']}: no display image on disk")
-        if written:
-            print(f"\n{len(written)} render(s) in {out_dir}")
+        if n:
+            print(f"\n{n} render(s) in {out_dir}")
     finally:
         conn.close()
 

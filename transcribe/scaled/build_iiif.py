@@ -120,7 +120,7 @@ VARIANTS = {
 # the pipeline: Tesseract (raw) -> Columns -> Items -> Refined. Items and
 # Refined are not built yet; the viewer shows them disabled rather than
 # pretending they exist.
-DERIVED = ("columns", "bands")
+DERIVED = ("grid",)
 
 
 def _derived_layers(conn, page_id, cid, W, H, variant):
@@ -128,61 +128,20 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
     produced nothing for this page, so an empty layer never masquerades as
     a real result."""
     out = []
-    if variant == "columns":
+    if variant == "grid":
         rows = conn.execute(
-            "SELECT col_idx, left_pct, right_pct, confidence FROM page_columns "
-            "WHERE page_id=? AND method='combined' ORDER BY col_idx", (page_id,)).fetchall()
+            "SELECT col_idx, left_pct, right_pct, confidence, notes FROM page_columns "
+            "WHERE page_id=? AND method='grid' ORDER BY col_idx", (page_id,)).fetchall()
         items = []
         for r in rows:
             x0, x1 = _sup.pct_to_px(r["left_pct"], W), _sup.pct_to_px(r["right_pct"], W)
             items.append(_anno(
-                f"{cid}/anno/col/{r['col_idx']}", cid, x0, 0, max(1, x1 - x0), H,
-                "", f"column {r['col_idx']}", kind="column",
-                detail=f"{r['left_pct']:.1f}%-{r['right_pct']:.1f}% · "
-                       f"page conf {r['confidence']}"))
+                f"{cid}/anno/grid/{r['col_idx']}", cid, x0, 0, max(1, x1 - x0), H,
+                "", f"column slot {r['col_idx']}", kind="grid column",
+                detail=f"slot {r['col_idx']} · {r['left_pct']:.2f}%-{r['right_pct']:.2f}% · "
+                       f"{r['notes'] or ''} · fit {r['confidence']}"))
         if items:
-            out.append((f"Columns (full-height) — {len(items)}", items))
-        for method, label in (("separator", "signal: separator rules"),
-                              ("leftedge", "signal: left-edge clusters"),
-                              ("valley", "signal: coverage valleys")):
-            srows = conn.execute(
-                "SELECT col_idx, left_pct FROM page_columns WHERE page_id=? AND method=? "
-                "ORDER BY col_idx", (page_id, method)).fetchall()
-            sitems = []
-            for r in srows:
-                x = _sup.pct_to_px(r["left_pct"], W)
-                sitems.append(_anno(
-                    f"{cid}/anno/{method}/{r['col_idx']}", cid, max(0, x - 3), 0, 6, H,
-                    "", f"{method} @ {r['left_pct']:.1f}%", kind=method,
-                    detail=f"x={r['left_pct']:.1f}%"))
-            if sitems:
-                out.append((f"{label} — {len(sitems)}", sitems))
-    elif variant == "bands":
-        rows = conn.execute(
-            "SELECT band_idx, top_pct, bottom_pct, n_columns, column_edges_json, "
-            "regularity, n_lines FROM page_bands WHERE page_id=? ORDER BY band_idx",
-            (page_id,)).fetchall()
-        bitems, citems = [], []
-        for r in rows:
-            yt, yb = _sup.pct_to_px(r["top_pct"], H), _sup.pct_to_px(r["bottom_pct"], H)
-            bitems.append(_anno(
-                f"{cid}/anno/band/{r['band_idx']}", cid, 0, yt, W, max(1, yb - yt),
-                "", f"band {r['band_idx']}", kind="band",
-                detail=f"y {r['top_pct']:.1f}-{r['bottom_pct']:.1f}% · "
-                       f"{r['n_columns']} col · reg {r['regularity']:.2f} · "
-                       f"{r['n_lines']} lines"))
-            edges = json.loads(r["column_edges_json"] or "[]")
-            for i in range(len(edges) - 1):
-                x0, x1 = _sup.pct_to_px(edges[i], W), _sup.pct_to_px(edges[i + 1], W)
-                citems.append(_anno(
-                    f"{cid}/anno/bandcol/{r['band_idx']}/{i}", cid, x0, yt,
-                    max(1, x1 - x0), max(1, yb - yt), "",
-                    f"band {r['band_idx']} col {i}", kind="band column",
-                    detail=f"band {r['band_idx']} · {edges[i]:.1f}%-{edges[i+1]:.1f}%"))
-        if bitems:
-            out.append((f"Bands — {len(bitems)}", bitems))
-        if citems:
-            out.append((f"Columns within bands — {len(citems)}", citems))
+            out.append((f"Underlying grid — {len(items)} column slots", items))
     return out
 
 
@@ -313,8 +272,7 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
             "all": "raw Tesseract hOCR (blocks + lines)",
             "blocks": "raw Tesseract hOCR (blocks)",
             "lines": "raw Tesseract hOCR (lines)",
-            "columns": "stage 2: columns (full-height)",
-            "bands": "stage 2: bands + per-band columns",
+            "grid": "stage 2: underlying column grid",
         }.get(variant, variant)]},
         "summary": {"en": [
             "Unmodified Tesseract hOCR rendered as IIIF annotation layers, "
