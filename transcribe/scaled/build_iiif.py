@@ -34,6 +34,7 @@ from . import detect_grid as _detect_grid
 from . import detect_hlines as _detect_hlines
 from . import detect_content_area as _detect_content_area
 from . import detect_boxes as _detect_boxes
+from . import detect_captions as _detect_captions
 
 # The repo root is served here (behind Cloudflare Access -- a browser
 # session can read it, an unauthenticated third-party server cannot).
@@ -124,7 +125,7 @@ VARIANTS = {
 # the pipeline: Tesseract (raw) -> Columns -> Items -> Refined. Items and
 # Refined are not built yet; the viewer shows them disabled rather than
 # pretending they exist.
-DERIVED = ("grid", "hlines", "boxes", "separators")
+DERIVED = ("grid", "hlines", "boxes", "separators", "photos")
 
 
 def _derived_layers(conn, page_id, cid, W, H, variant):
@@ -158,6 +159,35 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
         if res.get("low_evidence"):
             label += f" · LOW EVIDENCE ({res['n_lines']} text lines)"
         out.append((label, boxes))
+    if variant == "photos":
+        # Tesseract's ocr_photo regions on their own. Split into the ones
+        # that survive the size/edge filter and the ones that don't:
+        # Tesseract reports the sheet edge and binding shadow as photos
+        # too (a 0.3%-wide sliver at x 99.7 on 1980-04-06 p1), and seeing
+        # which is which is the point of having this layer.
+        kept = _detect_captions.real_photos(conn, page_id)
+        keptset = {(round(k["L"], 2), round(k["T"], 2)) for k in kept}
+        rows = [dict(r) for r in conn.execute(
+            "SELECT left_pct L, top_pct T, right_pct R, bottom_pct B "
+            "FROM page_hocr_regions WHERE page_id=? AND region_class='ocr_photo' "
+            "ORDER BY top_pct", (page_id,))]
+        groups = {"Photos": [], "Rejected as scan artefacts": []}
+        for i, r in enumerate(rows):
+            key = "Photos" if (round(r["L"], 2), round(r["T"], 2)) in keptset \
+                  else "Rejected as scan artefacts"
+            x0, x1 = _sup.pct_to_px(r["L"], W), _sup.pct_to_px(r["R"], W)
+            y0, y1 = _sup.pct_to_px(r["T"], H), _sup.pct_to_px(r["B"], H)
+            groups[key].append(_anno(
+                f"{cid}/anno/photo/{i}", cid, x0, y0,
+                max(1, x1 - x0), max(1, y1 - y0), "", "ocr_photo",
+                kind="ocr_photo",
+                detail=f"{r['L']:.2f}%-{r['R']:.2f}% x "
+                       f"{r['T']:.2f}%-{r['B']:.2f}% "
+                       f"({r['R'] - r['L']:.2f} x {r['B'] - r['T']:.2f})"))
+        for label, boxes in groups.items():
+            if boxes:
+                out.append((f"{label} ({len(boxes)})", boxes))
+
     if variant == "separators":
         # Tesseract's raw ocr_separator regions, undigested. This is the
         # signal every ruled-structure stage is built on, so being able to
@@ -399,6 +429,7 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
             "hlines": "stage 3: horizontal alignments",
             "boxes": "stage 2b: boxed zones",
             "separators": "stage 1: raw ocr_separator rules",
+            "photos": "stage 1: raw ocr_photo regions",
         }.get(variant, variant)]},
         "summary": {"en": [
             "Unmodified Tesseract hOCR rendered as IIIF annotation layers, "
