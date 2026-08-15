@@ -42,9 +42,18 @@ that.
     the page*. Never trust a score from this pipeline without running
     `transcribe/scaled/render_overlay.py` first.
   - Viewers: manifest is the contract, viewers are swappable clients.
-    TIFY built-in (self-hosted); Theseus + Mirador via the IIIF Content
-    State API (`?iiif-content=<manifest-url>`, plain URI, no encoding).
-    Clover and Universal Viewer ruled out — no annotation support at all.
+    `preview/scaled/iiif/viewer.html` embeds **TIFY and Mirador**, both
+    configured with annotations ON. **Mirador's default
+    `filteredMotivations` EXCLUDES `supplementing`** — the motivation all
+    our annotations use — so an unconfigured/hosted Mirador silently
+    shows nothing; that override is why it is embedded, not linked.
+    Theseus removed (hosted-only, unpublished source, can't run locally
+    or be configured). Clover and Universal Viewer ruled out — the IIIF
+    matrix shows neither supports annotations at all. Manifests declare
+    the **Text Granularity** extension (`block` for careas, `line` for
+    line classes; omitted on separators/photos, which carry no text).
+    Note the site is behind Cloudflare Access, so hosted third-party
+    viewers cannot fetch these manifests at all.
 
 **OCR+LLM route (1980s+ issues) is built and stable, entity extraction
 split out 2026-08-09** — `transcribe/ocr_llm.py` (render/OCR/cleanup/
@@ -302,6 +311,19 @@ re-derive without reading this first:
     corrected finding above) but the user wants to resolve some
     structural things first — specifics not yet stated as of this
     writing. Don't start a broad pass-2 run without checking in first.
+
+## CSS in pages that embed a third-party viewer
+
+`instructions/css_standards.md` + `tools/check_css_scoping.py`. Short
+version: on any page that mounts a third-party UI component (TIFY,
+Mirador, a chart lib), **never write an unscoped selector** — no `*`, no
+bare `select {}`/`button {}`, and nothing inheritable (font/color/
+line-height) on `html`/`body`. They match the component's internal DOM.
+This is not hypothetical: it silently broke TIFY's page-selector layout
+on mobile 2026-08-15 (the viewer looked broken; the viewer was fine).
+Self-contained pages like `entities.html` are exempt and the checker
+skips them. Run `python3 tools/check_css_scoping.py` before committing
+such a page.
 
 ## `instructions/` is the durable knowledge base — keep it current
 
