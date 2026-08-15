@@ -81,20 +81,29 @@ that.
     Excluding interiors was inconclusive and the test was confounded; see
     `instructions/scaled_pipeline.md` §5f before retrying.
   - **Stage 2b is BOXED ZONES** (`detect_boxes.py`, `page_boxes` schema
-    v18). Ruled rectangles — ads, notices, tenders, panels. **Corner
-    matching does NOT work and shouldn't be retried:** only 22% of the
-    4,452 horizontal-rule endpoints sit within 0.5% of a vertical rule's
-    end (median distance 9.0%); Tesseract doesn't report all four sides.
-    What works is a **strict top+bottom rule pair sharing an x-extent, with
-    a vertical side present between them** — a box has sides.
-    **Containment matching was tried and REVERTED:** it took boxes from
-    6.8 to 20.8/page and produced overlapping rectangles cutting across
-    text (1980-04-06 p6). Do not reintroduce it. **The general lesson:**
-    rendering the raw separators shows Tesseract's rules ALREADY trace
-    these boxes — the job is to read them, not to infer boxes they don't
-    support. Now 7/7 correct on p6, corpus median 2/page. Judge by
-    rendering, not by the `display_ad` overlap metric (it counts notices
-    and tenders as false positives).
+    v18). Ruled rectangles — ads, notices, tenders, panels. Built from
+    FOUR sides, allowing for three real properties of the print:
+    **rounded corners** — sides stop 0.5–3.9% short of the join, which is
+    exactly why naive corner-matching measured only 22% (4,452 endpoints,
+    median distance 9.0%); a side must BRIDGE the box within `INSET_PCT`,
+    never meet a corner. **Drop shadows** — opposite sides differ in
+    weight (28px top vs 48px bottom on one box), so `side_px` is RECORDED
+    and never filtered on; a version requiring matched weights found 2
+    boxes on a whole page. **Stacked boxes share verticals** — so a box is
+    emitted between each consecutive bridging horizontal PLUS one for the
+    whole enclosure, giving containers and cells (Fraser's as one box and
+    its price rows; the Sidewalk Sale grid and its cells).
+    **The VERTICALS define the sides, not the horizontals** — extending to
+    horizontal ends stretched boxes a whole column left into body text,
+    because a bridging rule often belongs to a neighbour and overshoots.
+    Page-edge verticals excluded as scan artefacts. ~9.6 boxes/page.
+    **Containment matching was tried and REVERTED** (20.8/page, overlapping
+    rectangles cutting across text on p6) — do not reintroduce it.
+    **Judge by rendering, not the `display_ad` metric** (it counts notices
+    and tenders as false positives). **Known limit:** some boxes have no
+    bottom border in Tesseract's output at all (Smithson Motor Sales,
+    CENTENNIAL DOLLARS on p8) — geometry cannot recover those, see the
+    pixel-rule note.
   - **Stage 3 is HORIZONTAL ALIGNMENTS** (`detect_hlines.py`,
     `render_hlines.py`, `page_hlines` schema v17). Every alignment carries
     a **column span** — on a post-1980 mosaic an alignment is local
