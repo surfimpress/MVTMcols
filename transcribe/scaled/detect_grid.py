@@ -71,6 +71,98 @@ MIN_EDGES = 12        # below this a page cannot support a fit
 # page, don't let a self-authored score decide anything.
 
 
+# --- refinement: subsume stray blocks -------------------------------
+# A block wholly inside another, much narrower than it, and only a few
+# lines tall, is not an independent layout element -- it is a fragment
+# Tesseract split out of its parent (a drop cap, a price, a stray line
+# of an ad). Left in place, these fragments contribute edges at
+# arbitrary x positions and blur the grid fit.
+
+MAX_SUBSUME_WIDTH_FRAC = 0.5   # narrower than half the parent
+MAX_SUBSUME_LINES = 3          # and no more than this many hOCR lines
+
+
+def page_blocks(conn, page_id: str) -> list[dict]:
+    """Blocks with their hOCR line counts, ready for refinement."""
+    counts = {r["block_idx"]: r["n"] for r in conn.execute(
+        "SELECT block_idx, count(*) AS n FROM page_hocr_lines "
+        "WHERE page_id=? GROUP BY block_idx", (page_id,))}
+    out = []
+    for r in conn.execute(
+        "SELECT block_idx, bbox_left_pct L, bbox_top_pct T, bbox_right_pct R, "
+        "bbox_bottom_pct B FROM page_ocr_blocks WHERE page_id=? ORDER BY block_idx",
+        (page_id,),
+    ):
+        if r["R"] - r["L"] < 0.5:
+            continue
+        out.append({"block_idx": r["block_idx"], "L": r["L"], "T": r["T"],
+                    "R": r["R"], "B": r["B"], "n_lines": counts.get(r["block_idx"], 0)})
+    return out
+
+
+def _contains(outer: dict, inner: dict, tol: float = 0.3) -> bool:
+    return (inner["L"] >= outer["L"] - tol and inner["R"] <= outer["R"] + tol
+            and inner["T"] >= outer["T"] - tol and inner["B"] <= outer["B"] + tol)
+
+
+def subsume_stray_blocks(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Merge stray fragments into the block that encloses them.
+
+    A block is subsumed when ALL of:
+      - it lies wholly within another block,
+      - it is narrower than MAX_SUBSUME_WIDTH_FRAC of that parent,
+      - it has at most MAX_SUBSUME_LINES hOCR lines.
+
+    The parent's bbox is unchanged -- the child was already inside it, so
+    there is nothing to grow. Returns (kept blocks, subsumed blocks).
+    """
+    kept, subsumed = [], []
+    for i, b in enumerate(blocks):
+        if b["n_lines"] > MAX_SUBSUME_LINES:
+            kept.append(b)
+            continue
+        bw = b["R"] - b["L"]
+        parent = None
+        for j, other in enumerate(blocks):
+            if i == j:
+                continue
+            ow = other["R"] - other["L"]
+            if ow <= bw:
+                continue
+            if bw >= ow * MAX_SUBSUME_WIDTH_FRAC:
+                continue
+            if _contains(other, b):
+                # Smallest qualifying enclosing block is the true parent.
+                if parent is None or ow < (parent["R"] - parent["L"]):
+                    parent = other
+        if parent is None:
+            kept.append(b)
+        else:
+            subsumed.append({**b, "parent_block_idx": parent["block_idx"]})
+    return kept, subsumed
+
+
+def edges_from_blocks(blocks: list[dict]) -> tuple[list[float], list[float]]:
+    return ([round(b["L"], 2) for b in blocks], [round(b["R"], 2) for b in blocks])
+
+
+def line_edges(conn, page_id: str,
+               exclude_block_idx: set | None = None) -> tuple[list[float], list[float]]:
+    """Line edges, optionally dropping the lines of subsumed blocks."""
+    lefts, rights = [], []
+    for r in conn.execute(
+        "SELECT block_idx, left_pct L, right_pct R FROM page_hocr_lines WHERE page_id=?",
+        (page_id,),
+    ):
+        if r["R"] - r["L"] < 0.5:
+            continue
+        if exclude_block_idx and r["block_idx"] in exclude_block_idx:
+            continue
+        lefts.append(round(r["L"], 2))
+        rights.append(round(r["R"], 2))
+    return lefts, rights
+
+
 def pooled_edges(conn, page_id: str) -> tuple[list[float], list[float]]:
     """Left and right edges of every block and line on the page.
 
@@ -78,17 +170,9 @@ def pooled_edges(conn, page_id: str) -> tuple[list[float], list[float]]:
     grid, so pooling gives the fit more evidence without adding any new
     assumption.
     """
-    lefts, rights = [], []
-    for sql in (
-        "SELECT bbox_left_pct L, bbox_right_pct R FROM page_ocr_blocks WHERE page_id=?",
-        "SELECT left_pct L, right_pct R FROM page_hocr_lines WHERE page_id=?",
-    ):
-        for r in conn.execute(sql, (page_id,)):
-            if r["R"] - r["L"] < 0.5:      # degenerate box
-                continue
-            lefts.append(round(r["L"], 2))
-            rights.append(round(r["R"], 2))
-    return lefts, rights
+    bl, br = edges_from_blocks(page_blocks(conn, page_id))
+    ll, lr = line_edges(conn, page_id)
+    return bl + ll, br + lr
 
 
 def _peaks(vals: list[float], bin_pct: float = 0.25,
@@ -228,36 +312,115 @@ def fit_grid(lefts: list[float], rights: list[float]) -> dict | None:
             "n_edges": len(lefts) + len(rights), "n_peaks": len(all_peaks)}
 
 
-def detect(conn, page_id: str) -> dict:
-    lefts, rights = pooled_edges(conn, page_id)
-    grid = fit_grid(lefts, rights)
-    if grid is None:
-        return {"grid": None, "fit": 0.0,
-                "note": f"insufficient edges ({len(lefts) + len(rights)})"}
+# How far a column edge may be pulled to meet the majority alignment in
+# pass 2. Wide enough to absorb scan scale drift across the page, narrow
+# enough that a column cannot migrate into its neighbour's slot.
+SNAP_SEARCH_PCT = 2.0
 
-    # Confidence IS the fit quality: the share of the page's own edges
-    # that land on the lattice. No separate corroboration/regularity
-    # terms -- on a designed grid, "do the edges land on it?" is the
-    # whole question.
-    return {"grid": grid, "fit": grid["score"]}
+
+def analyse(conn, page_id: str, blocks: list[dict] | None = None,
+            exclude_block_idx: set | None = None) -> dict | None:
+    """THE reusable analysis: edges -> fitted grid.
+
+    Run once on the raw blocks and again after refinement, so both passes
+    are guaranteed to be the same computation on different input.
+    """
+    blocks = page_blocks(conn, page_id) if blocks is None else blocks
+    bl, br = edges_from_blocks(blocks)
+    ll, lr = line_edges(conn, page_id, exclude_block_idx)
+    return fit_grid(bl + ll, br + lr)
+
+
+def _snap(predicted: float, peaks: list[tuple[float, int]]) -> tuple[float, bool]:
+    """Pull a predicted edge to the heaviest peak within SNAP_SEARCH_PCT.
+
+    Ties in weight are broken by proximity, so a distant peak never wins
+    over an equally-supported near one.
+    """
+    near = [(w, -abs(x - predicted), x) for x, w in peaks
+            if abs(x - predicted) <= SNAP_SEARCH_PCT]
+    if not near:
+        return predicted, False
+    return round(max(near)[2], 2), True
+
+
+def detect(conn, page_id: str) -> dict:
+    """Two passes.
+
+    PASS 1 establishes the likely columns -- pitch, offset, column width,
+    column count -- from the raw blocks. That is a rigid lattice, and a
+    rigid lattice cannot follow the scan's own scale drift across the
+    page (measured: edges landing ~1.3% right of their slot at the
+    right-hand end while fitting well on the left).
+
+    Refinement then subsumes stray fragment blocks, which contribute
+    edges at arbitrary x and blur the peaks.
+
+    PASS 2 re-runs the same analysis on the cleaned blocks and then
+    refines each column to the MAJORITY ALIGNMENT: every column edge is
+    pulled to the heaviest nearby edge peak. The result follows the page
+    as printed rather than holding a perfect lattice the page never had.
+    """
+    blocks = page_blocks(conn, page_id)
+    first = analyse(conn, page_id, blocks)
+
+    kept, subsumed = subsume_stray_blocks(blocks)
+    dropped = {b["block_idx"] for b in subsumed}
+    second = analyse(conn, page_id, kept, exclude_block_idx=dropped)
+
+    grid = second or first
+    if grid is None:
+        return {"grid": None, "fit": 0.0, "note": "insufficient edges",
+                "n_blocks": len(blocks), "n_kept": len(kept),
+                "subsumed": len(subsumed), "subsumed_blocks": subsumed}
+
+    # Majority-alignment refinement, using the cleaned edge distribution.
+    bl, br = edges_from_blocks(kept)
+    ll, lr = line_edges(conn, page_id, dropped)
+    left_peaks = _peaks(bl + ll)
+    right_peaks = _peaks(br + lr)
+
+    columns, snapped = [], 0
+    for k in range(grid["n_columns"]):
+        pl = grid["offset"] + k * grid["pitch"]
+        left, hit_l = _snap(pl, left_peaks)
+        right, hit_r = _snap(left + grid["col_width"], right_peaks)
+        if right - left < grid["col_width"] * 0.5:   # snapped onto itself
+            right = round(left + grid["col_width"], 2)
+            hit_r = False
+        snapped += int(hit_l) + int(hit_r)
+        columns.append({"col_idx": k, "left_pct": round(left, 2),
+                        "right_pct": round(right, 2),
+                        "snapped_left": hit_l, "snapped_right": hit_r})
+
+    return {"grid": grid, "fit": grid["score"],
+            "fit_before_refine": first["score"] if first else None,
+            "columns": columns,
+            "edges_snapped": snapped, "edges_total": 2 * grid["n_columns"],
+            "n_blocks": len(blocks), "n_kept": len(kept),
+            "subsumed": len(subsumed), "subsumed_blocks": subsumed}
 
 
 def store(conn, page_id: str, res: dict) -> None:
+    """Persist the pass-2 (majority-aligned) columns -- that is the
+    answer. The pass-1 lattice parameters go in `notes` so the rigid fit
+    the refinement started from stays inspectable."""
     conn.execute("DELETE FROM page_columns WHERE page_id=? AND method='grid'",
                  (page_id,))
     g = res.get("grid")
-    if not g:
+    if not g or not res.get("columns"):
         return
     now = _sup.now_iso()
-    for i in range(len(g["edges"]) - 1):
+    for c in res["columns"]:
         conn.execute(
             """INSERT INTO page_columns
                (id, page_id, col_idx, left_pct, right_pct, method, confidence,
                 created_at, notes)
                VALUES (?,?,?,?,?,?,?,?,?)""",
-            (_sup.new_uuid(), page_id, i, g["edges"][i],
-             round(g["edges"][i] + g["col_width"], 2), "grid", res["fit"], now,
-             f"pitch={g['pitch']} col={g['col_width']} gutter={g['gutter']}"))
+            (_sup.new_uuid(), page_id, c["col_idx"], c["left_pct"], c["right_pct"],
+             "grid", res["fit"], now,
+             f"pass1 pitch={g['pitch']} col={g['col_width']} gutter={g['gutter']}; "
+             f"snapped L={c['snapped_left']} R={c['snapped_right']}"))
     conn.commit()
 
 
@@ -283,7 +446,8 @@ def _cmd_run(args):
                     f"col={g['col_width']:.2f}%  gutter={g['gutter']:.2f}%"
                     if g else "no fit")
             print(f"  {r['year']}-{r['month']:02d}-{r['day']:02d} p{r['page']}: "
-                  f"{desc}  fit={res['fit']:.2f}")
+                  f"{desc}  fit={res['fit']:.2f}  "
+                  f"subsumed={res.get('subsumed', 0)}")
         print(f"\n{len(rows)} page(s) fitted.")
     finally:
         conn.close()
@@ -309,6 +473,18 @@ def _cmd_show(args):
         print(f"  edges       : {g['edges']}")
         print(f"  fit          : {g['score']:.2f}  "
               f"(peak weight explained, chance-corrected)")
+        print(f"  refinement   : {res['n_blocks']} blocks -> {res['n_kept']} "
+              f"({res['subsumed']} stray subsumed); "
+              f"{res['edges_snapped']}/{res['edges_total']} edges snapped "
+              f"to majority alignment")
+        print("  pass 2 columns (majority-aligned):")
+        for c in res["columns"]:
+            gut = ""
+            nxt = next((x for x in res["columns"] if x["col_idx"] == c["col_idx"] + 1), None)
+            if nxt:
+                gut = f"  gutter {nxt['left_pct'] - c['right_pct']:+.2f}%"
+            print(f"    col {c['col_idx']}: {c['left_pct']:6.2f}% -> {c['right_pct']:6.2f}%"
+                  f"  (w {c['right_pct'] - c['left_pct']:5.2f}%){gut}")
     finally:
         conn.close()
 
