@@ -430,6 +430,42 @@ straddle gutters and inflate line widths:
 Do not reach for these again expecting them to work. The measure floor
 (`MIN_PITCH_PCT`) is what actually separates.
 
+#### Display ads carry their OWN grid — measured, not yet solved
+
+A display ad's **outer** rectangle is quantised to the page grid (it was
+sold by the column inch). Its **interior** is the advertiser's own
+design, at whatever measure they chose, and says nothing about the page.
+This is what halved 1980-04-06 p2: the grocery ad's internal item/price
+sub-columns.
+
+Measured on the 28 pages of 1980-04-06 + 1997-07-16, using the
+production route's LLM-labelled `items.item_type='display_ad'` boxes as
+an oracle (105 ads). **This oracle is also the non-circular validation
+signal §5f was missing — `ocr_separator` contributes nothing to it.**
+
+- **30% of all text blocks sit inside a display ad.** Per page it reaches
+  **100%** (1980-04-06 p14 is a single full-page ad).
+- Type size does NOT cleanly separate ad interiors: `x_size_median` is 44
+  inside vs 36 outside, distributions heavily overlapping. Too weak to
+  classify a block on its own — **do not build on it alone.**
+- Replacing each ad's interior blocks with its outer rectangle was
+  **inconclusive, not a win**: median gutter 0.49% → 0.44%, one page
+  clearly fixed (p8, 6 → 8 columns, gutter 1.10% → 0.00%) against four
+  clearly worse.
+
+**The test was confounded** — do not read it as a refutation:
+  1. Ad rectangles were given full weight and their full height, so a few
+     tall rectangles dominate a height-weighted fit. They should carry
+     weak weight, like a rule or photo.
+  2. Pages that are mostly ad lose nearly all evidence (p13 58% removed,
+     1997 p12 55%, p14 100%).
+
+Two things follow. **A full-page-ad page has no page grid to find** — the
+ad *is* the page, and 1980-04-06 p14 / 1997-07-16 p14 should be flagged
+like `low_evidence` rather than fitted. And doing this without an LLM
+needs a classical display-ad detector, which does not exist in `scaled`
+yet; `x_size` dispersion alone will not carry it.
+
 **Still wrong:** 1980-04-06 p2 no longer halves (14 slots → 7) but the
 page's true grid is 8 at ~10.5%, visible in the obituary text and the
 grocery ad's five product columns. Over-columned has become
