@@ -80,6 +80,20 @@ that.
     `x_size` does not separate them cleanly (44 vs 36, overlapping).
     Excluding interiors was inconclusive and the test was confounded; see
     `instructions/scaled_pipeline.md` §5f before retrying.
+  - **Stage 2b is BOXED ZONES** (`detect_boxes.py`, `page_boxes` schema
+    v18). Ruled rectangles — ads, notices, tenders, panels. **Corner
+    matching does NOT work and shouldn't be retried:** only 22% of the
+    4,452 horizontal-rule endpoints sit within 0.5% of a vertical rule's
+    end (median distance 9.0%); Tesseract doesn't report all four sides.
+    What works is a **top+bottom rule pair sharing an x-extent**, plus
+    **containment matching** — Tesseract merges collinear rules from
+    ADJACENT boxes into one long run, so a box's bottom often arrives
+    inside a much wider rule; the narrower extent wins and the merged rule
+    is not consumed. `n_sides` (2/3/4) is recorded, never filtered at
+    write time. **Judge by rendering, not by the ad metric:** vs
+    `display_ad` it scores 27% recall / 20% precision, but 19 of 20
+    four-sided boxes on 1980-04-06 p11 are right by eye — the metric
+    counts notices and tenders as false positives.
   - **Stage 3 is HORIZONTAL ALIGNMENTS** (`detect_hlines.py`,
     `render_hlines.py`, `page_hlines` schema v17). Every alignment carries
     a **column span** — on a post-1980 mosaic an alignment is local

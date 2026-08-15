@@ -33,6 +33,7 @@ from . import _support as _sup
 from . import detect_grid as _detect_grid
 from . import detect_hlines as _detect_hlines
 from . import detect_content_area as _detect_content_area
+from . import detect_boxes as _detect_boxes
 
 # The repo root is served here (behind Cloudflare Access -- a browser
 # session can read it, an unauthenticated third-party server cannot).
@@ -123,7 +124,7 @@ VARIANTS = {
 # the pipeline: Tesseract (raw) -> Columns -> Items -> Refined. Items and
 # Refined are not built yet; the viewer shows them disabled rather than
 # pretending they exist.
-DERIVED = ("grid", "hlines")
+DERIVED = ("grid", "hlines", "boxes")
 
 
 def _derived_layers(conn, page_id, cid, W, H, variant):
@@ -157,6 +158,32 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
         if res.get("low_evidence"):
             label += f" · LOW EVIDENCE ({res['n_lines']} text lines)"
         out.append((label, boxes))
+    if variant == "boxes":
+        # Ruled rectangles. Tiered by how many sides were actually found:
+        # 4-sided boxes are near-perfect by eye, 2-sided ones are where
+        # Tesseract only reported a top and bottom rule. Both are kept --
+        # the consumer chooses, this stage does not throw any away.
+        res = _detect_boxes.detect(conn, page_id)
+        for label, want in (("4 sides", 4), ("3 sides", 3), ("2 sides", 2)):
+            boxes = [b for b in res["boxes"] if b["n_sides"] == want]
+            if not boxes:
+                continue
+            out.append((f"Boxed zones — {label} ({len(boxes)})", [
+                _anno(f"{cid}/anno/box/{want}/{i}", cid,
+                      _sup.pct_to_px(b["left_pct"], W),
+                      _sup.pct_to_px(b["top_pct"], H),
+                      max(1, _sup.pct_to_px(b["right_pct"], W)
+                          - _sup.pct_to_px(b["left_pct"], W)),
+                      max(1, _sup.pct_to_px(b["bottom_pct"], H)
+                          - _sup.pct_to_px(b["top_pct"], H)),
+                      "", f"box {i}", kind="boxed zone",
+                      detail=f"{b['left_pct']}%-{b['right_pct']}% x "
+                             f"{b['top_pct']}%-{b['bottom_pct']}% · "
+                             f"{b['n_sides']} sides"
+                             + (f" · columns {b['col_lo']}-{b['col_hi']}"
+                                if b["col_lo"] is not None else ""))
+                for i, b in enumerate(boxes)]))
+
     if variant == "hlines":
         # Stage 3: horizontal alignments. Each is drawn only across the
         # columns it spans -- that span IS the claim, and a page-wide box
@@ -338,6 +365,7 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
             "lines": "raw Tesseract hOCR (lines)",
             "grid": "stage 2: columns",
             "hlines": "stage 3: horizontal alignments",
+            "boxes": "stage 2b: boxed zones",
         }.get(variant, variant)]},
         "summary": {"en": [
             "Unmodified Tesseract hOCR rendered as IIIF annotation layers, "

@@ -536,6 +536,44 @@ grocery ad's five product columns. Over-columned has become
 under-columned there; the page's evidence is dominated by one full-page
 ad. Verified by rendering, not by the fit number.
 
+### 5j. Stage 2b — BOXED ZONES (built 2026-08-15)
+
+`transcribe/scaled/detect_boxes.py`, `page_boxes` (schema v18). A boxed
+area is a deliberate page landmark — mostly display ads, but notices,
+tenders, standing panels and section headers use the same device.
+
+**Corner-matching does NOT work — measured, don't retry it.** The obvious
+method is `ocr_separator` rules meeting at their corners. Of 4,452
+horizontal-rule endpoints, only **22%** sit within 0.5% of a vertical
+rule's end (26% within 1%, 33% within 3%; **median distance 9.0%**).
+Tesseract does not reliably report all four sides.
+
+**What works: a top and bottom rule sharing an x-extent.** That pair is
+the box's signature and survives the verticals being absent.
+
+**Containment matching is required, and this was the key finding.**
+Tesseract *merges collinear rules from adjacent boxes into one long run*,
+so a box's bottom edge frequently arrives inside a rule spanning several
+boxes. On 1980-04-06 p11 the ONTARIO GOVERNMENT NOTICE box has a top rule
+at x 73.8–96.2 but its bottom sits inside a rule spanning 38.6–96.0.
+Requiring both ends to agree rejected it and most other boxes on the
+page. So a wider rule may CONTAIN a narrower one, the narrower extent
+wins (it is specific to this box), and a merged rule is **not consumed** —
+it is the bottom edge of several boxes at once.
+
+**`n_sides` is recorded, never filtered on at write time.** 4-sided boxes
+are near-perfect; 2-sided ones are where only a top and bottom were
+reported. The consumer chooses.
+
+**On judging this stage: the obvious metric is wrong.** Scored against
+LLM-labelled `display_ad` boxes, `n_sides>=4` gives 27% recall and 20%
+precision. But **19 of the 20 four-sided boxes on 1980-04-06 p11 are
+correct by eye** — the metric counts PAKENHAM UNION CEMETERY, COUNTY OF
+LANARK TENDERS and CLASSIFIED ADS as false positives because they are
+notices, not display ads. Recall is likewise capped because many display
+ads simply are not ruled boxes. Use the ad overlap as a weak sanity
+signal only; judge this stage by rendering it.
+
 ### 5h. Stage 3 — HORIZONTAL alignments (built 2026-08-15)
 
 `transcribe/scaled/detect_hlines.py`, rendered by `render_hlines.py`,
@@ -786,3 +824,7 @@ python3 -m transcribe.scaled.render_overlay YYYY-MM-DD [--page N]
   rectangle is now established before columns and is authoritative for the
   fit. Fixes a measured bug where `text_left` was 0.00% on many pages,
   displacing every column by up to 7.2%. See §5i.
+- **2026-08-15** — Stage 2b added (`detect_boxes.py`, schema v18
+  `page_boxes`): ruled rectangles from top/bottom rule pairs, with
+  containment matching for Tesseract's merged collinear rules. Corner
+  matching measured and rejected (22% of endpoints coincide). See §5j.
