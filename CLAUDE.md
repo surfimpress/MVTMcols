@@ -30,13 +30,21 @@ that.
     of the coordinate and db helpers. Same DB (additive schema-v15 tables
     only), so results are comparable in one query. Delete the package and
     production is unaffected.
-  - **Stage 2 is the UNDERLYING GRID** (`detect_grid.py`). Per
-    `instructions/typesetting_practice.md`, fit four numbers (margin,
-    column width, gutter, column count) rather than discover boundaries.
-    Validated against physical evidence: on 1980-04-06 p11 the fitted
-    lattice matches the page's own printed column rules within ~0.3% on
-    every boundary, with a 0.86% gutter (≈1 pica). 90 pages fitted,
-    median fit 0.75. **Everything else builds up from this.**
+  - **Stage 2 is COLUMNS (1)+(2)** (`detect_grid.py`). Per
+    `instructions/typesetting_practice.md`, fit a few numbers (margin,
+    column width, gutter, count) rather than discover boundaries.
+    Measured on BLOCKS only — hOCR lines contribute no edges and are used
+    solely to derive a minimum block height — weighted by item HEIGHT,
+    with `ocr_separator` vertical rules included and their edges CROSSED
+    OVER (a rule sits in the gutter, so rule.L bounds the previous
+    column's right). Pass (1) is a rigid lattice; pass (2) leans each
+    edge to the extreme (leftmost start / rightmost end) rather than
+    averaging a cluster — averaging made pass 2 weaker than pass 1.
+    Result: a consistent gutter, corpus median 0.78% (~1 pica), 4%
+    degenerate. **Everything else builds up from this.** Known limit,
+    visible on the page render: pitch drifts across ad-heavy halves where
+    no printed rules exist. Separators are now INPUTS, so they can no
+    longer serve as independent ground truth.
   - **Confidence scoring is an ARCHIVED DEAD END**
     (`transcribe/scaled/archive/`). Earlier detectors discovered layout
     from weak signals then scored their own trustworthiness; every

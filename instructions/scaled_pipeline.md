@@ -282,61 +282,97 @@ exists for exactly this.**
 
 ---
 
-### 5f. Stage 2 is now the UNDERLYING GRID — everything builds up from it
+### 5f. Stage 2 — COLUMNS, in two passes
 
 Following `instructions/typesetting_practice.md`: the page was set on a
-fixed grid, so **fit four numbers, don't discover boundaries.**
-`transcribe/scaled/detect_grid.py`:
+fixed grid, so **fit a few numbers, don't discover boundaries.**
+`transcribe/scaled/detect_grid.py`.
 
-1. Pool left+right edges of every block and line (per PAGE, not per
-   issue — the photography varies too much between pages, and one page
-   carries plenty of edges).
-2. Cluster into peaks — the alignment positions the page actually uses.
-3. Grid-search pitch and offset; keep the lattice explaining most peak
-   weight.
-4. Derive column width from each slot's dominant right-edge peak;
-   gutter is the remainder of the pitch.
+Per PAGE, not per issue — the photography varies too much between pages
+(skew, scale, crop), and one page carries plenty of blocks.
 
-**Validated against the physical evidence** on 1980-04-06 p11 — the
-fitted lattice vs the page's own printed column rules:
+**What is measured: BLOCKS.** hOCR *lines* contribute no edges. They are
+referred to for exactly one purpose — deriving the minimum height a block
+must exceed. Also fed in: `ocr_separator` **vertical rules**, with their
+edges mapped CROSSED OVER, because a rule sits *inside* the gutter:
 
-| grid | printed rule | error |
-|---|---|---|
-| 15.49 | 15.2 | 0.29 |
-| 27.14 | 26.1–27.4 | 0.26 |
-| 38.79 | 38.1–39.1 | 0.31 |
-| 50.44 | 49.7–50.7 | 0.26 |
-| 62.09 | 61.0–62.0 | 0.09 |
-| 73.74 | 72.8–73.9 | 0.16 |
+    rule.L  ->  the preceding column's RIGHT edge
+    rule.R  ->  the following column's LEFT edge
 
-Every boundary within ~0.3%, gutter 0.86% (≈1 pica, as expected). The
-8th slot at 85.4 has no printed rule because an ad spans two slots —
-which is the model working, not failing.
+Mapping left-to-left would offset every column by a rule width. Page-edge
+rules (<2% or >97%) are excluded as scan artefacts — including them
+dragged column 0's left edge to 0.60%.
 
-Corpus: 90 pages fitted, median fit 0.75. Modal column counts 8 (39
-pages) and 6 (27).
+**Truncation**, applied to every item:
+- taller than `MIN_ITEM_HEIGHT_LINES` (1.5) text lines — a one-line
+  fragment says nothing about a column edge;
+- shorter than `MAX_ITEM_HEIGHT_FRAC` (0.90) of the page — full-height
+  boxes are scan artefacts (photo shadows, page-edge blobs);
+- and the shortest decile by height is dropped before an edge is chosen
+  (`HEIGHT_PCTL_FLOOR`).
 
-**Three bugs worth remembering**, all found by plotting/rendering rather
-than by reading numbers:
-- Raw hit-rate scoring made finer lattices always win, so a 7-column
-  page fitted as 15 columns. Fixed with chance correction (each lattice
-  line accepts ±tol, so random hit probability is 2·tol/pitch).
-- Scoring every edge rather than peaks understated a *visually correct*
-  grid at 0.20 — most edges on a newspaper page are ad interiors and
-  centred headlines that never touch the grid.
-- `pitch = span/n` silently assumed the last column *starts* at the text
-  right edge; it *ends* there. The lattice drifted left by ≈gutter/n.
-  Pitch is now searched, not derived.
+**Y is item HEIGHT, not item count.** A tall block running down a column
+is strong evidence of its edge; a pile of fragments at the same x is not.
+Count-weighting remains available as `peak_counts()`.
 
-`fit` is reported as a **diagnostic only — there is no gate.** Scoring
-with escalation thresholds is archived as a dead end (see below).
+#### Columns (1) — rigid lattice
+Grid-search pitch and offset; keep the lattice explaining most peak
+weight, chance-corrected. Establishes pitch, offset, column width and
+column count. A rigid lattice cannot follow the scan's own scale drift.
+
+#### Refinement — subsume stray blocks
+A block wholly inside another, narrower than 50% of that parent, and no
+more than 3 hOCR lines tall is a fragment Tesseract split out (a price, a
+drop cap, a stray ad line). Left in place it contributes edges at
+arbitrary x. Corpus: 350 subsumed, mean 3.9/page.
+
+#### Columns (2) — leaned to extremes
+Re-runs the same `analyse()` on cleaned blocks, then sets each edge by
+**leaning to the extreme**, not by averaging a cluster:
+- left edge  = LEFTMOST tall block start near the prediction
+- right edge = RIGHTMOST tall block end near the prediction
+
+Averaging was the earlier mistake and it made pass 2 *weaker* than pass 1:
+it pulls an edge toward wherever most items happen to stop, which is
+inside the column.
+
+**Order matters.** All left edges are chosen first; each right edge is
+then bounded by the ACTUAL next left edge less a minimum gutter. Bounding
+against the *predicted* next-left was not enough — the next column leans
+left to that same prediction and the two meet, collapsing the gutter to
+zero.
+
+**Result:** a consistent gutter appears. 1980-04-06 p11 gutters
+0.87 0.72 0.80 0.74 1.37 0.77 1.85, previously erratic or zero; fit
+0.55 → 0.79. Corpus: 603 gutters, **median 0.78% (~1 pica)**, only 4%
+degenerate, median within-page stdev 0.44%. Column counts consolidated on
+8 (50 pages) and 6 (26).
+
+**Margins are single lines, not gutters** — a gutter exists only BETWEEN
+columns, never before the first or after the last.
+
+#### Honest limits, visible on the page render
+The aggregate numbers look good but the page overlay for
+1980-04-06 p11 shows the fitted pitch (11.55%) is close but not exact,
+and the error accumulates left→right: the lines at ~61%, ~73% and ~84%
+fall INSIDE text blocks rather than in gutters. A consistent gutter on a
+slightly wrong pitch is exactly the failure that flatters aggregate
+statistics. Likely causes: the right half of that page is display
+advertising with no printed rules, so the lattice is extrapolating there.
+Worth trying: weighting the fit toward regions where rules exist, or
+allowing a slight pitch stretch across the page.
+
+**Validation caveat:** `ocr_separator` rules were previously used as an
+INDEPENDENT ground truth for grading the fit. They are now inputs, so
+that comparison is circular — any future validation must use a signal
+these do not contribute to.
 
 ### 5d. ARCHIVED — band-first segmentation
 
 Because full-height columns are the wrong model for 1980+ (5b), stage 2
 was re-cut around **bands**: a horizontal strip bounded by a wide
 `ocr_separator` rule or by a y-gap no text line crosses. Columns are then
-found *within* a band. `transcribe/scaled/detect_bands.py`, schema v16
+found *within* a band. `transcribe/scaled/archive/detect_bands.py` (archived), schema v16
 adds `page_bands`.
 
 Result:
@@ -378,10 +414,16 @@ canvases:
 
 ```
 1 · Tesseract   blocks | lines | blocks + lines
-2 · Columns     bands | full-height
+2 · Columns     columns (1) | columns (2) | columns (1) + (2)
 3 · Items       (disabled — not built)
 4 · Refined     (disabled — not built)
 ```
+
+Columns (1) and (2) are separate selectable entries with their own
+manifests (`manifest_grid1.json`, `manifest_grid2.json`), plus a combined
+overlay (`manifest_grid.json`) for judging the refinement directly.
+Default view is columns (2). Names are deliberately numbered rather than
+descriptive — more steps are expected.
 
 Items and Refined are rendered `disabled` rather than hidden: the shape
 of the pipeline stays visible without implying they exist.
@@ -426,9 +468,12 @@ model.
 
 ```bash
 # 2. bands (the working stage-2 model for 1980+)
-python3 -m transcribe.scaled.detect_bands run [--date YYYY-MM-DD]
-python3 -m transcribe.scaled.detect_bands show YYYY-MM-DD --page N
-python3 -m transcribe.scaled.detect_bands report
+python3 -m transcribe.scaled.detect_grid run [--date YYYY-MM-DD]
+python3 -m transcribe.scaled.detect_grid show YYYY-MM-DD --page N
+python3 -m transcribe.scaled.detect_grid report
+
+# the signal the fit rests on: block edges by height, before/after refine
+python3 -m transcribe.scaled.plot_edges YYYY-MM-DD --page N
 
 # IIIF manifests for every stage + the stage-grouped viewer
 python3 -m transcribe.scaled.build_iiif YYYY-MM-DD [YYYY-MM-DD ...]
@@ -460,7 +505,15 @@ python3 -m transcribe.scaled.render_overlay YYYY-MM-DD [--page N]
 
 ## Update history
 
-- **2026-08-15 (later)** — Band-first stage 2 built
+- **2026-08-15 (latest)** — Stage 2 rebuilt as COLUMNS (1)+(2) on the
+  typesetting model. Blocks only (lines used solely for a minimum
+  height), height-weighted, `ocr_separator` vertical rules included with
+  edges crossed over. Averaging replaced by leaning to extremes; left
+  edges chosen before right. Consistent gutter appears: corpus median
+  0.78% (~1 pica), 4% degenerate. Band-first and confidence scoring
+  archived. Page render still shows pitch drift on the ad-heavy right
+  half — recorded, not tuned away.
+- **2026-08-15 (earlier)** — Band-first stage 2 built
   (`detect_bands.py`, schema v16 `page_bands`): escalation 97.8% ->
   31.5%. Visual check shows bands are still too coarse (a 62%-tall band
   scored 0.917) — recursive splitting is the next step, not built.

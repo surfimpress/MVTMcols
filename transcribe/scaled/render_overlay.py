@@ -77,14 +77,14 @@ def render_page(conn, page_row, out_path: str) -> str | None:
     y += 20
     d.rectangle([12, y + 4, 46, y + 8], fill=GRID_COLOUR)
     if g:
-        d.text((56, y), f"UNDERLYING GRID — {g['n_columns']} slots · "
+        d.text((56, y), f"COLUMNS — {g['n_columns']} slots · "
                         f"pitch {g['pitch']}% · column {g['col_width']}% · "
                         f"gutter {g['gutter']}% · fit {res['fit']:.2f} (diagnostic)",
                fill=(0, 0, 0))
         y += 20
         d.text((56, y), f"edges: {[round(e, 1) for e in g['edges']]}", fill=(60, 60, 60))
     else:
-        d.text((56, y), f"UNDERLYING GRID — no fit ({res.get('note', '')})",
+        d.text((56, y), f"COLUMNS — no fit ({res.get('note', '')})",
                fill=(0, 0, 0))
         y += 20
     y += 20
