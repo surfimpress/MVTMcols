@@ -23,42 +23,55 @@
              extension). Without this override Mirador silently shows
              nothing. This is also why we embed Mirador ourselves rather
              than linking to a hosted instance we cannot configure.
-  - Theseus  hosted only, no config injection possible -> plain link.
+  Theseus was removed: it is hosted-only (its viewer source is not
+  published), so it cannot be run locally, cannot be configured to show
+  `supplementing` annotations, and could not fetch a manifest that sits
+  behind Cloudflare Access anyway.
 -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tify@0.33/dist/tify.css">
 <style>
+  /* EVERY rule here is scoped to #chrome or #stage on purpose.
+     A previous version used bare `select {}`, `body { font }` and a
+     global `* { box-sizing }` -- those leaked into TIFY and restyled its
+     own page-selector, pushing its controls below the image. Do not
+     introduce unscoped element selectors in this file: the viewers ship
+     their own CSS and must be left alone. */
   :root { color-scheme: light dark; --bar: #f6f8fa; --line: #d8dde5; --fg: #16181d; }
   @media (prefers-color-scheme: dark) {
     :root { --bar: #1c1f25; --line: #2c313a; --fg: #e8eaed; }
   }
-  * { box-sizing: border-box; }
-  html, body { height: 100%; }
-  body {
-    margin: 0; font: 13px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif;
-    display: flex; flex-direction: column; color: var(--fg);
-  }
-  /* One compact row. On mobile this is ~34px so the viewer gets the rest. */
-  header {
-    flex: 0 0 auto; display: flex; gap: .35rem; align-items: center;
-    padding: .25rem .4rem; padding-left: max(.4rem, env(safe-area-inset-left));
+  html, body { height: 100%; margin: 0; }
+  body { display: flex; flex-direction: column; }
+
+  /* One compact row (~34px on mobile) so the viewer gets everything else. */
+  #chrome {
+    box-sizing: border-box; flex: 0 0 auto;
+    display: flex; gap: .35rem; align-items: center;
+    font: 13px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--fg);
+    padding: .25rem .4rem;
+    padding-left: max(.4rem, env(safe-area-inset-left));
     padding-right: max(.4rem, env(safe-area-inset-right));
     background: var(--bar); border-bottom: 1px solid var(--line);
     overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
   }
-  header::-webkit-scrollbar { display: none; }
-  select, a.btn {
-    font: inherit; font-size: 12px; padding: .18rem .4rem; border-radius: 5px;
+  #chrome::-webkit-scrollbar { display: none; }
+  #chrome select, #chrome a {
+    box-sizing: border-box; font: inherit; font-size: 12px;
+    padding: .18rem .4rem; border-radius: 5px;
     border: 1px solid var(--line); background: transparent; color: inherit;
     text-decoration: none; white-space: nowrap; flex: 0 0 auto;
   }
   #stage { flex: 1 1 auto; min-height: 0; position: relative; }
-  #tify, #mirador { position: absolute; inset: 0; }
-  .err { padding: 1rem; font-size: 13px; }
-  code { font-size: .85em; }
+  #stage > #tify, #stage > #mirador { position: absolute; inset: 0; }
+  #stage .err {
+    padding: 1rem; font: 13px/1.4 system-ui, -apple-system, sans-serif;
+    color: var(--fg);
+  }
 </style>
 </head>
 <body>
-<header>
+<header id="chrome">
   <select id="issue" aria-label="Issue">
     <option value="1980-04-06">1980-04-06</option>
     <option value="1997-07-16">1997-07-16</option>
@@ -67,7 +80,6 @@
     <option value="tify">TIFY</option>
     <option value="mirador">Mirador</option>
   </select>
-  <a class="btn" id="theseus-link" target="_blank" rel="noopener">Theseus ↗</a>
   <a class="btn" id="manifest-link" target="_blank" rel="noopener">manifest ↗</a>
 </header>
 <div id="stage"></div>
@@ -88,10 +100,6 @@ window.__cfg = (function () {
   sv.addEventListener('change', go);
 
   document.getElementById('manifest-link').href = rel;
-  // IIIF Content State API: parameter is `iiif-content`; a plain manifest
-  // URI must NOT be encoded.
-  document.getElementById('theseus-link').href =
-    'https://theseusviewer.org/?iiif-content=' + abs;
 
   return { issue: issue, viewer: viewer, rel: rel, abs: abs };
 })();
