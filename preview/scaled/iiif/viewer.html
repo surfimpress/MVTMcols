@@ -96,8 +96,7 @@
       <option value="all">blocks + lines</option>
     </optgroup>
     <optgroup label="2 · Columns">
-      <option value="grid1">columns (1)</option>
-      <option value="grid2">columns (2)</option>
+      <option value="grid">columns</option>
     </optgroup>
     <!-- Not built yet. Shown disabled so the pipeline shape is visible
          without implying these exist. -->
@@ -132,7 +131,7 @@ window.__cfg = (function () {
   // Block and line boxes overlap heavily when drawn together, so each
   // set has its own manifest. Default to blocks: that is the view that
   // makes column structure legible.
-  var layers = q.get('layers') || 'grid2';
+  var layers = q.get('layers') || 'grid';
   var rel = issue + (layers === 'all' ? '/manifest.json'
                                       : '/manifest_' + layers + '.json');
   // Stage 2 draws far fewer, much larger boxes than stage 1, so its

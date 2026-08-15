@@ -282,7 +282,7 @@ exists for exactly this.**
 
 ---
 
-### 5f. Stage 2 — COLUMNS, in two passes
+### 5f. Stage 2 — COLUMNS (one pass; pass 2 archived)
 
 Following `instructions/typesetting_practice.md`: the page was set on a
 fixed grid, so **fit a few numbers, don't discover boundaries.**
@@ -429,6 +429,36 @@ straddle gutters and inflate line widths:
 
 Do not reach for these again expecting them to work. The measure floor
 (`MIN_PITCH_PCT`) is what actually separates.
+
+#### Pass 2 archived 2026-08-15 — pass 1 is the answer
+
+Column detection is now **one pass**: two global parameters (pitch,
+offset) fitted across the page, one column width derived, columns read
+straight off the lattice. The gutter is therefore **constant down the
+page by construction**, which is what a gutter physically is.
+
+The former "columns (2)" — subsume stray blocks, refit, then lean each
+column edge independently to the outermost nearby edge — is preserved
+runnable at `transcribe/scaled/archive/refine_columns.py`. It was set
+aside on the user's reading that pass 1 wins in almost every case, which
+the measurement supports:
+
+| | within-page gutter variation, 89 pages |
+|---|---|
+| pass 1 | **0.00%** (constant by construction) |
+| pass 2 | median 0.42%, mean 0.48%, max 1.24% |
+| pass 2 | varies >0.30% within the page on **54/89 (61%)** |
+
+Pass 1 fits 2 parameters; pass 2 fits 2n, one per edge, each leaning
+toward whatever sits furthest out nearby — including display-ad interiors
+(see below). **We may return to it:** the scan scale drift it was built
+to absorb (~1.3% by the right-hand edge) is still unsolved. Any retry
+must stay parametric — one global scale/skew term, gutter held constant —
+not per-edge.
+
+Surviving from the pass-2 work: the last column's right edge may not sit
+left of the rightmost hOCR line in the rightmost block. That widens only
+the last column, leaving every interior gutter untouched.
 
 #### Display ads carry their OWN grid — measured, not yet solved
 
@@ -637,3 +667,8 @@ python3 -m transcribe.scaled.render_overlay YYYY-MM-DD [--page N]
   low-evidence flag); `col_width` restricted to the slot end zone. Four
   column-count discriminators measured and recorded as negative results.
   Viewer: combined "columns (1) + (2)" option removed.
+- **2026-08-15** — Pass 2 (per-edge refinement) archived to
+  `transcribe/scaled/archive/refine_columns.py`; detection is one pass and
+  the gutter is constant by construction. Viewer and manifests reduced to a
+  single `columns` layer. Display-ad grid contamination measured (30% of
+  blocks) and recorded as open.

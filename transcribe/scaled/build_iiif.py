@@ -121,7 +121,7 @@ VARIANTS = {
 # the pipeline: Tesseract (raw) -> Columns -> Items -> Refined. Items and
 # Refined are not built yet; the viewer shows them disabled rather than
 # pretending they exist.
-DERIVED = ("grid1", "grid2")
+DERIVED = ("grid",)
 
 
 def _derived_layers(conn, page_id, cid, W, H, variant):
@@ -129,43 +129,32 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
     produced nothing for this page, so an empty layer never masquerades as
     a real result."""
     out = []
-    if variant in ("grid", "grid1", "grid2"):
-        # Both passes as separate layers, so the refinement can be judged
-        # against what it started from rather than taken on trust.
+    if variant == "grid":
+        # ONE layer: the fitted lattice. The former "columns (2)"
+        # per-edge refinement was archived 2026-08-15 (see
+        # transcribe/scaled/archive/refine_columns.py).
         res = _detect_grid.detect(conn, page_id)
         g = res.get("grid")
-        if not g:
+        if not g or not res.get("columns"):
             return out
 
-        pass1 = []
-        for k in range(g["n_columns"]):
-            l = g["offset"] + k * g["pitch"]
-            r = l + g["col_width"]
-            x0, x1 = _sup.pct_to_px(l, W), _sup.pct_to_px(r, W)
-            pass1.append(_anno(
-                f"{cid}/anno/grid1/{k}", cid, x0, 0, max(1, x1 - x0), H,
-                "", f"slot {k}", kind="columns (1) rigid lattice",
-                detail=f"slot {k} · {l:.2f}%-{r:.2f}% · pitch {g['pitch']}% · "
-                       f"col {g['col_width']}% · gutter {g['gutter']}%"))
-        if variant in ("grid", "grid1"):
-            out.append((f"Columns (1) — rigid lattice, "
-                        f"{g['n_columns']} slots @ pitch {g['pitch']}%", pass1))
-
-        pass2 = []
-        cols = res.get("columns", [])
+        cols = res["columns"]
+        boxes = []
         for i, c in enumerate(cols):
             x0 = _sup.pct_to_px(c["left_pct"], W)
             x1 = _sup.pct_to_px(c["right_pct"], W)
             gut = (cols[i + 1]["left_pct"] - c["right_pct"]) if i + 1 < len(cols) else None
-            pass2.append(_anno(
-                f"{cid}/anno/grid2/{c['col_idx']}", cid, x0, 0, max(1, x1 - x0), H,
-                "", f"column {c['col_idx']}", kind="columns (2) leaned to extremes",
+            boxes.append(_anno(
+                f"{cid}/anno/grid/{c['col_idx']}", cid, x0, 0, max(1, x1 - x0), H,
+                "", f"column {c['col_idx']}", kind="column",
                 detail=f"col {c['col_idx']} · {c['left_pct']:.2f}%-{c['right_pct']:.2f}% "
                        f"(w {c['right_pct'] - c['left_pct']:.2f}%)"
                        + (f" · gutter {gut:+.2f}%" if gut is not None else " · right margin")))
-        if pass2 and variant in ("grid", "grid2"):
-            out.append((f"Columns (2) — leaned to extremes, "
-                        f"{len(pass2)} columns", pass2))
+        label = (f"Columns — {g['n_columns']} @ pitch {g['pitch']}%, "
+                 f"gutter {g['gutter']}%")
+        if res.get("low_evidence"):
+            label += f" · LOW EVIDENCE ({res['n_lines']} text lines)"
+        out.append((label, boxes))
     return out
 
 
@@ -296,9 +285,7 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
             "all": "raw Tesseract hOCR (blocks + lines)",
             "blocks": "raw Tesseract hOCR (blocks)",
             "lines": "raw Tesseract hOCR (lines)",
-            "grid": "stage 2: columns (1)+(2)",
-            "grid1": "stage 2: columns (1) — rigid lattice",
-            "grid2": "stage 2: columns (2) — leaned to extremes",
+            "grid": "stage 2: columns",
         }.get(variant, variant)]},
         "summary": {"en": [
             "Unmodified Tesseract hOCR rendered as IIIF annotation layers, "

@@ -7,11 +7,10 @@ fragments at the same x is not. hOCR lines are not plotted and not
 fitted -- they are referred to only to derive the minimum height a block
 must exceed.
 
-Two panels, stacked, so the refinement step can be judged directly:
+One panel: every usable block edge, and the fitted lattice over it.
 
-  TOP     before refinement -- every block, and the pass-1 rigid lattice
-  BOTTOM  after refinement  -- stray blocks subsumed, and the pass-2
-                              columns snapped to the majority alignment
+The second panel (after per-edge refinement) was removed 2026-08-15 when
+that pass was archived -- see transcribe/scaled/archive/refine_columns.py.
 
 If the typesetting model is right, the histogram should show spikes at
 regular intervals, because every block was aligned to the same printed
@@ -129,57 +128,37 @@ def plot_page(conn, page_row, out_path: str) -> str:
     blocks = _grid.page_blocks(conn, pid)
     if not blocks:
         return ""
-    kept, subsumed = _grid.subsume_stray_blocks(blocks)
 
     # Same truncation the fit applies: taller than MIN_ITEM_HEIGHT_LINES
     # text lines, shorter than MAX_ITEM_HEIGHT_FRAC of the page.
     line_h = _grid.median_line_height(conn, pid)
-    kept = [b for b in kept if _grid.usable(b, line_h)]
     blocks_u = [b for b in blocks if _grid.usable(b, line_h)]
 
     hgt = lambda bs: [b["B"] - b["T"] for b in bs]
     raw_l = [b["L"] for b in blocks_u]
     raw_r = [b["R"] for b in blocks_u]
     raw_h = hgt(blocks_u)
-    kept_l = [b["L"] for b in kept]
-    kept_r = [b["R"] for b in kept]
-    kept_h = hgt(kept)
-    drop_l = [b["L"] for b in subsumed]
-    drop_h = hgt(subsumed)
-
-    # Pass-1 lattice: rigid, every slot the same width.
-    before_cols = []
-    if g:
-        before_cols = [(round(g["offset"] + k * g["pitch"], 2),
-                        round(g["offset"] + k * g["pitch"] + g["col_width"], 2))
-                       for k in range(g["n_columns"])]
-    after_cols = [(c["left_pct"], c["right_pct"]) for c in res.get("columns", [])]
+    cols = [(c["left_pct"], c["right_pct"]) for c in res.get("columns", [])]
 
     nbins = int(100 / BIN_PCT) + 1
     peak = max([1.0] + _hist(raw_l, nbins, raw_h) + _hist(raw_r, nbins, raw_h))
 
-    img = Image.new("RGB", (W, PANEL_H * 2 + 30), (255, 255, 255))
+    img = Image.new("RGB", (W, PANEL_H + 30), (255, 255, 255))
     d = ImageDraw.Draw(img)
     date = f"{page_row['year']}-{page_row['month']:02d}-{page_row['day']:02d}"
 
     _panel(d, 0,
-           f"{date} p{page_row['page']} — BEFORE refinement: {len(blocks_u)} blocks "
-           f"(of {len(blocks)}, short/full-height truncated), pass-1 rigid lattice"
-           + (f" — {g['n_columns']} slots, pitch {g['pitch']}%, col {g['col_width']}%"
-              if g else " (no fit)"),
-           raw_l, raw_r, before_cols, [], peak, raw_h, raw_h, None)
-
-    _panel(d, PANEL_H + 30,
-           f"AFTER refinement: {len(kept)} blocks ({len(subsumed)} stray subsumed), "
-           f"pass-2 columns snapped to majority alignment "
-           f"({res.get('edges_snapped', 0)}/{res.get('edges_total', 0)} edges moved)",
-           kept_l, kept_r, after_cols, drop_l, peak, kept_h, kept_h, drop_h)
+           f"{date} p{page_row['page']} — {len(blocks_u)} blocks "
+           f"(of {len(blocks)}, short/full-height truncated)"
+           + (f" — {g['n_columns']} slots, pitch {g['pitch']}%, col {g['col_width']}%,"
+              f" gutter {g['gutter']}%" if g else " (no fit)")
+           + ("  [LOW EVIDENCE]" if res.get("low_evidence") else ""),
+           raw_l, raw_r, cols, [], peak, raw_h, raw_h, None)
 
     # Legend along the bottom.
-    y = PANEL_H * 2 + 8
+    y = PANEL_H + 8
     lx = PAD_L
     for colour, label in ((LEFT_COLOUR, "left edges"), (RIGHT_COLOUR, "right edges"),
-                          (DROP_COLOUR, "subsumed (lower panel)"),
                           (GRID_COLOUR, "column edges"), (GUTTER_COLOUR, "gutter")):
         d.rectangle([lx, y, lx + 16, y + 10], fill=colour)
         d.text((lx + 22, y - 2), label, fill=(0, 0, 0))

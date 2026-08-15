@@ -125,17 +125,6 @@ WEIGHT_BY_HEIGHT = True        # item height is the Y measure
 # page, don't let a self-authored score decide anything.
 
 
-# --- refinement: subsume stray blocks -------------------------------
-# A block wholly inside another, much narrower than it, and only a few
-# lines tall, is not an independent layout element -- it is a fragment
-# Tesseract split out of its parent (a drop cap, a price, a stray line
-# of an ad). Left in place, these fragments contribute edges at
-# arbitrary x positions and blur the grid fit.
-
-MAX_SUBSUME_WIDTH_FRAC = 0.5   # narrower than half the parent
-MAX_SUBSUME_LINES = 3          # and no more than this many hOCR lines
-
-
 def median_line_height(conn, page_id: str) -> float:
     """Median hOCR line height on the page, as the unit for truncation."""
     hs = [r["h"] for r in conn.execute(
@@ -235,43 +224,6 @@ def page_blocks(conn, page_id: str) -> list[dict]:
 def _contains(outer: dict, inner: dict, tol: float = 0.3) -> bool:
     return (inner["L"] >= outer["L"] - tol and inner["R"] <= outer["R"] + tol
             and inner["T"] >= outer["T"] - tol and inner["B"] <= outer["B"] + tol)
-
-
-def subsume_stray_blocks(blocks: list[dict]) -> tuple[list[dict], list[dict]]:
-    """Merge stray fragments into the block that encloses them.
-
-    A block is subsumed when ALL of:
-      - it lies wholly within another block,
-      - it is narrower than MAX_SUBSUME_WIDTH_FRAC of that parent,
-      - it has at most MAX_SUBSUME_LINES hOCR lines.
-
-    The parent's bbox is unchanged -- the child was already inside it, so
-    there is nothing to grow. Returns (kept blocks, subsumed blocks).
-    """
-    kept, subsumed = [], []
-    for i, b in enumerate(blocks):
-        if b["n_lines"] > MAX_SUBSUME_LINES:
-            kept.append(b)
-            continue
-        bw = b["R"] - b["L"]
-        parent = None
-        for j, other in enumerate(blocks):
-            if i == j:
-                continue
-            ow = other["R"] - other["L"]
-            if ow <= bw:
-                continue
-            if bw >= ow * MAX_SUBSUME_WIDTH_FRAC:
-                continue
-            if _contains(other, b):
-                # Smallest qualifying enclosing block is the true parent.
-                if parent is None or ow < (parent["R"] - parent["L"]):
-                    parent = other
-        if parent is None:
-            kept.append(b)
-        else:
-            subsumed.append({**b, "parent_block_idx": parent["block_idx"]})
-    return kept, subsumed
 
 
 def edges_from_blocks(blocks: list[dict]
@@ -485,9 +437,9 @@ def fit_grid(lefts: list[float], rights: list[float],
             "n_edges": len(lefts) + len(rights), "n_peaks": len(all_peaks)}
 
 
-# How far a column edge may be pulled to meet the majority alignment in
-# pass 2. Wide enough to absorb scan scale drift across the page, narrow
-# enough that a column cannot migrate into its neighbour's slot.
+# How far left of the last column's start to look for the rightmost text
+# line (see `line_right_extent`). Wide enough to absorb scan scale drift,
+# narrow enough not to reach into the previous column.
 SNAP_SEARCH_PCT = 2.0
 
 # Blocks in the bottom decile by height are dropped before an edge is
@@ -556,38 +508,6 @@ def analyse(conn, page_id: str, blocks: list[dict] | None = None,
     bh = item_weights(items)
     w = bh if (WEIGHT_BY_HEIGHT and len(bh) == len(bl)) else None
     return fit_grid(bl, br, w, w)
-
-
-def _lean(predicted: float, edges: list[float], window: float,
-          rightward: bool, lo: float | None = None,
-          hi: float | None = None) -> tuple[float, bool]:
-    """Take the most EXTREME edge within `window` of the prediction.
-
-    Averaging a cluster was the wrong move: it pulls an edge towards
-    wherever most items happen to stop, which is INSIDE the column, and
-    it made pass 2 weaker than pass 1. A column's true left edge is the
-    LEFTMOST place its blocks start (anything further right is an indent);
-    its true right edge is the RIGHTMOST place they end (anything further
-    left is just a short line). Leaning to the extreme recovers the real
-    boundary, and a consistent gutter falls out of it.
-
-    `edges` must already have the shortest decile removed -- see
-    `tall_edges`. Extreme selection is by construction sensitive to
-    whatever sits furthest out, so the least trustworthy items must not
-    be able to set an edge.
-    """
-    near = [x for x in edges if abs(x - predicted) <= window]
-    # Hard bounds keep a column inside its own slot. Without them the
-    # lean grabs the FAR side of the printed rule that separates it from
-    # its neighbour -- the rule is only ~0.5-1% wide, well inside the
-    # search window -- and the gutter collapses to zero.
-    if lo is not None:
-        near = [x for x in near if x >= lo]
-    if hi is not None:
-        near = [x for x in near if x <= hi]
-    if not near:
-        return predicted, False
-    return round(max(near) if rightward else min(near), 2), True
 
 
 def item_weights(items: list[dict]) -> list[float]:
@@ -664,115 +584,65 @@ def tall_edges(items: list[dict], side: str) -> list[float]:
 
 
 def detect(conn, page_id: str) -> dict:
-    """Two passes.
+    """Fit the page's column grid. ONE pass.
 
-    PASS 1 establishes the likely columns -- pitch, offset, column width,
-    column count -- from the raw blocks. That is a rigid lattice, and a
-    rigid lattice cannot follow the scan's own scale drift across the
-    page (measured: edges landing ~1.3% right of their slot at the
-    right-hand end while fitting well on the left).
+    Two global parameters -- pitch and offset -- are fitted across the
+    whole page, and one column width is derived from them. That is the
+    shape `instructions/typesetting_practice.md` prescribes: the grid is
+    four fixed numbers the page was built on, not a set of independent
+    boundaries to be discovered.
 
-    Refinement then subsumes stray fragment blocks, which contribute
-    edges at arbitrary x and blur the peaks.
+    Columns come straight off the lattice, so the gutter is CONSTANT down
+    the page by construction -- which is what a gutter physically is.
 
-    PASS 2 re-runs the same analysis on the cleaned blocks and then
-    refines each column to the MAJORITY ALIGNMENT: every column edge is
-    pulled to the heaviest nearby edge peak. The result follows the page
-    as printed rather than holding a perfect lattice the page never had.
+    A second, per-edge refinement pass ("columns (2)") was built and set
+    aside 2026-08-15: it made the gutter vary within the page on 61% of
+    pages, following noise rather than the page. It is preserved runnable
+    at `transcribe/scaled/archive/refine_columns.py`, with the
+    measurement and the conditions under which it would be worth
+    revisiting. We may return to it.
     """
     blocks = page_blocks(conn, page_id)
-    first = analyse(conn, page_id, blocks)
-
-    kept, subsumed = subsume_stray_blocks(blocks)
-    dropped = {b["block_idx"] for b in subsumed}
-    second = analyse(conn, page_id, kept, exclude_block_idx=dropped)
-
-    # Pass 2 REFINES pass 1's reading; it does not get to overturn it.
-    # Subsuming stray blocks changes the edge distribution slightly, so a
-    # correction of one column either way is a legitimate sharpening -- but
-    # a jump to twice as many columns means pass 2 has found a
-    # sub-division (an ad's internal price columns, a table's cells), not
-    # a better grid. Seen live: 1980-04-06 p12 went 4 -> 8 this way.
-    grid = second or first
-    if first and second and abs(second["n_columns"] - first["n_columns"]) > 1:
-        grid = first
-        count_guarded = (second["n_columns"], first["n_columns"])
-    else:
-        count_guarded = None
-
-    if grid is None:
-        return {"grid": None, "fit": 0.0, "note": "insufficient edges",
-                "n_blocks": len(blocks), "n_kept": len(kept),
-                "subsumed": len(subsumed), "subsumed_blocks": subsumed}
-
-    # Majority-alignment refinement, using the cleaned edge distribution.
-    line_h = median_line_height(conn, page_id)
-    ok = [b for b in kept if usable(b, line_h)]
-    weak = (vertical_rules(conn, page_id, line_h)
-            + photo_regions(conn, page_id, line_h))
-    left_edges = tall_edges(ok + weak, "left")
-    right_edges = tall_edges(ok + weak, "right")
-
-    # LEFT edges first, for every column. Each leans leftward to the
-    # outermost block start near its predicted slot, bounded so it cannot
-    # cross back past the previous slot.
-    n = grid["n_columns"]
-    lefts, hit_left = [], []
-    for k in range(n):
-        pl = grid["offset"] + k * grid["pitch"]
-        prev_right = (grid["offset"] + (k - 1) * grid["pitch"]
-                      + grid["col_width"]) if k else None
-        x, hit = _lean(pl, left_edges, SNAP_SEARCH_PCT, rightward=False,
-                       lo=prev_right)
-        lefts.append(x)
-        hit_left.append(hit)
-
-    # RIGHT edges second, each bounded by the ACTUAL left edge of the next
-    # column less a minimum gutter. Bounding against the *predicted* next
-    # left was not enough: the next column then leans left to that same
-    # prediction and the two meet, collapsing the gutter to zero.
-    min_gutter = max(0.25, grid["gutter"] * 0.5)
-    columns, moved = [], 0
-    for k in range(n):
-        hi = (lefts[k + 1] - min_gutter) if k + 1 < n else None
-        right, hit_r = _lean(lefts[k] + grid["col_width"], right_edges,
-                             SNAP_SEARCH_PCT, rightward=True, hi=hi)
-        if right - lefts[k] < grid["col_width"] * 0.5:
-            right = round(lefts[k] + grid["col_width"], 2)
-            hit_r = False
-        if k == n - 1:
-            # LAST column: a block bbox can under-report its extent, but
-            # its LINES cannot. The rightmost line in the rightmost block
-            # marks where text actually reaches, and the column must not
-            # end left of that or it would clip real text.
-            ext = line_right_extent(conn, page_id, lefts[k] - SNAP_SEARCH_PCT, dropped)
-            if ext is not None and ext > right:
-                right = ext
-                hit_r = True
-        moved += int(hit_left[k]) + int(hit_r)
-        columns.append({"col_idx": k, "left_pct": round(lefts[k], 2),
-                        "right_pct": round(right, 2),
-                        "snapped_left": hit_left[k], "snapped_right": hit_r})
+    grid = analyse(conn, page_id, blocks)
 
     n_lines = conn.execute(
         "SELECT count(*) c FROM page_hocr_lines WHERE page_id=?",
         (page_id,)).fetchone()["c"]
 
-    return {"grid": grid, "fit": grid["score"],
-            "count_guarded": count_guarded,
+    if grid is None:
+        return {"grid": None, "fit": 0.0, "note": "insufficient edges",
+                "n_blocks": len(blocks), "n_lines": n_lines,
+                "low_evidence": n_lines < MIN_LINES_FOR_GRID}
+
+    # Columns are the lattice itself. No per-edge adjustment: every
+    # column is the same width and every gutter the same size, because
+    # that is how the page was set.
+    n = grid["n_columns"]
+    columns = []
+    for k in range(n):
+        left = grid["offset"] + k * grid["pitch"]
+        right = left + grid["col_width"]
+        if k == n - 1:
+            # The one place lines touch the geometry. A block bbox can
+            # under-report its extent; its lines cannot. The rightmost
+            # line in the rightmost block marks where text actually
+            # reaches, and the last column must not end left of that or
+            # it would clip real text. Widening only the LAST column
+            # leaves the gutters between columns untouched.
+            ext = line_right_extent(conn, page_id, left - SNAP_SEARCH_PCT)
+            if ext is not None and ext > right:
+                right = ext
+        columns.append({"col_idx": k, "left_pct": round(left, 2),
+                        "right_pct": round(right, 2)})
+
+    return {"grid": grid, "fit": grid["score"], "columns": columns,
             "low_evidence": n_lines < MIN_LINES_FOR_GRID,
-            "n_lines": n_lines,
-            "fit_before_refine": first["score"] if first else None,
-            "columns": columns,
-            "edges_snapped": moved, "edges_total": 2 * grid["n_columns"],
-            "n_blocks": len(blocks), "n_kept": len(kept),
-            "subsumed": len(subsumed), "subsumed_blocks": subsumed}
+            "n_lines": n_lines, "n_blocks": len(blocks)}
 
 
 def store(conn, page_id: str, res: dict) -> None:
-    """Persist the pass-2 (majority-aligned) columns -- that is the
-    answer. The pass-1 lattice parameters go in `notes` so the rigid fit
-    the refinement started from stays inspectable."""
+    """Persist the fitted columns. The lattice parameters go in `notes`
+    so pitch/offset/width stay inspectable alongside the boxes."""
     conn.execute("DELETE FROM page_columns WHERE page_id=? AND method='grid'",
                  (page_id,))
     g = res.get("grid")
@@ -787,8 +657,10 @@ def store(conn, page_id: str, res: dict) -> None:
                VALUES (?,?,?,?,?,?,?,?,?)""",
             (_sup.new_uuid(), page_id, c["col_idx"], c["left_pct"], c["right_pct"],
              "grid", res["fit"], now,
-             f"pass1 pitch={g['pitch']} col={g['col_width']} gutter={g['gutter']}; "
-             f"snapped L={c['snapped_left']} R={c['snapped_right']}"))
+             f"pitch={g['pitch']} col={g['col_width']} gutter={g['gutter']} "
+             f"offset={g['offset']} n={g['n_columns']}"
+             + (f"; LOW EVIDENCE ({res['n_lines']} lines)"
+                if res.get("low_evidence") else "")))
     conn.commit()
 
 
@@ -814,8 +686,8 @@ def _cmd_run(args):
                     f"col={g['col_width']:.2f}%  gutter={g['gutter']:.2f}%"
                     if g else "no fit")
             print(f"  {r['year']}-{r['month']:02d}-{r['day']:02d} p{r['page']}: "
-                  f"{desc}  fit={res['fit']:.2f}  "
-                  f"subsumed={res.get('subsumed', 0)}")
+                  f"{desc}  fit={res['fit']:.2f}"
+                  + ("  [low evidence]" if res.get("low_evidence") else ""))
         print(f"\n{len(rows)} page(s) fitted.")
     finally:
         conn.close()
@@ -841,11 +713,10 @@ def _cmd_show(args):
         print(f"  edges       : {g['edges']}")
         print(f"  fit          : {g['score']:.2f}  "
               f"(peak weight explained, chance-corrected)")
-        print(f"  refinement   : {res['n_blocks']} blocks -> {res['n_kept']} "
-              f"({res['subsumed']} stray subsumed); "
-              f"{res['edges_snapped']}/{res['edges_total']} edges snapped "
-              f"to majority alignment")
-        print("  pass 2 columns (majority-aligned):")
+        if res.get("low_evidence"):
+            print(f"  LOW EVIDENCE : only {res['n_lines']} text lines "
+                  f"(< {MIN_LINES_FOR_GRID}) -- treat this fit as a guess")
+        print("  columns:")
         for c in res["columns"]:
             gut = ""
             nxt = next((x for x in res["columns"] if x["col_idx"] == c["col_idx"] + 1), None)

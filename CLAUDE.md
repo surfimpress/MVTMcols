@@ -30,21 +30,44 @@ that.
     of the coordinate and db helpers. Same DB (additive schema-v15 tables
     only), so results are comparable in one query. Delete the package and
     production is unaffected.
-  - **Stage 2 is COLUMNS (1)+(2)** (`detect_grid.py`). Per
+  - **Stage 2 is COLUMNS — ONE pass** (`detect_grid.py`). Per
     `instructions/typesetting_practice.md`, fit a few numbers (margin,
-    column width, gutter, count) rather than discover boundaries.
-    Measured on BLOCKS only — hOCR lines contribute no edges and are used
-    solely to derive a minimum block height — weighted by item HEIGHT,
-    with `ocr_separator` vertical rules included and their edges CROSSED
-    OVER (a rule sits in the gutter, so rule.L bounds the previous
-    column's right). Pass (1) is a rigid lattice; pass (2) leans each
-    edge to the extreme (leftmost start / rightmost end) rather than
-    averaging a cluster — averaging made pass 2 weaker than pass 1.
-    Result: a consistent gutter, corpus median 0.78% (~1 pica), 4%
-    degenerate. **Everything else builds up from this.** Known limit,
-    visible on the page render: pitch drifts across ad-heavy halves where
-    no printed rules exist. Separators are now INPUTS, so they can no
-    longer serve as independent ground truth.
+    column width, gutter, count) rather than discover boundaries. Two
+    global parameters (pitch, offset) are fitted across the page and one
+    column width derived; columns come straight off the lattice, so **the
+    gutter is constant down the page by construction** — which is what a
+    gutter physically is. Corpus median gutter 0.48%.
+    Measured on BLOCKS — hOCR lines contribute no edges except one
+    constraint (below) and otherwise only set a minimum block height —
+    weighted by item HEIGHT. Evidence is weighted by kind: text blocks
+    full value, `ocr_separator` vertical rules and `ocr_photo` regions
+    HALF. Rule edges are CROSSED OVER (a rule sits in the gutter, so
+    rule.L bounds the previous column's right); photo edges map straight
+    through (a photo sits ON the columns). The one line-derived
+    constraint: the LAST column's right edge may not sit left of the
+    rightmost hOCR line in the rightmost block.
+    Column-count sense checks: a measure floor (`MIN_PITCH_PCT` 8.0, a
+    column must be wide enough to set body text in) and a `low_evidence`
+    flag below 60 text lines. **Everything else builds up from this.**
+    Separators are now INPUTS, so they can no longer serve as independent
+    ground truth — use `items.item_type='display_ad'` from the production
+    route instead, which they contribute nothing to.
+  - **Pass 2 (per-edge refinement) is ARCHIVED but NOT dead — we may
+    return to it.** `transcribe/scaled/archive/refine_columns.py`, kept
+    runnable. It leaned each column edge independently to the outermost
+    nearby edge; measured, it made the gutter vary within the page on
+    **54/89 pages (61%)**, following noise rather than the page, and the
+    user's read was that pass 1 wins in almost every case. The problem it
+    was built for is still unsolved: the scan's own scale drift across
+    the page (~1.3% by the right-hand edge). Any retry must stay
+    **parametric** — one global scale/skew term, gutter held constant —
+    never per-edge.
+  - **Display ads carry their own interior grid** — measured, open. 30%
+    of all text blocks sit inside a display ad (100% on a full-page-ad
+    page), and their internal sub-columns are what halved 1980-04-06 p2.
+    `x_size` does not separate them cleanly (44 vs 36, overlapping).
+    Excluding interiors was inconclusive and the test was confounded; see
+    `instructions/scaled_pipeline.md` §5f before retrying.
   - **Confidence scoring is an ARCHIVED DEAD END**
     (`transcribe/scaled/archive/`). Earlier detectors discovered layout
     from weak signals then scored their own trustworthiness; every
@@ -61,7 +84,8 @@ that.
     `preview/scaled/iiif/viewer.html` embeds Mirador (default, **the only
     one confirmed working**) and TIFY (**does NOT render overlays for
     these manifests — unresolved**; the `view:'fulltext'` fix was
-    predicted to work and falsified on device). **Mirador's default
+    predicted to work and falsified on device). The stage-2 opt group is
+    a single `columns` option now that pass 2 is archived. **Mirador's default
     `filteredMotivations` EXCLUDES `supplementing`** — the motivation all
     our annotations use — so an unconfigured/hosted Mirador silently
     shows nothing; that override is why it is embedded, not linked.
