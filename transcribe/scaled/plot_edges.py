@@ -75,19 +75,21 @@ def plot_page(conn, page_row, out_path: str) -> str:
         d.line([(PAD_L - 6, y), (PAD_L, y)], fill=(0, 0, 0), width=1)
         d.text((PAD_L - 34, y - 6), f"{c}", fill=(0, 0, 0))
 
-    # Bars, grouped side-by-side within each bin so LEFT and RIGHT are
-    # separated by POSITION as well as colour -- colour alone is not a
-    # safe channel here.
+    # Bars sit at their TRUE x position -- no side-by-side offset, so a
+    # bar's position is exactly the measured edge position. Where both
+    # series land in the same bin, the taller is drawn first so the
+    # shorter stays visible on top of it.
     bw = max(1, pw / nbins)
-    half = max(1, bw / 2)
     for i in range(nbins):
         x = PAD_L + pw * (i * BIN_PCT / 100.0)
+        pair = []
         if hist_l[i]:
-            y = PAD_T + ph - ph * (hist_l[i] / peak)
-            d.rectangle([x, y, x + half, PAD_T + ph], fill=LEFT_COLOUR)
+            pair.append((hist_l[i], LEFT_COLOUR))
         if hist_r[i]:
-            y = PAD_T + ph - ph * (hist_r[i] / peak)
-            d.rectangle([x + half, y, x + half + half, PAD_T + ph], fill=RIGHT_COLOUR)
+            pair.append((hist_r[i], RIGHT_COLOUR))
+        for cnt, colour in sorted(pair, reverse=True):
+            y = PAD_T + ph - ph * (cnt / peak)
+            d.rectangle([x, y, x + bw, PAD_T + ph], fill=colour)
 
     # Predicted grid LAST, so it reads on top of the bars.
     if g:
