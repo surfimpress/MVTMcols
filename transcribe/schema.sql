@@ -259,6 +259,16 @@ CREATE TABLE IF NOT EXISTS pages (
     llm_status            TEXT,              -- NULL|'done'|'failed'|'damaged'
     llm_failure_count      INTEGER NOT NULL DEFAULT 0,
     llm_status_notes       TEXT,
+    -- Scaled track (schema v15). hocr_parsed_at is the readiness
+    -- signal for transcribe/scaled/hocr_parse.py, exactly the same "own column,
+    -- own cadence" shape as items.terms_extracted_at -- each stage runs
+    -- independently and never blocks another. scan_res_* is Tesseract's
+    -- own reported scanner resolution from the hOCR ocr_page element
+    -- (note it is the *source image's* dpi, not RENDER_DPI, because
+    -- render_page() prefers a native embedded bitmap at its own dpi).
+    hocr_parsed_at        TEXT,
+    scan_res_x            INTEGER,
+    scan_res_y            INTEGER,
     created_at            TEXT NOT NULL,
     notes                 TEXT,
     UNIQUE (year, month, day, page)
@@ -286,6 +296,15 @@ CREATE TABLE IF NOT EXISTS page_ocr_blocks (
     tokens_in         INTEGER,
     tokens_out        INTEGER,
     cost_usd          REAL,
+    -- Scaled track (schema v15), filled by transcribe/scaled/hocr_parse.py.
+    -- block_class is always 'ocr_carea' for rows the existing route
+    -- creates (it only ever selects careas); it exists so the column is
+    -- explicit rather than implied. x_size_median is the median
+    -- Tesseract x-height of this block's lines -- a font-size proxy, the
+    -- single strongest signal the original parser discarded (body ~35px,
+    -- headlines to ~320px on a 1990 page).
+    block_class       TEXT,
+    x_size_median     REAL,
     created_at        TEXT NOT NULL,
     notes             TEXT,
     FOREIGN KEY (page_id) REFERENCES pages(id),
@@ -293,6 +312,90 @@ CREATE TABLE IF NOT EXISTS page_ocr_blocks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ocr_blocks_page ON page_ocr_blocks (page_id);
+
+
+-- Scaled track (schema v15) ------------------------------------
+-- Tesseract emits far more layout signal than ocr_llm.parse_hocr()
+-- keeps. These two tables recover it from the .hocr files already on
+-- disk -- no re-OCR, no LLM. See transcribe/scaled/hocr_parse.py's docstring
+-- and instructions/scaled_pipeline.md for the measured evidence.
+
+-- The line level, which the original parser skipped entirely (it jumps
+-- carea -> word). line_class is Tesseract's OWN layout judgement:
+-- 'ocr_line' is ordinary body text, but 'ocr_header' / 'ocr_caption' /
+-- 'ocr_textfloat' are free heading/caption/float detection. ocr_caption
+-- maps directly onto item_ocr_block_spans.role='caption', which today
+-- is populated only by an LLM.
+CREATE TABLE IF NOT EXISTS page_hocr_lines (
+    id                TEXT PRIMARY KEY,
+    page_id           TEXT NOT NULL,
+    page_ocr_block_id TEXT,                 -- nullable: block may predate this parse
+    block_idx         INTEGER NOT NULL,
+    line_class        TEXT NOT NULL,        -- ocr_line|ocr_header|ocr_caption|ocr_textfloat
+    left_pct          REAL NOT NULL,
+    top_pct           REAL NOT NULL,
+    right_pct         REAL NOT NULL,
+    bottom_pct        REAL NOT NULL,
+    x_size            REAL,                 -- Tesseract x-height in px (font-size proxy)
+    x_ascenders       REAL,
+    x_descenders      REAL,
+    baseline_slope    REAL,                 -- per-line skew; deskew/rotation QA
+    par_top_pct       REAL,                 -- owning ocr_par, for paragraph grouping
+    n_words           INTEGER,
+    text              TEXT,
+    FOREIGN KEY (page_id) REFERENCES pages(id),
+    FOREIGN KEY (page_ocr_block_id) REFERENCES page_ocr_blocks(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hocr_lines_page ON page_hocr_lines (page_id);
+CREATE INDEX IF NOT EXISTS idx_hocr_lines_class ON page_hocr_lines (line_class);
+
+
+-- Non-text blocks: ocr_separator (printed rules) and ocr_photo (image
+-- regions). These are SIBLINGS of ocr_carea, direct children of
+-- ocr_page, which is exactly why the carea-only XPath never saw them.
+-- A vertical separator is a literal column boundary -- the primary
+-- signal for transcribe/scaled/detect_columns.py. orientation is derived from the
+-- bbox aspect ratio (see hocr_parse._orientation), so it needs no page
+-- dimensions and no image read.
+CREATE TABLE IF NOT EXISTS page_hocr_regions (
+    id                TEXT PRIMARY KEY,
+    page_id           TEXT NOT NULL,
+    region_class      TEXT NOT NULL,        -- 'ocr_separator'|'ocr_photo'
+    orientation       TEXT NOT NULL,        -- 'vertical'|'horizontal'|'block'
+    left_pct          REAL NOT NULL,
+    top_pct           REAL NOT NULL,
+    right_pct         REAL NOT NULL,
+    bottom_pct        REAL NOT NULL,
+    width_px          INTEGER,
+    height_px         INTEGER,
+    FOREIGN KEY (page_id) REFERENCES pages(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hocr_regions_page ON page_hocr_regions (page_id);
+
+
+-- Column boundaries derived from hOCR geometry alone (no pixels, no
+-- LLM). Deliberately separate from the pre-1980 route's
+-- mvtm.page_layouts -- that is the classical pixel cutter's output and
+-- is not touched. `method` records which signal produced the boundary
+-- set so disagreement between signals stays inspectable rather than
+-- being averaged away. `confidence` drives the LLM-escalation gate.
+CREATE TABLE IF NOT EXISTS page_columns (
+    id                TEXT PRIMARY KEY,
+    page_id           TEXT NOT NULL,
+    col_idx           INTEGER NOT NULL,     -- 0-based, left to right
+    left_pct          REAL NOT NULL,
+    right_pct         REAL NOT NULL,
+    method            TEXT NOT NULL,        -- 'separator'|'leftedge'|'valley'|'combined'
+    confidence        REAL,                 -- 0-1; below the gate -> escalate to LLM
+    created_at        TEXT NOT NULL,
+    notes             TEXT,
+    FOREIGN KEY (page_id) REFERENCES pages(id),
+    UNIQUE (page_id, method, col_idx)
+);
+
+CREATE INDEX IF NOT EXISTS idx_page_columns_page ON page_columns (page_id);
 
 
 CREATE TABLE IF NOT EXISTS items_ocr_ext (
@@ -760,7 +863,22 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 --                                    single orchestrator session, so there's
 --                                    no concurrent-worker race to guard
 --                                    against
+--  15 — scaled track (2026-08-15): pages.hocr_parsed_at/
+--                                    scan_res_x/scan_res_y,
+--                                    page_ocr_blocks.block_class/
+--                                    x_size_median, and three new
+--                                    tables page_hocr_lines,
+--                                    page_hocr_regions, page_columns.
+--                                    Recovers the layout signal
+--                                    ocr_llm.parse_hocr() discards
+--                                    (separators, photos, x_size, line
+--                                    classes) so columns and items can
+--                                    be derived without an LLM. Purely
+--                                    additive — the existing OCR+LLM
+--                                    route is untouched and keeps
+--                                    running. See
+--                                    instructions/scaled_pipeline.md
 INSERT OR IGNORE INTO schema_meta (key, value)
-    VALUES ('schema_version', '14');
+    VALUES ('schema_version', '15');
 INSERT OR IGNORE INTO schema_meta (key, value)
     VALUES ('created_at_iso', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));

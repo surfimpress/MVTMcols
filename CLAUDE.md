@@ -2,13 +2,49 @@
 
 ## Current status — read this first, keep it current
 
-**Last updated: 2026-08-10.** This section is a live pointer, not a
+**Last updated: 2026-08-15.** This section is a live pointer, not a
 durable rule — overwrite it (don't append to it) whenever the active
 work changes materially: a campaign finishes, a new one starts, or a
 session pauses mid-task for a reason a fresh session needs to know
 (subagent cap, content-filter block, waiting on the user). The goal is
 that a session starting cold can read this and `transcribe/work/experiments.jsonl`'s
 tail and reconstruct state without replaying a whole prior transcript.
+
+**"Scaled" pipeline experiment, started 2026-08-15 — READ
+`instructions/scaled_pipeline.md` BEFORE TOUCHING `transcribe/scaled/`.**
+An isolated parallel track testing whether structure can be derived from
+classical signal (Tesseract's own hOCR layout output + geometry) instead
+of paying an LLM to look at the page. Motivation, measured: the corpus is
+70,063 pages and only 0.80% is done; the OCR+LLM route costs 77-104k
+tokens/page and 93.4s/page, extrapolating to **5.4-7.3 billion tokens and
+~76 days** for the full corpus. `items` segmentation alone is **72%** of
+that.
+  - **Key discovery:** `ocr_llm.parse_hocr()` discards nearly everything
+    Tesseract emits — `ocr_separator` (a vertical one IS a column rule),
+    `ocr_photo`, per-line `x_size` (font-size proxy), and Tesseract's own
+    `ocr_header`/`ocr_caption`/`ocr_textfloat` classes. Recovered from the
+    .hocr files already on disk at zero OCR/LLM cost: **5,081 regions,
+    560 header + 447 caption lines** across 90 pages.
+  - **Total isolation by direction:** `transcribe/scaled/` imports
+    NOTHING from the rest of the repo — `_support.py` holds local copies
+    of the coordinate and db helpers. Same DB (additive schema-v15 tables
+    only), so results are comparable in one query. Delete the package and
+    production is unaffected.
+  - **Column detection: negative result, 97.8% escalation on 1980+.**
+    Not a bug — full-height columns are the wrong model for that era
+    (`layout_observations.md` already said "modular, no page-level grid").
+    Proven by measurement, see the doc. Where a printed grid does exist
+    (1980-04-06 p11) it resolves a clean 7-column page, visually verified.
+  - **Process lesson worth keeping:** the confidence metric initially
+    scored a visibly-wrong page 0.853 because it measured only precision,
+    never recall — the exact self-flattering-metrics failure
+    `post1980_layout_observations.md` warns about. Caught by *rendering
+    the page*. Never trust a score from this pipeline without running
+    `transcribe/scaled/render_overlay.py` first.
+  - Viewers: manifest is the contract, viewers are swappable clients.
+    TIFY built-in (self-hosted); Theseus + Mirador via the IIIF Content
+    State API (`?iiif-content=<manifest-url>`, plain URI, no encoding).
+    Clover and Universal Viewer ruled out — no annotation support at all.
 
 **OCR+LLM route (1980s+ issues) is built and stable, entity extraction
 split out 2026-08-09** — `transcribe/ocr_llm.py` (render/OCR/cleanup/

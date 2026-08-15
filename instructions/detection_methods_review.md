@@ -817,6 +817,8 @@ Consumers light up in Stages 2 and 3.
 | 17 | Body-text rhythm (300 DPI) | **Keep** | Higher DPI cost is justified |
 | 18 | Era priors & layout templates | **Keep** | Cross-issue learning |
 | 19 | Shared CV pre-processing artefact (`page_cv`) | **Keep** | Cleaned binary + shadow regions + ink projections, cached per page; consumed by `detect_ads` (#6) for CV reinforcement; Stage 3 (`page_profile` text-area edges) still pending |
+| 20 | hOCR layout-signal recovery (`transcribe/scaled/hocr_parse.py`) | **Keep — free signal** | Recovers `ocr_separator`/`ocr_photo` regions, per-line `x_size`, and Tesseract's own `ocr_header`/`ocr_caption`/`ocr_textfloat` classes that `ocr_llm.parse_hocr()` discards. Zero OCR, zero LLM — the .hocr files are already on disk |
+| 21 | hOCR column detection (`transcribe/scaled/detect_columns.py`) | **Experimental — negative on 1980+** | Three independent signals (vertical separators, left-edge clustering, coverage valleys) + a precision×recall confidence. Works where a printed grid exists; **97.8% escalation on 1980+ because that era is modular, not columnar**. See `instructions/scaled_pipeline.md` |
 
 ---
 
