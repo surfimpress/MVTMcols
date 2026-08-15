@@ -114,6 +114,18 @@ that.
     all alignments stored, filtering is the caller's. `pages.content_top_pct`/
     `content_bottom_pct` need >=2 words per line (a one-word sheet-edge
     artefact moved a content top from 2.42% to 0.46%).
+  - **Missing box rules: DON'T try to tune Tesseract** — measured across
+    5 configs (Sauvola/Otsu/Leptonica-Otsu, psm 3/1, tables on/off) and
+    separator output was IDENTICAL every time (12 on 1980-04-06 p5, 45 on
+    p6), while the OCR text itself changed (3 distinct hashes) — so the
+    variants applied and the layout analysis simply ignores them.
+    Tesseract exposes no rule-sensitivity parameter. **Pixel-level rule
+    detection does work** — thin-and-long filtering found the I.D.A. ad's
+    top and bottom on p6 that Tesseract never reported. Prototype only
+    (finds fewer rules overall so far):
+    `transcribe/scaled/experiments/rule_detection_sources.py`.
+    **LLM escalation is not yet justified** — the cheap classical route
+    isn't exhausted.
   - **Stage 2c is PHOTO+CAPTION pairing** (`detect_captions.py`,
     `page_photo_captions` schema v19). A caption is the strip directly
     beneath a photo, within the photo's x-extent, terminated by a

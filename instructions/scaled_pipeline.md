@@ -583,6 +583,41 @@ notices, not display ads. Recall is likewise capped because many display
 ads simply are not ruled boxes. Use the ad overlap as a weak sanity
 signal only; judge this stage by rendering it.
 
+### 5k. Missing box rules — Tesseract tuning ruled out (2026-08-15)
+
+Some obvious boxes have no complete rule set in Tesseract's output (the
+CBO 920 ad on 1980-04-06 p5, the I.D.A. ad on p6). Three routes were
+proposed: escalate to an LLM, tune Tesseract, or both.
+
+**Tuning Tesseract does NOT work.** Re-ran p5 and p6 across five configs
+— Sauvola / Otsu / Leptonica-Otsu thresholding, psm 3 / psm 1, table
+detection on / off. **Separator counts were identical in every case**
+(12 on p5, 45 on p6).
+
+This is not a broken experiment; the control proves the variants applied.
+p6's hOCR differs between them — base 374,573 bytes / 2,270 words, otsu
+376,395 / 2,265, notab 382,545 / 2,267, three distinct hashes. **The OCR
+text changes while the layout analysis does not.** `--print-parameters`
+confirms Tesseract exposes only debug/visualisation switches for
+`textord`; there is no rule-sensitivity knob. Don't spend more time here.
+
+**Pixel-level rule detection finds what Tesseract misses.** A rule is
+THIN as well as long, so filtering for dark pixels with no dark neighbour
+a few rows above *and* below, then taking long runs, yields in p6's
+I.D.A. region: `y 54.4%, x 53.3–90.9%` and `y 95.2%, x 52.7–90.7%` — a
+matching top/bottom pair bounding the ad `detect_boxes` could not build.
+
+**Caveat, stated plainly:** at these parameters the crude version finds
+FEWER rules overall than Tesseract (4 vs 12 horizontal on p5, 23 vs 38 on
+p6). It is a promising prototype, not a tuned detector, and has not been
+compared page by page. Reproduce with
+`transcribe/scaled/experiments/rule_detection_sources.py`.
+
+**Conclusion: the cheap classical route is not exhausted, so LLM
+escalation is not yet justified for this.** If resumed: build the pixel
+rule detector properly, measure it against Tesseract's separators
+corpus-wide, and escalate only boxes neither source supports.
+
 ### 5h. Stage 3 — HORIZONTAL alignments (built 2026-08-15)
 
 `transcribe/scaled/detect_hlines.py`, rendered by `render_hlines.py`,
@@ -840,3 +875,7 @@ python3 -m transcribe.scaled.render_overlay YYYY-MM-DD [--page N]
   `page_boxes`): ruled rectangles from top/bottom rule pairs, with
   containment matching for Tesseract's merged collinear rules. Corner
   matching measured and rejected (22% of endpoints coincide). See §5j.
+- **2026-08-15** — Measured that Tesseract config tuning cannot recover
+  missing box rules (identical separator output across 5 configs, with a
+  control proving the variants applied); pixel-level rule detection can.
+  See §5k and `transcribe/scaled/experiments/rule_detection_sources.py`.
