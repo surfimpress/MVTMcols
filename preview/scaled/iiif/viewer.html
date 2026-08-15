@@ -147,14 +147,30 @@ window.__cfg = (function () {
     stage.innerHTML = '<div id="mirador"></div>';
     Mirador.viewer({
       id: 'mirador',
-      windows: [{
-        manifestId: cfg.abs,
-        // Open straight onto the annotation list rather than making the
-        // reviewer dig for it.
+      windows: [{ manifestId: cfg.abs }],
+      window: {
+        // Draw every annotation boundary on load instead of only on
+        // hover/selection. Verified against the Mirador 3.4.2 bundle:
+        // the default config carries `highlightAllAnnotations: false`,
+        // each window initialises from
+        // `config.window.highlightAllAnnotations || false`, and the
+        // annotations toggle button simply flips this same key
+        // (TOGGLE_ANNOTATION_DISPLAY). So setting it here IS the
+        // "boundaries visible by default" switch.
+        highlightAllAnnotations: true,
+        // Open on the annotation list rather than making the reviewer
+        // dig for it. Must live at config level under this exact name:
+        // window creation reads
+        //   s.sideBarPanel || f.window.defaultSideBarPanel || f.window.sideBarPanel
+        // where `s` is the per-window spec -- so a per-window override
+        // would have to be spelled `sideBarPanel`, NOT
+        // `defaultSideBarPanel`. It was previously set per-window under
+        // the config-level name and therefore did nothing.
         defaultSideBarPanel: 'annotations',
-        sideBarOpen: true
-      }],
-      window: { allowFullscreen: true, allowMaximize: false },
+        sideBarOpen: true,
+        allowFullscreen: true,
+        allowMaximize: false
+      },
       workspaceControlPanel: { enabled: false },
       annotations: {
         // MUST include 'supplementing' -- see the note at the top of this
