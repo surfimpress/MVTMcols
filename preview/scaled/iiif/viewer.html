@@ -12,6 +12,13 @@
   builds on, so later stages can be added as further layers and compared
   against it.
 
+  Mirador is the DEFAULT because it is the one confirmed working on a
+  real device (2026-08-15): it renders these annotation boundaries
+  correctly, which also independently proves the manifest is sound and
+  that the Text Granularity extension causes no harm. TIFY needs
+  view:'fulltext' before it will even fetch annotations, which costs
+  screen space -- kept as a switchable alternative, not the default.
+
   Annotations are switched ON in each viewer's own config:
 
   - TIFY     annotationsVisible: true      (clickable overlays)
@@ -77,8 +84,8 @@
     <option value="1997-07-16">1997-07-16</option>
   </select>
   <select id="viewer" aria-label="Viewer">
-    <option value="tify">TIFY</option>
     <option value="mirador">Mirador</option>
+    <option value="tify">TIFY</option>
   </select>
   <a class="btn" id="manifest-link" target="_blank" rel="noopener">manifest ↗</a>
 </header>
@@ -88,7 +95,7 @@
 window.__cfg = (function () {
   var q = new URLSearchParams(location.search);
   var issue = q.get('issue') || '1980-04-06';
-  var viewer = q.get('viewer') || 'tify';
+  var viewer = q.get('viewer') || 'mirador';
   // 'fulltext' is required for TIFY to load/draw annotations at all
   // (see the note at the Tify() call). Overridable for experimentation.
   var view = q.get('view') || 'fulltext';
