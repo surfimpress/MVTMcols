@@ -57,8 +57,20 @@ def _rel_url(abs_path: str) -> str:
     return f"{PUBLIC_BASE}/{rel}"
 
 
-def _anno(anno_id, canvas_id, x, y, w, h, text, label):
-    return {
+def _anno(anno_id, canvas_id, x, y, w, h, text, label, granularity=None):
+    """One supplementing annotation over a canvas region.
+
+    `granularity` emits the IIIF Text Granularity extension's
+    `textGranularity` property, which declares *what unit of text* this
+    annotation covers -- so a client can tell a block-level transcription
+    from a line-level one instead of guessing. Allowed values are
+    page|block|paragraph|line|word|glyph. The extension requires
+    motivation `supplementing`, which is what we already use.
+
+    Deliberately omitted for ocr_separator / ocr_photo: those regions
+    carry no text at all, so no granularity honestly applies to them.
+    """
+    a = {
         "id": anno_id,
         "type": "Annotation",
         "motivation": "supplementing",
@@ -67,6 +79,9 @@ def _anno(anno_id, canvas_id, x, y, w, h, text, label):
         "target": f"{canvas_id}#xywh={x},{y},{w},{h}",
         "label": {"en": [label]},
     }
+    if granularity:
+        a["textGranularity"] = granularity
+    return a
 
 
 def build_manifest(conn, date: str, base: str) -> dict:
@@ -121,7 +136,8 @@ def build_manifest(conn, date: str, base: str) -> dict:
                     items.append(_anno(
                         f"{cid}/anno/{cls}/{i}", cid, x0, y0, max(1, x1 - x0),
                         max(1, y1 - y0), txt,
-                        f"block {rr['block_idx']} · conf {rr['conf']}"))
+                        f"block {rr['block_idx']} · conf {rr['conf']}",
+                        granularity="block"))
             else:
                 rows = conn.execute(
                     "SELECT left_pct l, top_pct t, right_pct r, bottom_pct b, "
@@ -160,7 +176,7 @@ def build_manifest(conn, date: str, base: str) -> dict:
                 items.append(_anno(
                     f"{cid}/anno/{cls}/{i}", cid, x0, y0, max(1, x1 - x0),
                     max(1, y1 - y0), (rr["text"] or "").strip() or "(no text)",
-                    f"{cls} · {xs}"))
+                    f"{cls} · {xs}", granularity="line"))
             canvas["annotations"].append({
                 "id": f"{cid}/annopage/{cls}",
                 "type": "AnnotationPage",
@@ -171,7 +187,12 @@ def build_manifest(conn, date: str, base: str) -> dict:
         canvases.append(canvas)
 
     return {
-        "@context": "http://iiif.io/api/presentation/3/context.json",
+        "@context": [
+            "http://iiif.io/api/presentation/3/context.json",
+            # IIIF Text Granularity extension -- lets a client tell a
+            # block-level transcription from a line-level one.
+            "http://iiif.io/api/extension/text-granularity/context.json",
+        ],
         "id": f"{base}/manifest.json",
         "type": "Manifest",
         "label": {"en": [f"Almonte Gazette {date} — raw Tesseract hOCR"]},
