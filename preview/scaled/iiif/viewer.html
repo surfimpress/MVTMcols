@@ -90,22 +90,22 @@
     <option value="1997-07-16">1997-07-16</option>
   </select>
   <select id="layers" aria-label="Pipeline stage">
-    <optgroup label="1 · Tesseract (raw OCR)">
+    <optgroup label="1 · Tesseract">
       <option value="blocks">blocks</option>
       <option value="lines">lines</option>
       <option value="all">blocks + lines</option>
     </optgroup>
     <optgroup label="2 · Columns">
-      <option value="bands">bands + per-band columns</option>
-      <option value="columns">full-height columns</option>
+      <option value="bands">bands</option>
+      <option value="columns">full-height</option>
     </optgroup>
     <!-- Not built yet. Shown disabled so the pipeline shape is visible
          without implying these exist. -->
     <optgroup label="3 · Items">
-      <option value="items" disabled>items — not built</option>
+      <option value="items" disabled>items</option>
     </optgroup>
-    <optgroup label="4 · Refined (after LLM QA)">
-      <option value="refined" disabled>refined — not built</option>
+    <optgroup label="4 · Refined">
+      <option value="refined" disabled>refined</option>
     </optgroup>
   </select>
   <!-- TIFY hidden 2026-08-15: it does not render overlays for these
