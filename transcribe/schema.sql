@@ -909,3 +909,24 @@ INSERT OR IGNORE INTO schema_meta (key, value)
     VALUES ('schema_version', '16');
 INSERT OR IGNORE INTO schema_meta (key, value)
     VALUES ('created_at_iso', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+
+-- v17: stage 3 of the `scaled` experiment -- horizontal alignments.
+-- A post-1980 page is a mosaic of rectangles, so a horizontal edge is
+-- LOCAL: it spans a run of columns, not the whole page. col_lo/col_hi
+-- record that span. `n_columns` is how many distinct columns agreed on
+-- the alignment -- evidence count, NOT a confidence score (see
+-- transcribe/scaled/archive/README.md for why this distinction matters).
+CREATE TABLE IF NOT EXISTS page_hlines (
+    id          TEXT PRIMARY KEY,
+    page_id     TEXT NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+    y_pct       REAL NOT NULL,
+    col_lo      INTEGER NOT NULL,
+    col_hi      INTEGER NOT NULL,
+    n_columns   INTEGER NOT NULL,
+    n_edges     INTEGER NOT NULL,
+    weight      REAL,
+    kinds       TEXT,
+    has_rule    INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_page_hlines_page ON page_hlines(page_id, y_pct);

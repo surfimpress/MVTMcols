@@ -31,6 +31,7 @@ import os
 
 from . import _support as _sup
 from . import detect_grid as _detect_grid
+from . import detect_hlines as _detect_hlines
 
 # The repo root is served here (behind Cloudflare Access -- a browser
 # session can read it, an unauthenticated third-party server cannot).
@@ -121,7 +122,7 @@ VARIANTS = {
 # the pipeline: Tesseract (raw) -> Columns -> Items -> Refined. Items and
 # Refined are not built yet; the viewer shows them disabled rather than
 # pretending they exist.
-DERIVED = ("grid",)
+DERIVED = ("grid", "hlines")
 
 
 def _derived_layers(conn, page_id, cid, W, H, variant):
@@ -155,6 +156,48 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
         if res.get("low_evidence"):
             label += f" · LOW EVIDENCE ({res['n_lines']} text lines)"
         out.append((label, boxes))
+    if variant == "hlines":
+        # Stage 3: horizontal alignments. Each is drawn only across the
+        # columns it spans -- that span IS the claim, and a page-wide box
+        # would hide the thing worth checking.
+        res = _detect_hlines.detect(conn, page_id)
+        cols = _detect_grid.detect(conn, page_id).get("columns") or []
+        if not res.get("alignments") or not cols:
+            return out
+
+        # Grouped by how many columns agree, so a reviewer can turn the
+        # weaker evidence off in the viewer rather than having it filtered
+        # away here. Storing everything and letting the client choose is
+        # the project rule (don't destroy data downstream needs).
+        tiers = [("4+ columns", 4, 99), ("3 columns", 3, 3), ("2 columns", 2, 2)]
+        for label, lo_n, hi_n in tiers:
+            boxes = []
+            for i, a in enumerate(res["alignments"]):
+                if not (lo_n <= a["n_columns"] <= hi_n):
+                    continue
+                x0 = _sup.pct_to_px(cols[a["col_lo"]]["left_pct"], W)
+                x1 = _sup.pct_to_px(
+                    cols[min(a["col_hi"], len(cols) - 1)]["right_pct"], W)
+                y = _sup.pct_to_px(a["y_pct"], H)
+                th = max(2, H // 400)
+                boxes.append(_anno(
+                    f"{cid}/anno/hl/{lo_n}/{i}", cid, x0, max(0, y - th // 2),
+                    max(1, x1 - x0), th, "",
+                    f"y {a['y_pct']}%", kind="horizontal alignment",
+                    detail=f"y {a['y_pct']}% · columns {a['col_lo']}-{a['col_hi']} "
+                           f"· {a['n_columns']} agreeing · {a['n_edges']} edges "
+                           f"· {a['kinds']}"))
+            if boxes:
+                out.append((f"Horizontal alignments — {label} ({len(boxes)})", boxes))
+
+        ct, cb = res.get("content_top"), res.get("content_bottom")
+        if ct is not None and cb is not None:
+            out.append(("Content extent (top / bottom)", [
+                _anno(f"{cid}/anno/hl/content/{k}", cid, 0,
+                      max(0, _sup.pct_to_px(v, H) - 2), W, 4, "",
+                      f"content {k}", kind="content extent",
+                      detail=f"content {k} at {v}%")
+                for k, v in (("top", ct), ("bottom", cb))]))
     return out
 
 
@@ -286,6 +329,7 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
             "blocks": "raw Tesseract hOCR (blocks)",
             "lines": "raw Tesseract hOCR (lines)",
             "grid": "stage 2: columns",
+            "hlines": "stage 3: horizontal alignments",
         }.get(variant, variant)]},
         "summary": {"en": [
             "Unmodified Tesseract hOCR rendered as IIIF annotation layers, "

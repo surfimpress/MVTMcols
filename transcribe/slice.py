@@ -168,6 +168,8 @@ def slice_column(*,
           "y_top_pct": float, "y_bottom_pct": float,
           "y_top_px":  int,   "y_bottom_px":  int,
           "height_px": int,
+          "width_px":  int,          # full source-image width; constant
+                                      # across all slices of one column
           "image_path": str,         # repo-relative path to slice PNG
           "top_rule_class":    "full" | "narrow" | "column_edge",
           "bottom_rule_class": "full" | "narrow" | "column_edge",
@@ -221,6 +223,7 @@ def slice_column(*,
                 "y_top_px": sub_top,
                 "y_bottom_px": sub_bot,
                 "height_px": sub_bot - sub_top,
+                "width_px": img_w,
                 "image_path": manifest_image_path,
                 "top_rule_class": cuts[i]["rule_class"],
                 "bottom_rule_class": cuts[i + 1]["rule_class"],

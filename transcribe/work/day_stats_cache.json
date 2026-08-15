@@ -1,0 +1,44 @@
+{
+  "2026-07-30": {
+    "avg_duration_s": 453.6,
+    "fastest10_avg_s": 453.6,
+    "n": 5,
+    "slowest10_avg_s": 453.6
+  },
+  "2026-08-03": {
+    "avg_duration_s": 432.1,
+    "fastest10_avg_s": 221.4,
+    "n": 46,
+    "slowest10_avg_s": 756.1
+  },
+  "2026-08-04": {
+    "avg_duration_s": 278.9,
+    "fastest10_avg_s": 120.0,
+    "n": 238,
+    "slowest10_avg_s": 869.4
+  },
+  "2026-08-05": {
+    "avg_duration_s": 276.2,
+    "fastest10_avg_s": 116.0,
+    "n": 230,
+    "slowest10_avg_s": 557.1
+  },
+  "2026-08-06": {
+    "avg_duration_s": 161.8,
+    "fastest10_avg_s": 29.7,
+    "n": 696,
+    "slowest10_avg_s": 378.1
+  },
+  "2026-08-07": {
+    "avg_duration_s": 55.4,
+    "fastest10_avg_s": 25.7,
+    "n": 432,
+    "slowest10_avg_s": 121.0
+  },
+  "2026-08-08": {
+    "avg_duration_s": 50.0,
+    "fastest10_avg_s": 21.5,
+    "n": 374,
+    "slowest10_avg_s": 252.2
+  }
+}

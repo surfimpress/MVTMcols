@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>MVTM transcription — repair rate monitor</title>
+<title>Transcription monitor</title>
 <style>
   :root {
     color-scheme: light dark;
@@ -141,16 +141,38 @@
 
   .charts { display: flex; flex-wrap: wrap; gap: 2rem; margin-top: 2.5rem; }
   .chart-block { flex: 1 1 320px; min-width: 280px; }
-  .chart-block h2 { font-size: 1rem; margin: 0 0 0.2rem; }
-  .chart-sub { color: var(--muted); font-size: 0.8rem; margin: 0 0 0.75rem; }
-  .bar-chart { width: 100%; height: auto; overflow: visible; }
+  .chart-block.full-width { flex: 1 1 100%; }
+  .chart-head { display: flex; align-items: center; gap: 0.4rem; margin: 0 0 0.6rem; }
+  .chart-block h2 { font-size: 1rem; margin: 0; }
+  .info-btn {
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 1px solid var(--muted); background: none; color: var(--muted);
+    font-size: 10px; font-style: italic; font-family: Georgia, serif;
+    line-height: 1; padding: 0; cursor: pointer; flex-shrink: 0;
+  }
+  .info-btn:hover, .info-btn[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+  .info-popover {
+    position: absolute; max-width: 320px; z-index: 20;
+    background: var(--panel, #fff); border: 1px solid var(--border);
+    border-radius: 6px; padding: 0.65rem 0.8rem; font-size: 0.8rem;
+    color: var(--muted); box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+  }
+  .bar-chart, .line-chart { width: 100%; height: auto; overflow: visible; }
   .bar-chart .bar { fill: var(--accent); }
   .bar-chart .bar:hover { fill: var(--warn); }
-  .bar-chart .axis-line { stroke: var(--border); stroke-width: 1; }
-  .bar-chart .axis-label {
+  .bar-chart .axis-line, .line-chart .axis-line { stroke: var(--border); stroke-width: 1; }
+  .bar-chart .axis-label, .line-chart .axis-label {
     fill: var(--muted); font-size: 10px; text-anchor: middle;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
+  .line-chart .series-line { fill: none; stroke: var(--accent); stroke-width: 2; }
+  .line-chart .series-dot { fill: var(--accent); }
+  .line-chart .series-dot:hover { fill: var(--warn); r: 5; }
+  .line-chart .series-line.series-line-context {
+    stroke: var(--muted); stroke-width: 1; opacity: 0.55;
+  }
+  .line-chart .series-dot.series-dot-context { fill: var(--muted); opacity: 0.6; }
+  .line-chart .series-dot.series-dot-context:hover { fill: var(--warn); opacity: 1; }
   .chart-tooltip {
     position: fixed; pointer-events: none; z-index: 10;
     background: var(--fg); color: var(--bg);
@@ -161,22 +183,17 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>Transcription repair-rate monitor</h1>
-  <p class="sub">Per-issue count of columns transcribed vs. flagged
-    <code>repair_needed</code> by the column-transcriber agent. A high
-    rate usually points at an upstream cutting or ad-detection
-    problem, not a transcription-quality problem — see
-    <code>transcribe/quality_review.md</code>. Click a repair-rate cell
-    to see what was flagged.</p>
-
+  <h1>Transcription monitor</h1>
   <div class="summary" id="summary"></div>
   <p class="corpus-note" id="corpus-note"></p>
   <table id="table">
     <thead>
       <tr>
         <th data-key="date">Issue</th>
+        <th data-key="date_transcribed" class="num">Date transcribed</th>
         <th data-key="n_columns" class="num">Columns</th>
         <th data-key="total_time" class="num">Total time</th>
+        <th data-key="elapsed_time" class="num">Elapsed (est.)</th>
         <th data-key="n_repairs" class="num">
           <div class="th-repairs">
             <span>Repairs</span>
@@ -195,25 +212,56 @@
 
   <div class="charts" id="charts">
     <div class="chart-block">
-      <h2>Average time per page number</h2>
-      <p class="chart-sub">Mean agent duration for columns on this page number,
-        averaged across every issue that has one — not skewed by issues with
-        fewer pages.</p>
+      <div class="chart-head">
+        <h2>Average time per page number</h2>
+        <button class="info-btn" type="button" data-info-for="info-page">i</button>
+      </div>
+      <div class="chart-info" id="info-page" hidden>Mean agent duration for columns on this page number, averaged across every issue that has one — not skewed by issues with fewer pages.</div>
       <svg class="bar-chart" id="chart-page" viewBox="0 0 600 220"></svg>
     </div>
     <div class="chart-block">
-      <h2>Average time per column position</h2>
-      <p class="chart-sub">Mean agent duration by column index within a page
-        (c0 = leftmost).</p>
+      <div class="chart-head">
+        <h2>Average time per column position</h2>
+        <button class="info-btn" type="button" data-info-for="info-col">i</button>
+      </div>
+      <div class="chart-info" id="info-col" hidden>Mean agent duration by column index within a page (c0 = leftmost).</div>
       <svg class="bar-chart" id="chart-col" viewBox="0 0 600 220"></svg>
     </div>
     <div class="chart-block">
-      <h2>Average time per decade</h2>
-      <p class="chart-sub">Mean agent duration by the decade of the issue.</p>
+      <div class="chart-head">
+        <h2>Average time per decade</h2>
+        <button class="info-btn" type="button" data-info-for="info-decade">i</button>
+      </div>
+      <div class="chart-info" id="info-decade" hidden>Mean agent duration by the decade of the issue.</div>
       <svg class="bar-chart" id="chart-decade" viewBox="0 0 600 220"></svg>
+    </div>
+    <div class="chart-block">
+      <div class="chart-head">
+        <h2>Distribution of transcriber speeds</h2>
+        <button class="info-btn" type="button" data-info-for="info-histogram">i</button>
+      </div>
+      <div class="chart-info" id="info-histogram" hidden>Number of columns falling in each 1-minute duration bucket, across every timed run.</div>
+      <svg class="bar-chart" id="chart-histogram" viewBox="0 0 600 220"></svg>
+    </div>
+    <div class="chart-block full-width">
+      <div class="chart-head">
+        <h2>Average time per column, day by day</h2>
+        <button class="info-btn" type="button" data-info-for="info-processing-day">i</button>
+      </div>
+      <div class="chart-info" id="info-processing-day" hidden>Bold line: mean agent duration for columns completed on each real calendar day, across every issue we have timing for — not the newspaper issue's own date, but when we actually ran it. Faint lines: that day's fastest-10 and slowest-10 average, to show the spread without a single outlier skewing it. Every day in range is shown, including idle days — the line connects straight across them.</div>
+      <svg class="line-chart" id="chart-processing-day" viewBox="0 0 1200 260"></svg>
+    </div>
+    <div class="chart-block full-width">
+      <div class="chart-head">
+        <h2>Issues completed, day by day</h2>
+        <button class="info-btn" type="button" data-info-for="info-issues-day">i</button>
+      </div>
+      <div class="chart-info" id="info-issues-day" hidden>Number of issues fully completed on each real calendar day — same day range as the speed chart above, for comparing speed against production levels at a glance.</div>
+      <svg class="bar-chart" id="chart-issues-day" viewBox="0 0 1200 260"></svg>
     </div>
   </div>
   <div id="chart-tooltip" class="chart-tooltip" style="display:none"></div>
+  <div id="info-popover" class="info-popover" style="display:none"></div>
 
   <footer id="generated"></footer>
 </div>
@@ -327,45 +375,182 @@ function hideChartTooltip() {
   chartTooltip.style.display = "none";
 }
 
-// data: [{label, avg_duration_s, n}, ...]. Single-hue magnitude bars --
-// no legend needed (one series; the chart title names it) per dataviz
-// mark spec. Value shown on hover only, never stamped on every bar.
-function renderBarChart(svgId, data) {
+const infoPopover = document.getElementById("info-popover");
+let openInfoBtn = null;
+function hideInfoPopover() {
+  infoPopover.style.display = "none";
+  if (openInfoBtn) openInfoBtn.setAttribute("aria-expanded", "false");
+  openInfoBtn = null;
+}
+function showInfoPopover(btn) {
+  const infoEl = document.getElementById(btn.dataset.infoFor);
+  if (!infoEl) return;
+  infoPopover.textContent = infoEl.textContent;
+  infoPopover.style.display = "block";
+  const r = btn.getBoundingClientRect();
+  infoPopover.style.left = (r.left + window.scrollX) + "px";
+  infoPopover.style.top = (r.bottom + window.scrollY + 6) + "px";
+  btn.setAttribute("aria-expanded", "true");
+  openInfoBtn = btn;
+}
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".info-btn");
+  if (btn) {
+    if (openInfoBtn === btn) {
+      hideInfoPopover();
+    } else {
+      hideInfoPopover();
+      showInfoPopover(btn);
+    }
+    return;
+  }
+  if (openInfoBtn && !e.target.closest(".info-popover")) hideInfoPopover();
+});
+
+// data: [{label, <valueKey>, n}, ...]. Single-hue magnitude bars -- no
+// legend needed (one series; the chart title names it) per dataviz mark
+// spec. Value shown on hover only, never stamped on every bar.
+// opts.valueKey selects the bar-height field (default "avg_duration_s");
+// opts.tooltip(d) overrides the hover text for non-average charts (e.g.
+// a duration histogram, where the bar height is a count, not a mean).
+// opts.alignPoints + opts.width/height/padL/padR/padTop/axisY/labelY/labelFn
+// let a bar chart adopt the exact same x-axis geometry as renderLineChart
+// (point-per-day at padL + i*stepX, not an edge-to-edge partition) so two
+// stacked full-width charts sharing a day range line up bar-for-dot.
+function renderBarChart(svgId, data, opts) {
+  opts = opts || {};
+  const valueKey = opts.valueKey || "avg_duration_s";
+  const tooltipFn = opts.tooltip
+    || ((d) => `${d.label}: ${formatDuration(d.avg_duration_s)} avg (n=${d.n})`);
+  const W = opts.width || 600, H = opts.height || 220;
+
   const svg = document.getElementById(svgId);
   svg.replaceChildren();
   if (!data || data.length === 0) {
     svg.append(svgEl("text", {
-      x: 300, y: 110, class: "axis-label", text: "No timing data yet",
+      x: W / 2, y: H / 2, class: "axis-label", text: "No timing data yet",
     }));
     return;
   }
 
-  const W = 600, H = 220;
-  const padL = 10, padR = 10, padTop = 10, axisY = 190, labelY = 208;
+  const padL = opts.padL != null ? opts.padL : 10;
+  const padR = opts.padR != null ? opts.padR : 10;
+  const padTop = opts.padTop != null ? opts.padTop : 10;
+  const axisY = opts.axisY != null ? opts.axisY : 190;
+  const labelY = opts.labelY != null ? opts.labelY : 208;
+  const labelFn = opts.labelFn || ((d) => d.label);
   const innerW = W - padL - padR;
-  const maxVal = Math.max(...data.map(d => d.avg_duration_s));
-  const gap = 6;
-  const barW = Math.max(4, innerW / data.length - gap);
+  const maxVal = Math.max(...data.map(d => d[valueKey] || 0));
+  const n = data.length;
 
   svg.append(svgEl("line", {
     x1: padL, y1: axisY, x2: W - padR, y2: axisY, class: "axis-line",
   }));
 
+  let barW, xForIndex;
+  if (opts.alignPoints) {
+    const stepX = n > 1 ? innerW / (n - 1) : 0;
+    barW = Math.max(4, Math.min(stepX * 0.6, stepX - 2));
+    xForIndex = (i) => padL + i * stepX - barW / 2;
+  } else {
+    const gap = 6;
+    barW = Math.max(4, innerW / n - gap);
+    xForIndex = (i) => padL + i * (barW + gap) + gap / 2;
+  }
+
   data.forEach((d, i) => {
-    const x = padL + i * (barW + gap) + gap / 2;
-    const barH = maxVal > 0 ? (d.avg_duration_s / maxVal) * (axisY - padTop) : 0;
+    const x = xForIndex(i);
+    const v = d[valueKey];
+    const barH = (maxVal > 0 && v != null) ? (v / maxVal) * (axisY - padTop) : 0;
     const yTop = axisY - barH;
     const path = svgEl("path", {
       d: barPath(x, yTop, axisY, barW, 4),
       class: "bar",
     });
-    path.addEventListener("mousemove", (e) =>
-      showChartTooltip(e, `${d.label}: ${formatDuration(d.avg_duration_s)} avg (n=${d.n})`));
+    path.addEventListener("mousemove", (e) => showChartTooltip(e, tooltipFn(d)));
     path.addEventListener("mouseleave", hideChartTooltip);
     svg.append(path);
 
     svg.append(svgEl("text", {
-      x: x + barW / 2, y: labelY, class: "axis-label", text: d.label,
+      x: x + barW / 2, y: labelY, class: "axis-label", text: labelFn(d),
+    }));
+  });
+}
+
+function shortDayLabel(isoDate) {
+  return isoDate && isoDate.length === 10 ? isoDate.slice(5) : isoDate;
+}
+
+// Time series: every day in range gets an x-position and axis label.
+// A no-work day has no dot, but the line still CONNECTS the nearest
+// real points on either side of it directly -- an idle day isn't
+// missing data (we know exactly what happened: nothing), so the trend
+// bridges over it rather than showing a break. Supports multiple
+// series sharing one x-axis and one y-scale (e.g. a bold average line
+// plus faint fastest/slowest-10 context lines).
+function renderLineChart(svgId, data, opts) {
+  opts = opts || {};
+  const series = opts.series || [{
+    valueKey: opts.valueKey || "avg_duration_s",
+    lineClass: "series-line",
+    dotClass: "series-dot",
+    dotRadius: 4,
+    tooltip: (d, key) => d.n > 0
+        ? `${d.label}: ${formatDuration(d[key])} avg (n=${d.n})`
+        : `${d.label}: no work done`,
+  }];
+
+  const svg = document.getElementById(svgId);
+  svg.replaceChildren();
+  if (!data || data.length === 0) {
+    svg.append(svgEl("text", {
+      x: 600, y: 130, class: "axis-label", text: "No timing data yet",
+    }));
+    return;
+  }
+
+  const W = 1200;
+  const padL = 20, padR = 20, padTop = 15, axisY = 220, labelY = 240;
+  const innerW = W - padL - padR;
+  const allVals = series.flatMap(s => data.map(d => d[s.valueKey]).filter(v => v != null));
+  const maxVal = allVals.length ? Math.max(...allVals) : 1;
+  const n = data.length;
+  const stepX = n > 1 ? innerW / (n - 1) : 0;
+
+  svg.append(svgEl("line", {
+    x1: padL, y1: axisY, x2: W - padR, y2: axisY, class: "axis-line",
+  }));
+
+  for (const s of series) {
+    const points = data.map((d, i) => {
+      const x = padL + i * stepX;
+      const v = d[s.valueKey];
+      const y = (v != null && maxVal > 0) ? axisY - (v / maxVal) * (axisY - padTop) : null;
+      return { x, y, d };
+    });
+
+    // One path through every real point, in x-order, regardless of
+    // how many no-data days sit between consecutive real points.
+    const real = points.filter(p => p.y != null);
+    if (real.length > 1) {
+      const dPath = real.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
+      svg.append(svgEl("path", { d: dPath, class: s.lineClass }));
+    }
+
+    real.forEach((p) => {
+      const dot = svgEl("circle", {
+        cx: p.x, cy: p.y, r: s.dotRadius || 4, class: s.dotClass,
+      });
+      dot.addEventListener("mousemove", (e) => showChartTooltip(e, s.tooltip(p.d, s.valueKey)));
+      dot.addEventListener("mouseleave", hideChartTooltip);
+      svg.append(dot);
+    });
+  }
+
+  data.forEach((d, i) => {
+    const x = padL + i * stepX;
+    svg.append(svgEl("text", {
+      x, y: labelY, class: "axis-label", text: shortDayLabel(d.label),
     }));
   });
 }
@@ -387,6 +572,8 @@ function render() {
     if (key === "n_repairs") return filteredCount(issue);
     if (key === "repair_rate") return filteredRate(issue);
     if (key === "total_time") return issue.timing?.total_agent_time_s ?? -1;
+    if (key === "elapsed_time") return issue.timing?.elapsed_s ?? -1;
+    if (key === "date_transcribed") return issue.date_transcribed || "";
     return issue[key];
   };
   currentIssues = [...data.issues].sort((a, b) => {
@@ -412,10 +599,15 @@ function render() {
     scoreCard(formatHours(totalAgentTimeS), "total agent time"));
 
   const corpusNoteEl = document.getElementById("corpus-note");
-  corpusNoteEl.textContent = data.total_corpus_issues
+  const issuesNote = data.total_corpus_issues
     ? `${currentIssues.length} of ${data.total_corpus_issues} issues in the corpus `
       + `(${data.corpus_pct}%)`
     : "";
+  const pagesNote = data.total_corpus_pages
+    ? `${data.pages_done} of ${data.total_corpus_pages} pages fully done `
+      + `(${data.pages_done_pct}%)`
+    : "";
+  corpusNoteEl.textContent = [issuesNote, pagesNote].filter(Boolean).join("  ·  ");
 
   issueRows = [];
   currentIssues.forEach((issue, idx) => {
@@ -457,10 +649,27 @@ function render() {
       ? `${issue.n_columns}/${issue.n_columns_total}`
       : String(issue.n_columns);
 
+    const elapsedTitle = issue.timing?.n_timed
+      ? `Total agent time ÷ ${issue.timing.assumed_concurrency} `
+        + `(75% of this issue's target of ${issue.timing.target_concurrency} `
+        + `in-flight agents) — a rule-of-thumb estimate, not a measured `
+        + `wall-clock span`
+      : "No timing data recorded for this issue";
+
+    const dateTranscribedTd = el("td", {
+      class: "num",
+      text: issue.date_transcribed || "—",
+      title: issue.date_transcribed
+        ? "When this issue's last column finished (\"rounded up\")"
+        : "Not yet fully transcribed",
+    });
+
     const tr = el("tr", { class: issue.complete ? "" : "incomplete" },
       dateCell,
+      dateTranscribedTd,
       el("td", { class: "num", text: colsText }),
       el("td", { class: "num", text: formatHours(totalTime), title: timeTitle }),
+      el("td", { class: "num", text: formatHours(issue.timing?.elapsed_s), title: elapsedTitle }),
       el("td", { class: "num", text: String(count) }),
       repairTd);
     rowsEl.append(tr);
@@ -597,6 +806,48 @@ fetch("repair_stats.json?_=" + Date.now())
     renderBarChart("chart-page", data.avg_time_by_page);
     renderBarChart("chart-col", data.avg_time_by_col_idx);
     renderBarChart("chart-decade", data.avg_time_by_decade);
+    renderBarChart("chart-histogram", data.duration_histogram, {
+      valueKey: "n",
+      tooltip: (d) => `${d.label}: ${d.n} column${d.n === 1 ? "" : "s"}`,
+    });
+    renderLineChart("chart-processing-day", data.avg_time_by_processing_day, {
+      series: [
+        {
+          valueKey: "slowest10_avg_s",
+          lineClass: "series-line series-line-context",
+          dotClass: "series-dot series-dot-context",
+          dotRadius: 2.5,
+          tooltip: (d) => d.n > 0
+            ? `${d.label}: slowest-10 avg ${formatDuration(d.slowest10_avg_s)} (n=${Math.min(d.n, 10)})`
+            : `${d.label}: no work done`,
+        },
+        {
+          valueKey: "fastest10_avg_s",
+          lineClass: "series-line series-line-context",
+          dotClass: "series-dot series-dot-context",
+          dotRadius: 2.5,
+          tooltip: (d) => d.n > 0
+            ? `${d.label}: fastest-10 avg ${formatDuration(d.fastest10_avg_s)} (n=${Math.min(d.n, 10)})`
+            : `${d.label}: no work done`,
+        },
+        {
+          valueKey: "avg_duration_s",
+          lineClass: "series-line",
+          dotClass: "series-dot",
+          dotRadius: 4,
+          tooltip: (d) => d.n > 0
+            ? `${d.label}: ${formatDuration(d.avg_duration_s)} avg (n=${d.n})`
+            : `${d.label}: no work done`,
+        },
+      ],
+    });
+    renderBarChart("chart-issues-day", data.issues_completed_by_day, {
+      valueKey: "n",
+      tooltip: (d) => `${d.label}: ${d.n} issue${d.n === 1 ? "" : "s"} completed`,
+      width: 1200, height: 260, padL: 20, padR: 20, padTop: 15, axisY: 220, labelY: 240,
+      labelFn: (d) => shortDayLabel(d.label),
+      alignPoints: true,
+    });
   })
   .catch(err => {
     const emptyEl = document.getElementById("empty");

@@ -69,12 +69,19 @@ def parse_envelope(raw: str) -> dict:
         {
           "slices": [
             {"idx": 0, "transcript_text": "...",
-             "transcriber_notes": "..."},
+             "transcriber_notes": "...", "confidence": "high"},
             ...
           ],
           "quality_flags": {...}, "repair_needed": false,
           "repair_reason": ""
         }
+
+    ``confidence`` (``"high"|"medium"|"low"``, optional) is not
+    validated here -- a missing or unrecognized value is stored as
+    ``None`` rather than rejecting the whole column, since it is an
+    enrichment field, not a correctness-critical one. See
+    ``_assemble_transcript``, which merges it into the
+    ``slice_boundaries`` JSON.
 
     **Full-image** (legacy / fall-back), keyed by ``transcript_text``::
 
@@ -168,7 +175,8 @@ def _assemble_transcript(envelope: dict,
     rule-class metadata the joiner needs; per-slice transcriber notes
     are concatenated into a single notes block prefixed by the slice
     index. ``slice_boundaries`` is the manifest enriched with char
-    offsets — written to the schema column of the same name.
+    offsets and each slice's ``confidence`` (``"high"|"medium"|"low"``
+    or ``None``) — written to the schema column of the same name.
     ``transcript_text_raw`` holds the pre-dedup joined text, and is
     non-None only when the joiner actually collapsed a slice-overlap
     duplicate (see ``transcribe.slice.join_slice_transcripts``).
@@ -202,6 +210,12 @@ def _assemble_transcript(envelope: dict,
     per_slice_text = [s["transcript_text"] for s in slice_records]
     joined, boundaries, dedup_events = _slice.join_slice_transcripts(
         manifest, per_slice_text)
+
+    # Merge the agent's per-slice confidence (if present) into the
+    # boundaries record written to slice_boundaries -- reuses the
+    # existing per-slice JSON column instead of adding a new one.
+    for b, s in zip(boundaries, slice_records):
+        b["confidence"] = s.get("confidence")
 
     transcript_text_raw = None
     if dedup_events:

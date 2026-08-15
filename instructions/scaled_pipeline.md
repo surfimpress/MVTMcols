@@ -502,6 +502,77 @@ grocery ad's five product columns. Over-columned has become
 under-columned there; the page's evidence is dominated by one full-page
 ad. Verified by rendering, not by the fit number.
 
+### 5h. Stage 3 — HORIZONTAL alignments (built 2026-08-15)
+
+`transcribe/scaled/detect_hlines.py`, rendered by `render_hlines.py`,
+stored in `page_hlines` (schema v17) plus `pages.content_top_pct` /
+`content_bottom_pct`.
+
+**What killed the previous attempt, and what changed.** §5d cut the page
+into strips bounded by a page-wide rule. Measured across the corpus there
+are **2,226 horizontal `ocr_separator` rules but only 20 span 8+
+columns** — 1,240 span one column, 581 two, 196 three. The band approach
+therefore discarded ~99% of the available evidence, which is exactly why
+it could only produce coarse strips. On a post-1980 mosaic page an
+alignment is **local**: columns 3–5 break while 1–2 run on.
+
+So every alignment here carries a **column span** and is never required
+to cross the page. Visible on 1997-07-16 p4: the alignments for "Nuclear
+waste", "Don't check your brain at the door" and "LETTERS" span columns
+1–5 and stop short of column 0, where the "CFL back in Ottawa?" editorial
+runs the full page height.
+
+**The unit of evidence: independent columns agreeing.** Strength is
+`n_columns` — how many distinct columns contributed an edge at that y —
+**never the raw edge count**. A column Tesseract fragmented into twenty
+blocks must not out-vote two columns genuinely breaking at the same
+height. This is an evidence count, not a self-assessment; nothing here
+scores its own trustworthiness (§5c, §5g).
+
+**Not a lattice fit.** Vertical rhythm is not quantised the way column
+pitch is — ads are sold by the column *inch*, so heights vary
+continuously. There is no vertical pitch to fit and pretending otherwise
+would repeat, on the other axis, the error `typesetting_practice.md`
+warns about.
+
+Evidence weights: horizontal rule 1.0 (a deliberate cutoff — unlike the
+*vertical* case it is NOT downweighted, it is the most direct evidence
+there is), `ocr_header` line top 1.0, photo top/bottom 0.75, block
+top/bottom 0.5.
+
+**Validation against a non-circular signal.** Horizontal rules do not
+feed the stage-2 column fit, so they independently corroborate it: rule
+endpoints land within 1% of a fitted column edge **52% of the time vs
+21% for an evenly-spaced control** — 2.5× better than chance.
+
+Recall of LLM-labelled `display_ad` edges (ads ≥2 columns wide, so the
+edge *can* be a multi-column alignment):
+
+| min agreeing columns | recall | median offset | random control | lift |
+|---|---|---|---|---|
+| 2 | **72%** | 0.30% | 44% | 1.65× |
+| 3 | 58% | 0.45% | 38% | 1.53× |
+| 4 | 48% | 0.58% | 21% | 2.25× |
+| 5 | 34% | 0.96% | 14% | 2.40× |
+
+**State this honestly: the lift over control is real but modest.** The
+control rate is high because 45 alignments/page is dense. The tight
+median offset (0.30%, about one line height) is the more convincing
+number. Corpus: 4,082 alignments over 90 pages, median 47/page.
+
+**No threshold is baked in.** All alignments are stored with their
+`n_columns`; filtering is the caller's choice (`--min-cols` on the
+renderer, tiered layers in the manifest). Picking a cutoff at write time
+would destroy signal a later stage needs.
+
+**Content extent.** `content_top_pct` / `content_bottom_pct` come from
+text LINES, not blocks, ignoring the outer 1.5% margins and requiring
+≥2 words per line. That last rule was forced by a real case: 1997-07-16
+p4 reported a content top of 0.46% from a single one-word line reading
+`"a` at the sheet edge, where the real top is 2.42% ("OPINION"). A
+content line is an EXTREME, so one artefact moves it — a median would
+have absorbed it. Corpus medians after the fix: top 4.35%, bottom 96.99%.
+
 ### 5d. ARCHIVED — band-first segmentation
 
 Because full-height columns are the wrong model for 1980+ (5b), stage 2
@@ -672,3 +743,8 @@ python3 -m transcribe.scaled.render_overlay YYYY-MM-DD [--page N]
   the gutter is constant by construction. Viewer and manifests reduced to a
   single `columns` layer. Display-ad grid contamination measured (30% of
   blocks) and recorded as open.
+- **2026-08-15** — Stage 3 built: `detect_hlines.py` + `render_hlines.py`,
+  schema v17 (`page_hlines`, `pages.content_top_pct`/`content_bottom_pct`),
+  IIIF layer `manifest_hlines.json` tiered by agreeing-column count. See
+  §5h, including the measured reason §5d's band approach failed (it
+  discarded ~99% of horizontal rules by requiring page-wide extent).

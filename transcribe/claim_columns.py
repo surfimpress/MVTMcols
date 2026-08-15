@@ -35,6 +35,11 @@ import re
 import sqlite3
 import sys
 
+import numpy as np
+from PIL import Image
+
+import coordinates as _coords
+
 from . import db as _db
 from . import download as _dl
 from . import slice as _slice
@@ -89,6 +94,32 @@ def overlap_width(a_left: float, a_right: float,
 
 _AD_COLUMN_COVERAGE_MIN = 0.5
 
+# A masked/blanked ad region is a uniform white rectangle -- verified
+# empirically (2026-08-06) against a confirmed masked slice, which
+# measured std=0.0, mean=255.0 exactly, versus std=88-101 for slices
+# with real content. These thresholds are deliberately conservative
+# (well below the observed real-content variance) to avoid
+# misclassifying legitimately sparse content as masked.
+_MASKED_STD_MAX = 8.0
+_MASKED_MEAN_MIN = 248.0
+_MASKED_MIN_REGION_PX = 10  # skip the check on degenerate slivers
+
+
+def region_is_masked(gray_arr: np.ndarray,
+                     left_px: int, top_px: int,
+                     right_px: int, bot_px: int) -> bool | None:
+    """Return True if the pixel region is a uniform white rectangle
+    (mask landed), False if it has real content, or None if the
+    region is too small to judge reliably.
+    """
+    if (right_px - left_px) < _MASKED_MIN_REGION_PX or \
+       (bot_px - top_px) < _MASKED_MIN_REGION_PX:
+        return None
+    crop = gray_arr[top_px:bot_px, left_px:right_px]
+    if crop.size == 0:
+        return None
+    return bool(crop.std() < _MASKED_STD_MAX and crop.mean() > _MASKED_MEAN_MIN)
+
 
 def build_ticket(*,
                  row_id: str,
@@ -110,6 +141,10 @@ def build_ticket(*,
     col_left = boundary_positions[col_idx]
     col_right = boundary_positions[col_idx + 1]
 
+    image_path_abs = os.path.join(_db.REPO_ROOT, image_path_rel)
+    gray_arr = np.array(Image.open(image_path_abs).convert("L"))
+    img_h, img_w = gray_arr.shape
+
     col_width = col_right - col_left
     ads_in_col = []
     for ad in ads_on_page:
@@ -119,6 +154,22 @@ def build_ticket(*,
             ad["x_pct"], ad["x_end_pct"], col_left, col_right)
         coverage = ow / col_width
         if coverage >= _AD_COLUMN_COVERAGE_MIN:
+            # Reproject the ad's page-relative rect into this column
+            # image's own local coordinate frame (the column PNG spans
+            # the full page height, but only this column's horizontal
+            # slice -- see slice.py's pct_to_px(y_pct, img_h) against
+            # the full-height image, and img.crop((0, ..., img_w, ...))
+            # spanning the column's own full width).
+            local_x_pct = _coords.clamp_pct(
+                (ad["x_pct"] - col_left) / col_width * 100)
+            local_x_end_pct = _coords.clamp_pct(
+                (ad["x_end_pct"] - col_left) / col_width * 100)
+            left_px = _coords.pct_to_px(local_x_pct, img_w)
+            right_px = _coords.pct_to_px(local_x_end_pct, img_w)
+            top_px = _coords.pct_to_px(ad["y_pct"], img_h)
+            bot_px = _coords.pct_to_px(ad["y_end_pct"], img_h)
+            masked = region_is_masked(gray_arr, left_px, top_px, right_px, bot_px)
+
             ads_in_col.append({
                 "uuid": ad["uuid"],
                 "x_pct": ad["x_pct"],
@@ -127,6 +178,7 @@ def build_ticket(*,
                 "y_end_pct": ad["y_end_pct"],
                 "cols": ad["cols"],
                 "column_coverage": round(coverage, 3),
+                "masked": masked,
             })
 
     context = {
@@ -143,7 +195,6 @@ def build_ticket(*,
         "ads_in_column": ads_in_col,
     }
 
-    image_path_abs = os.path.join(_db.REPO_ROOT, image_path_rel)
     slice_out_dir = os.path.join(SLICES_DIR, row_id)
     slices = _slice.slice_column(
         image_path=image_path_abs,

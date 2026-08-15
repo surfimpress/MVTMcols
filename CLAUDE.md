@@ -68,6 +68,24 @@ that.
     `x_size` does not separate them cleanly (44 vs 36, overlapping).
     Excluding interiors was inconclusive and the test was confounded; see
     `instructions/scaled_pipeline.md` §5f before retrying.
+  - **Stage 3 is HORIZONTAL ALIGNMENTS** (`detect_hlines.py`,
+    `render_hlines.py`, `page_hlines` schema v17). Every alignment carries
+    a **column span** — on a post-1980 mosaic an alignment is local
+    (columns 3-5 break while 1-2 run on), never a page-wide band. That is
+    precisely why the archived band-first attempt failed: it required
+    page-wide extent, and measured, only **20 of 2,226** horizontal
+    `ocr_separator` rules span 8+ columns, so it discarded ~99% of the
+    evidence. Strength is `n_columns` (how many DISTINCT columns agreed)
+    — an evidence count, never a confidence score. Not a lattice fit:
+    ads are sold by the column INCH so vertical rhythm is not quantised.
+    Horizontal rules don't feed the stage-2 fit, so they independently
+    corroborate it (rule endpoints within 1% of a column edge 52% vs 21%
+    control). Recall of LLM-labelled display-ad edges 72% at min 2
+    agreeing columns, median offset 0.30% — **lift over control is real
+    but modest (1.65x), say so**. No threshold baked in: all alignments
+    stored, filtering is the caller's. `pages.content_top_pct`/
+    `content_bottom_pct` need >=2 words per line (a one-word sheet-edge
+    artefact moved a content top from 2.42% to 0.46%).
   - **Confidence scoring is an ARCHIVED DEAD END**
     (`transcribe/scaled/archive/`). Earlier detectors discovered layout
     from weak signals then scored their own trustworthiness; every

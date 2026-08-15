@@ -1,0 +1,1338 @@
+{
+  "issue": {
+    "year": 1912,
+    "month": 12,
+    "day": 27
+  },
+  "page": 3,
+  "page_state": {
+    "num_columns": 7,
+    "boundary_positions": [
+      11.66,
+      23.62,
+      35.58,
+      47.54,
+      59.5,
+      71.46,
+      83.42,
+      95.38
+    ],
+    "page_geometry": {
+      "text_left": 10.73,
+      "text_right": 95.73,
+      "binding_side": "left"
+    }
+  },
+  "pass2_items": [
+    {
+      "item_id": "bc7d6721-44c3-4175-a499-8333afbad912",
+      "item_type": "display_ad",
+      "headline": "MOLESOFF — Mole and Wart Remover",
+      "byline": null,
+      "summary": "MOLESOFF removes moles and warts without pain; applied directly, disappears in about six days; $1 per bottle, sold with guarantee by the Fla. Distributing Co. (Patent No. 45633, 1906). Bottom of ad text heavily illegible.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 10.16,
+        "top": 72.86,
+        "right": 35.48,
+        "bottom": 95.24
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "d55ddc8f-b369-468c-9d15-f21d15895747",
+          "col_idx": 0,
+          "sequence": 0,
+          "start_offset": 3114,
+          "end_offset": 3891
+        }
+      ],
+      "ad_uuids": [
+        "e1f36c82-837c-4f60-b7a1-ed4f45ebba66"
+      ],
+      "is_inset": true,
+      "crosses_columns": false,
+      "classification_confidence": 0.88,
+      "repair_needed": true,
+      "repair_reason": "Bottom portion of ad text is heavily illegible; col transcript and registered ad transcript give partial text only."
+    },
+    {
+      "item_id": "b2510db9-1a8f-495f-97ce-5e983e4c9b1a",
+      "item_type": "display_ad",
+      "headline": "Store News — W. J. McDowall",
+      "byline": null,
+      "summary": "W. J. McDowall (Phone 79) advertises cash sales of beans, White Swan yeast cakes and baking powder, and Molasses Meal for horses and cattle; also flour, feed, and breakfast foods.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 11.66,
+        "top": 3.36,
+        "right": 23.62,
+        "bottom": 27.77
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "d55ddc8f-b369-468c-9d15-f21d15895747",
+          "col_idx": 0,
+          "sequence": 0,
+          "start_offset": 0,
+          "end_offset": 461
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.95,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "78f68c66-528c-4cc1-8dfe-47bdcee89b9b",
+      "item_type": "classified_ad",
+      "headline": "J. K. Kelly, M.D. — Physician and Surgeon",
+      "byline": null,
+      "summary": "Dr. J. K. Kelly, M.D., Physician, Surgeon and Accoucheur, in office of the late Dr. Burns. Professional card.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 11.66,
+        "top": 27.77,
+        "right": 23.62,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "d55ddc8f-b369-468c-9d15-f21d15895747",
+          "col_idx": 0,
+          "sequence": 0,
+          "start_offset": 462,
+          "end_offset": 575
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.97,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "e8bbed56-92d6-4b97-9dbc-2fcbf029d624",
+      "item_type": "classified_ad",
+      "headline": "G. S. Sadler, M.D. — Physician and Surgeon",
+      "byline": null,
+      "summary": "Dr. G. S. Sadler, M.D., Physician, Surgeon and Accoucheur, office at Clayton, Ont. Professional card.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 11.66,
+        "top": 31.5,
+        "right": 23.62,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "d55ddc8f-b369-468c-9d15-f21d15895747",
+          "col_idx": 0,
+          "sequence": 0,
+          "start_offset": 576,
+          "end_offset": 657
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.97,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "1e0ab891-420a-4ccd-afca-6ff054c2654f",
+      "item_type": "classified_ad",
+      "headline": "Dr. Metcalfe, M.D. — Physician and Surgeon",
+      "byline": null,
+      "summary": "Dr. Metcalfe, M.D., C.M., M.C.P.S., Physician, Surgeon and Accoucheur; ex-House Surgeon Kingston General and Maternity hospitals; specialty in women's and children's diseases and surgery.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 11.66,
+        "top": 33.38,
+        "right": 23.62,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "d55ddc8f-b369-468c-9d15-f21d15895747",
+          "col_idx": 0,
+          "sequence": 0,
+          "start_offset": 658,
+          "end_offset": 856
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.97,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "993bef2b-9947-4778-8ad5-7eb17277f2fa",
+      "item_type": "classified_ad",
+      "headline": "J. F. Dunn, M.D. — Physician and Surgeon",
+      "byline": null,
+      "summary": "Dr. J. F. Dunn, M.D., Physician and Surgeon, office and residence at Dr. Lynch's old stand, corner Queen and Clyde Streets.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 11.66,
+        "top": 35.6,
+        "right": 23.62,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "d55ddc8f-b369-468c-9d15-f21d15895747",
+          "col_idx": 0,
+          "sequence": 0,
+          "start_offset": 857,
+          "end_offset": 977
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.97,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "f7d33cdf-c2f3-496b-a50b-bf1c3ae770b0",
+      "item_type": "classified_ad",
+      "headline": "Dr. E. W. Oliver — Dentist",
+      "byline": null,
+      "summary": "Dr. E. W. Oliver, Dentist, graduate Royal College of Dental Surgeons and honor graduate Toronto University; office two doors east of P.O.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 11.66,
+        "top": 37.74,
+        "right": 23.62,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "d55ddc8f-b369-468c-9d15-f21d15895747",
+          "col_idx": 0,
+          "sequence": 0,
+          "start_offset": 978,
+          "end_offset": 1124
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.97,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "94b4c42b-4cae-4a8f-a77c-e1681c0527a7",
+      "item_type": "classified_ad",
+      "headline": "Dr. T. R. Paterson — Dentist",
+      "byline": null,
+      "summary": "Dr. T. R. Paterson, Dentist, graduate Toronto University and Royal College of Dental Surgeons of Ontario; office opposite Post Office, Mill Street, Almonte. Gas administered.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 11.66,
+        "top": 39.68,
+        "right": 23.62,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "d55ddc8f-b369-468c-9d15-f21d15895747",
+          "col_idx": 0,
+          "sequence": 0,
+          "start_offset": 1125,
+          "end_offset": 1308
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.97,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "51c53eb9-abc6-4575-9c3b-fdd8cedd40d5",
+      "item_type": "classified_ad",
+      "headline": "W. C. Young, V.S. — Veterinary Surgeon",
+      "byline": null,
+      "summary": "W. C. Young, V.S., office opposite C.P.R. Station. Professional card.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 11.66,
+        "top": 41.93,
+        "right": 23.62,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "d55ddc8f-b369-468c-9d15-f21d15895747",
+          "col_idx": 0,
+          "sequence": 0,
+          "start_offset": 1309,
+          "end_offset": 1367
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.97,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "8bfcfce3-ec2d-452e-b7f2-947e933f064b",
+      "item_type": "classified_ad",
+      "headline": "J. Lawson — Veterinary Surgeon",
+      "byline": null,
+      "summary": "J. Lawson, Veterinary Surgeon, has opened an office in S. J. Lowe's Livery next to Davis House; treats all diseases of horses and cattle.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 11.66,
+        "top": 43.61,
+        "right": 23.62,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "d55ddc8f-b369-468c-9d15-f21d15895747",
+          "col_idx": 0,
+          "sequence": 0,
+          "start_offset": 1368,
+          "end_offset": 1517
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.97,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "d00a9d89-a048-428d-99c9-4c00db91300e",
+      "item_type": "classified_ad",
+      "headline": "W. H. Stafford — Barrister and Solicitor",
+      "byline": null,
+      "summary": "W. H. Stafford, Barrister, Solicitor, Notary Public and Conveyancer; solicitor for Bank of Montreal; money to loan at lowest rates; office Bruce Block, Mill Street, Almonte.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 11.66,
+        "top": 45.72,
+        "right": 23.62,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "d55ddc8f-b369-468c-9d15-f21d15895747",
+          "col_idx": 0,
+          "sequence": 0,
+          "start_offset": 1518,
+          "end_offset": 1727
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.97,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "0d52cf75-b383-4957-8290-edda7328012f",
+      "item_type": "classified_ad",
+      "headline": "Harold Jamieson — Barrister and Solicitor",
+      "byline": null,
+      "summary": "Harold Jamieson, Barrister, Solicitor, Notary Public, Almonte; office formerly occupied by A. Bell, C.E., opposite Post Office; money to loan.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 11.66,
+        "top": 48.29,
+        "right": 23.62,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "d55ddc8f-b369-468c-9d15-f21d15895747",
+          "col_idx": 0,
+          "sequence": 0,
+          "start_offset": 1728,
+          "end_offset": 1902
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.97,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "c5d8cbd6-42df-4020-847d-9c9584486a19",
+      "item_type": "classified_ad",
+      "headline": "Greig & Greig — Barristers and Solicitors",
+      "byline": null,
+      "summary": "Greig & Greig, Barristers, Solicitors, Conveyancers, Times Block, Almonte; branch office Pakenham (Wednesdays); solicitors for Union Bank of Canada (Pakenham) and Sterling Bank of Canada (Almonte). Partners A. M. Greig and P. A. Greig, B.A., LL.B.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 11.66,
+        "top": 50.63,
+        "right": 23.62,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "d55ddc8f-b369-468c-9d15-f21d15895747",
+          "col_idx": 0,
+          "sequence": 0,
+          "start_offset": 1903,
+          "end_offset": 2263
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.97,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "14712727-6d0d-4a51-b102-79d7a9bea8b4",
+      "item_type": "classified_ad",
+      "headline": "J. H. Moore — Land Surveyor and Civil Engineer",
+      "byline": null,
+      "summary": "J. H. Moore, A.M.Can.Soc.C.E., Ontario and Dominion Land Surveyor and Civil Engineer; office Shield's Block, Smiths Falls, Ontario.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 11.66,
+        "top": 55.3,
+        "right": 23.62,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "d55ddc8f-b369-468c-9d15-f21d15895747",
+          "col_idx": 0,
+          "sequence": 0,
+          "start_offset": 2264,
+          "end_offset": 2406
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.97,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "c4b55eee-1c0c-4926-bbdc-51225565f6ef",
+      "item_type": "classified_ad",
+      "headline": "PATENTS — Ben. B. Pannett",
+      "byline": null,
+      "summary": "Ben. B. Pannett, Ottawa, patent agent; write for booklet about patents.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 11.66,
+        "top": 57.35,
+        "right": 23.62,
+        "bottom": 61.17
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "d55ddc8f-b369-468c-9d15-f21d15895747",
+          "col_idx": 0,
+          "sequence": 0,
+          "start_offset": 2407,
+          "end_offset": 2503
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.95,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "b8083ae7-a786-40e3-878e-d7b3ef1b8bfc",
+      "item_type": "notice",
+      "headline": "WOOD WANTED — Martin Street School Tender",
+      "byline": null,
+      "summary": "School board calls tenders to Dec. 30 for 50 cords of hard maple and 10 cords of soft wood for Martin Street and Church Street schools, Almonte. Address tenders to James McLeod, Sec.-Treas., Almonte.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 11.66,
+        "top": 61.17,
+        "right": 23.62,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "d55ddc8f-b369-468c-9d15-f21d15895747",
+          "col_idx": 0,
+          "sequence": 0,
+          "start_offset": 2504,
+          "end_offset": 2856
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.92,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "b9db2968-5320-4ed4-bbc8-90d32da042d6",
+      "item_type": "classified_ad",
+      "headline": "A. F. Campbell, Arnprior — Shingles and Lumber",
+      "byline": null,
+      "summary": "A. F. Campbell, Arnprior (Box 455), offers shingles and dry lumber, rough or dressed, lath, hardwood flooring, doors, mouldings; highest cash price paid for lumber.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 11.66,
+        "top": 65.28,
+        "right": 23.62,
+        "bottom": 72.83
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "d55ddc8f-b369-468c-9d15-f21d15895747",
+          "col_idx": 0,
+          "sequence": 0,
+          "start_offset": 2857,
+          "end_offset": 3113
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.95,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "4742fd8c-85e8-4c28-a75c-b2708198c653",
+      "item_type": "masthead",
+      "headline": "The Almonte Gazette — 46th Year, No. 16",
+      "byline": null,
+      "summary": "Page folio / masthead block: The Almonte Gazette, Vol. 46, No. 16, Almonte, Ont.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 22.98,
+        "top": 7.07,
+        "right": 47.58,
+        "bottom": 16.31
+      },
+      "column_spans": [],
+      "ad_uuids": [
+        "04e307a2-eeb7-413f-8121-9cc8c816d0e3"
+      ],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.85,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "c6da532e-9c3d-4de8-a562-10aad46b3a66",
+      "item_type": "classified_ad",
+      "headline": "CONCRETE TILING — John Fulton",
+      "byline": null,
+      "summary": "John Fulton of Blakeney, Ont., offers drain and culvert tiling at reasonable prices; 3 and 4 inch tile for underdraining a specialty.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 23.62,
+        "top": 16.53,
+        "right": 35.58,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "f63a768e-f49f-4667-b787-843e7612a863",
+          "col_idx": 1,
+          "sequence": 0,
+          "start_offset": 28,
+          "end_offset": 231
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.97,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "ae4b2c2c-3073-499c-8090-7ea92cd30635",
+      "item_type": "notice",
+      "headline": "PAKENHAM MUNICIPAL NOMINATION",
+      "byline": null,
+      "summary": "Township of Pakenham electors' meeting for nomination of Reeve and Councillors, Monday Dec. 30 at 1 p.m. in Agricultural Hall, Pakenham Village. Poll if needed Jan. 6, 1913. Signed James Connery, Township Clerk.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 23.62,
+        "top": 20.1,
+        "right": 35.58,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "f63a768e-f49f-4667-b787-843e7612a863",
+          "col_idx": 1,
+          "sequence": 0,
+          "start_offset": 237,
+          "end_offset": 757
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.97,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "5c32518e-065c-496a-96dc-d3063dc2327a",
+      "item_type": "classified_ad",
+      "headline": "FARM PROPERTY FOR SALE — Township of Huntley",
+      "byline": null,
+      "summary": "W. H. Stafford, Almonte, offers for sale west halves of Lots 6, 7 and 8 in 8th Concession of Huntley (250 acres, stone house and outbuildings) and NW half of Lot 15, 7th Concession of Huntley (fine grazing farm); cheap with easy terms.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 23.62,
+        "top": 27.77,
+        "right": 35.58,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "f63a768e-f49f-4667-b787-843e7612a863",
+          "col_idx": 1,
+          "sequence": 0,
+          "start_offset": 758,
+          "end_offset": 1332
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.95,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "96844fb8-d84e-4100-88fc-3d51c00e08e5",
+      "item_type": "notice",
+      "headline": "BY-LAW — Repeal of Local Option By-Law, Town of Almonte",
+      "byline": null,
+      "summary": "Full text of proposed by-law to repeal Almonte's Local Option By-Law (No. 514, Feb. 3, 1910), with polling arrangements for Jan. 6, 1913, and statutory public notice signed by J. T. Kirkland, Clerk; first published in the Almonte Gazette Dec. 13, 1912.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 23.62,
+        "top": 34.44,
+        "right": 35.58,
+        "bottom": 97.32
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "f63a768e-f49f-4667-b787-843e7612a863",
+          "col_idx": 1,
+          "sequence": 0,
+          "start_offset": 1333,
+          "end_offset": 5147
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.97,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "ff37ceac-d295-4dba-8177-ce03c6968fea",
+      "item_type": "classified_ad",
+      "headline": "J. McClelland — Teacher of Organ, Piano and Voice",
+      "byline": null,
+      "summary": "J. McClelland, teacher of organ, piano and voice, Church Street, Almonte. Professional card.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 35.58,
+        "top": 16.53,
+        "right": 47.54,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "4e5f29b8-d02e-4ed9-81b2-fab980f9b985",
+          "col_idx": 2,
+          "sequence": 0,
+          "start_offset": 40,
+          "end_offset": 125
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.95,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "9166ced8-f23d-4f11-8b48-2575fd383816",
+      "item_type": "classified_ad",
+      "headline": "TEACHER WANTED — S.S. No. 9, Ramsay",
+      "byline": null,
+      "summary": "Qualified teacher wanted for School Section No. 9, Ramsay, for 1913. Apply stating salary to W. C. Gilmour, Box 38, Almonte.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 35.58,
+        "top": 19.36,
+        "right": 47.54,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "4e5f29b8-d02e-4ed9-81b2-fab980f9b985",
+          "col_idx": 2,
+          "sequence": 0,
+          "start_offset": 126,
+          "end_offset": 261
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.95,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "11b86ca7-b935-4f2e-9c51-0268a3d80af8",
+      "item_type": "classified_ad",
+      "headline": "TEACHER WANTED — S.S. No. 12, Lanark",
+      "byline": null,
+      "summary": "Second or third class qualified teacher wanted for School Section No. 12, Lanark, for 1913. Apply stating salary and experience to Alf. James, Sec.-Treas., Clayton.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 35.58,
+        "top": 21.72,
+        "right": 47.54,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "4e5f29b8-d02e-4ed9-81b2-fab980f9b985",
+          "col_idx": 2,
+          "sequence": 0,
+          "start_offset": 262,
+          "end_offset": 444
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.95,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "71ef5d08-1916-4612-94e7-db9fb945cb7b",
+      "item_type": "classified_ad",
+      "headline": "WANTED — Protestant Teacher, S.S. No. 10, Lanark",
+      "byline": null,
+      "summary": "Protestant teacher wanted for S.S. No. 10, Lanark, for 1913; second or third-class certificate. State salary. Apply to John Rintoul, Sec.-Treas., Galbraith, Ont.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 35.58,
+        "top": 25.14,
+        "right": 47.54,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "4e5f29b8-d02e-4ed9-81b2-fab980f9b985",
+          "col_idx": 2,
+          "sequence": 0,
+          "start_offset": 445,
+          "end_offset": 626
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.95,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "7fe3de9e-79a0-4810-b996-de4ffda70046",
+      "item_type": "classified_ad",
+      "headline": "CONCRETE PIPE — D. Moir",
+      "byline": null,
+      "summary": "D. Moir offers concrete drain and culvert pipes; available from Mr. Carnahan at 9th line Ramsay or from Mr. Thos. James in Almonte.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 35.58,
+        "top": 27.77,
+        "right": 47.54,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "4e5f29b8-d02e-4ed9-81b2-fab980f9b985",
+          "col_idx": 2,
+          "sequence": 0,
+          "start_offset": 627,
+          "end_offset": 823
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.95,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "5b9befc0-0901-4344-a8d2-24175b0f9a7c",
+      "item_type": "classified_ad",
+      "headline": "STRAY CALF — Geo. Story, Kinburn",
+      "byline": null,
+      "summary": "Steer calf strayed from premises of Geo. Story, Kinburn, R.M.D. No. 1, about October 8th. Information thankfully received.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 35.58,
+        "top": 31.21,
+        "right": 47.54,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "4e5f29b8-d02e-4ed9-81b2-fab980f9b985",
+          "col_idx": 2,
+          "sequence": 0,
+          "start_offset": 824,
+          "end_offset": 986
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.97,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "5a93648c-6cd9-4b85-88e7-6b73dc9dd1d9",
+      "item_type": "classified_ad",
+      "headline": "WANTED — Normal Trained Protestant Teacher, S.S. No. 4, Ramsay",
+      "byline": null,
+      "summary": "Normal trained Protestant teacher wanted for S.S. No. 4, Ramsay, for 1913. Apply stating salary and experience to W. J. Drynan, Sec., Clayton, Ont.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 35.58,
+        "top": 34.44,
+        "right": 47.54,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "4e5f29b8-d02e-4ed9-81b2-fab980f9b985",
+          "col_idx": 2,
+          "sequence": 0,
+          "start_offset": 987,
+          "end_offset": 1148
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.95,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "7f01a7c6-ae7f-48e0-a5bd-a301dd6ee9eb",
+      "item_type": "notice",
+      "headline": "WOOD WANTED — Town Hall Tender",
+      "byline": null,
+      "summary": "Tenders received to Dec. 31, 1912, for 50 cords hard wood and 10 cords soft wood for delivery at Town Hall, Almonte. Address to W. E. Scott, Chr. Fire and Town Property Com., Box 316, Almonte.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 35.58,
+        "top": 37.54,
+        "right": 47.54,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "4e5f29b8-d02e-4ed9-81b2-fab980f9b985",
+          "col_idx": 2,
+          "sequence": 0,
+          "start_offset": 1149,
+          "end_offset": 1411
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.92,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "8aff2202-6477-45cc-ad75-76a661f343dc",
+      "item_type": "classified_ad",
+      "headline": "HOUND LOST — J. Dulmage",
+      "byline": null,
+      "summary": "Black and tan hound named 'Happy' strayed Dec. 4th from premises of J. Dulmage, Almonte; anyone harboring after this date liable to prosecution.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 35.58,
+        "top": 41.56,
+        "right": 47.54,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "4e5f29b8-d02e-4ed9-81b2-fab980f9b985",
+          "col_idx": 2,
+          "sequence": 0,
+          "start_offset": 1412,
+          "end_offset": 1724
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.97,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "df934bad-4194-475a-a68a-c81eebab998c",
+      "item_type": "notice",
+      "headline": "NORTH LANARK RAILWAY CO'Y. — Annual General Meeting",
+      "byline": null,
+      "summary": "Annual general meeting of shareholders of the North Lanark Railway Co. in Town Hall, Arnprior, Dec. 30, 1912 at 1 p.m., for election of directors. Signed J. A. McQuade, Secretary.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 35.58,
+        "top": 45.75,
+        "right": 47.54,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "4e5f29b8-d02e-4ed9-81b2-fab980f9b985",
+          "col_idx": 2,
+          "sequence": 0,
+          "start_offset": 1725,
+          "end_offset": 2072
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.93,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "7e954489-c98f-4019-a9d1-b31e60bd7380",
+      "item_type": "notice",
+      "headline": "Nomination Meeting — Township of Ramsay",
+      "byline": null,
+      "summary": "Municipal electors of the Township of Ramsay to meet in Council Chamber, Almonte, Monday Dec. 30, 1912, 1-2 p.m., to nominate Reeve and Councillors for 1913. Poll if required on Jan. 6, 1913. Signed T. A. Thompson, Returning Officer.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 35.58,
+        "top": 50.23,
+        "right": 47.54,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "4e5f29b8-d02e-4ed9-81b2-fab980f9b985",
+          "col_idx": 2,
+          "sequence": 0,
+          "start_offset": 2073,
+          "end_offset": 2649
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.97,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "524d44c4-c330-45cf-a71c-19f591959442",
+      "item_type": "notice",
+      "headline": "Town of Almonte Municipal Election — Nominations Dec. 30",
+      "byline": null,
+      "summary": "Public notice of nomination meeting for Mayor, Reeve, Councillors, Public School Trustees and Electric Light Commissioners for Town of Almonte in Town Hall, Monday Dec. 30, 1912 at 7:30 p.m. Poll Jan. 6, 1913 if needed. Signed J. T. Kirkland, Returning Officer.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 35.58,
+        "top": 60.09,
+        "right": 47.54,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "4e5f29b8-d02e-4ed9-81b2-fab980f9b985",
+          "col_idx": 2,
+          "sequence": 0,
+          "start_offset": 2650,
+          "end_offset": 3363
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.97,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "a44e77ae-603b-4dc3-9d3a-0a03ec6ef8cf",
+      "item_type": "display_ad",
+      "headline": "BEECHAM'S PILLS",
+      "byline": null,
+      "summary": "Beecham's Pills advertised for headaches, flatulence, and discomfort from bile; 25c per box, sold everywhere.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 35.58,
+        "top": 78.25,
+        "right": 47.54,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "4e5f29b8-d02e-4ed9-81b2-fab980f9b985",
+          "col_idx": 2,
+          "sequence": 0,
+          "start_offset": 3364,
+          "end_offset": 3582
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.95,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "ad48bf0e-9a4c-44ae-953a-e2af9464ef9c",
+      "item_type": "article",
+      "headline": "OUR NEIGHBORS IN THE COUNTIES / A Condensation of Happenings throughout the Ottawa Valley and District",
+      "byline": null,
+      "summary": "Column of brief news items from across the Ottawa Valley: marriages, deaths, accidents, appointments, church and business news. Subjects include Y.W.C.T.U. at Smiths Falls, Spalding-Butler marriage, Horne-McInnes marriage, Lanark railway charter, R. R. Drysdale lumber sale, Isaac Wilson postmaster appointment, death of Mrs. Walter McCaw, death of Matthew and Andrew Keon, 42nd Regiment military announcements, railway accident at Byng Inlet, death of Rev. E. P. Crawford at Halifax, and Mutual Life Insurance Co. lawsuit by George Rivington of Carp.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 47.54,
+        "top": 16.51,
+        "right": 71.46,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "3e5c3a1f-f736-4b27-aeb6-84c8ce89a828",
+          "col_idx": 3,
+          "sequence": 0,
+          "start_offset": 47,
+          "end_offset": 4278
+        },
+        {
+          "column_transcript_id": "b0ad1e0b-f3e6-479f-88b0-72499e630bc4",
+          "col_idx": 4,
+          "sequence": 1,
+          "start_offset": 60,
+          "end_offset": 3039
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": true,
+      "classification_confidence": 0.93,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "c8a6fbb0-331a-40e9-9e4b-cdc9695e2f8a",
+      "item_type": "article",
+      "headline": "Selling Shoddy",
+      "byline": null,
+      "summary": "Four young men defrauded Perth-area residents by selling shoddy cloth, guaranteeing a local tailor would make suits for $6 each after New Year; arrested by police, paid a $50 licence fee, then fled overnight.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 59.5,
+        "top": 66.31,
+        "right": 71.46,
+        "bottom": 74.43
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "b0ad1e0b-f3e6-479f-88b0-72499e630bc4",
+          "col_idx": 4,
+          "sequence": 0,
+          "start_offset": 3041,
+          "end_offset": 3637
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.95,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "9c9b9057-073d-4de2-9d71-e3be74de9d7a",
+      "item_type": "display_ad",
+      "headline": "Deafness Cannot be Cured — Hall's Catarrh Cure",
+      "byline": null,
+      "summary": "F. J. Cheney & Co., Toledo, Ohio, advertise Hall's Catarrh Cure as the only remedy for deafness caused by catarrh; offer $100 for any case it cannot cure. Hall's Family Pills also advertised. 75c at druggists.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 59.5,
+        "top": 74.44,
+        "right": 71.46,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "b0ad1e0b-f3e6-479f-88b0-72499e630bc4",
+          "col_idx": 4,
+          "sequence": 0,
+          "start_offset": 3638,
+          "end_offset": 4624
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.92,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "f7b07f6e-724a-4f2c-8b02-544375ded3f9",
+      "item_type": "article",
+      "headline": "A Condensation of Happenings throughout the Ottawa Valley (continued)",
+      "byline": null,
+      "summary": "Further brief Ottawa Valley news: new postmaster at Winchester, boot store at Smiths Falls, Tweed rifle club, school renovations, diphtheria at Sault Ste. Marie, hotel at Brockville, curling and skating rinks, death of Mrs. A. E. Gorman, Byron Lane departure, D. W. McCreary eye injury, Miss Mildred MacMorine to Toronto newspaper, F. W. Merkley prize at Chesterville, explosion at McCoy House Cobden injuring J. Hart and James Neil.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 71.46,
+        "top": 16.48,
+        "right": 83.42,
+        "bottom": 50.09
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "f96de86e-d534-43b1-9cc5-9f4ea6f02705",
+          "col_idx": 5,
+          "sequence": 0,
+          "start_offset": 72,
+          "end_offset": 2507
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.9,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "282c2f63-2f18-4602-ae19-9fdb770100b6",
+      "item_type": "article",
+      "headline": "STONE ROLLED ON HIM",
+      "byline": null,
+      "summary": "At Huff & Shae's camp, Christie's Lake, railroad worker John King survived being wedged under an immense boulder; Dr. Dwyre, company physician, found only a broken rib. King has a long history of miraculous escapes on railway construction across North America. Reprinted from the Expositor.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 71.46,
+        "top": 50.68,
+        "right": 83.42,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "f96de86e-d534-43b1-9cc5-9f4ea6f02705",
+          "col_idx": 5,
+          "sequence": 0,
+          "start_offset": 2509,
+          "end_offset": 4842
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.97,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "61142a2e-8f7e-4146-9ba5-18e5ebffbcad",
+      "item_type": "display_ad",
+      "headline": "SUFFERED AGONY FROM DYSPEPSIA — Fruit-a-tives",
+      "byline": null,
+      "summary": "Fruit-a-tives (50c per box or 6 for $2.50) advertised as cure for dyspepsia and indigestion, with testimonial from N. C. Stirling, Esq., Glencoe, Ont., Aug. 15, 1911. Sold by Fruit-a-tives Limited, Ottawa.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 83.42,
+        "top": 7.18,
+        "right": 95.38,
+        "bottom": 36.97
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "ffaf5f6d-69d0-4cf8-91a7-ae032c2cef1f",
+          "col_idx": 6,
+          "sequence": 0,
+          "start_offset": 7,
+          "end_offset": 1012
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.97,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "578bb0c4-7fe0-4ad5-b63c-200ab116167b",
+      "item_type": "article",
+      "headline": "A Condensation of Happenings — Ottawa Valley (col. 6 brief items)",
+      "byline": null,
+      "summary": "Further brief Ottawa Valley news: Arnprior council mica factory grant, Dean Dewey of Kingston to Renfrew, burglary at Deseronto jewellery store, black fox shot in Renfrew county, death of Mrs. Patrick Kearney, Mrs. Clark and Miss Heron of Haley's Station going to Berlin, Ont. for rescue work.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 83.42,
+        "top": 37.57,
+        "right": 95.38,
+        "bottom": 47.23
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "ffaf5f6d-69d0-4cf8-91a7-ae032c2cef1f",
+          "col_idx": 6,
+          "sequence": 0,
+          "start_offset": 1013,
+          "end_offset": 1695
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.88,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "024b96e4-7eb2-45da-ab70-e0da102fff73",
+      "item_type": "article",
+      "headline": "Successful Teachers",
+      "byline": null,
+      "summary": "List of 31 students from the Ottawa Valley who qualified for limited third class teacher certificates at the Provincial Model School examinations, from towns including Carleton Place, Renfrew, Pembroke, Pakenham, Cobden, Arnprior, Stittsville, Kinburn, Eganville, Beachburg and others.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 83.42,
+        "top": 47.83,
+        "right": 95.38,
+        "bottom": 70.04
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "ffaf5f6d-69d0-4cf8-91a7-ae032c2cef1f",
+          "col_idx": 6,
+          "sequence": 0,
+          "start_offset": 1696,
+          "end_offset": 2803
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.97,
+      "repair_needed": false,
+      "repair_reason": null
+    },
+    {
+      "item_id": "eef031c7-3109-4e4e-aefd-95b0bd1e4abe",
+      "item_type": "display_ad",
+      "headline": "Scott's Emulsion — For Boys and Girls",
+      "byline": null,
+      "summary": "Scott's Emulsion advertised as a bodybuilder for children, strengthening bones, muscles and sinews, preventing colds. Manufactured by Scott & Bowne, Toronto, Ontario.",
+      "language": "en",
+      "bbox_pct": {
+        "left": 83.42,
+        "top": 70.64,
+        "right": 95.38,
+        "bottom": 100.0
+      },
+      "column_spans": [
+        {
+          "column_transcript_id": "ffaf5f6d-69d0-4cf8-91a7-ae032c2cef1f",
+          "col_idx": 6,
+          "sequence": 0,
+          "start_offset": 2804,
+          "end_offset": 3429
+        }
+      ],
+      "ad_uuids": [],
+      "is_inset": false,
+      "crosses_columns": false,
+      "classification_confidence": 0.95,
+      "repair_needed": false,
+      "repair_reason": null
+    }
+  ],
+  "ads": [
+    {
+      "ad_uuid": "04e307a2-eeb7-413f-8121-9cc8c816d0e3",
+      "bbox_pct": {
+        "x_pct": 22.98,
+        "y_pct": 7.07,
+        "x_end_pct": 47.58,
+        "y_end_pct": 16.31,
+        "w_pct": 24.6,
+        "h_pct": 9.24
+      },
+      "cols_spanned": 2,
+      "transcript_excerpt": "The Al[…]\n\n46 YEAR.–NO 16          ALMONTE; ONT[…]"
+    },
+    {
+      "ad_uuid": "e1f36c82-837c-4f60-b7a1-ed4f45ebba66",
+      "bbox_pct": {
+        "x_pct": 10.16,
+        "y_pct": 74.8,
+        "x_end_pct": 35.48,
+        "y_end_pct": 83.75,
+        "w_pct": 25.32,
+        "h_pct": 8.95
+      },
+      "cols_spanned": 2,
+      "transcript_excerpt": "MOLES AND WARTS\n\nRemoved with MOLESOFF, without pain or danger, no matter how large or how far raised above the surface of the skin. And they will never return and no trace or scar will be left. MOLES…"
+    }
+  ],
+  "pass2_prompt_hash": "27e214b49fcb5545e3f836ba898f037c37b8163da2b9aafd70df3fb0491f4f25",
+  "agent_file_path": ".claude/agents/items-tidier.md",
+  "prompt_hash": "b5e100e4fe2ae873368916143b7ff339ddf96e62f1b6a039a01450666b8b7ed9"
+}
