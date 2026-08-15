@@ -317,6 +317,22 @@ def fit_grid(lefts: list[float], rights: list[float]) -> dict | None:
 # enough that a column cannot migrate into its neighbour's slot.
 SNAP_SEARCH_PCT = 2.0
 
+# For the LAST column only. The right margin is ragged: most lines stop
+# short of the column edge, so the heaviest right-edge cluster sits LEFT
+# of the truth and snapping to it makes the last column too narrow.
+#
+# Only items at least this fraction of the column width contribute a
+# right edge for that decision.
+#
+# MEASURED, and the result is worth stating: sweeping this from 0.0 to
+# 0.9 changes the outcome on ONE page in 90. The reason is that short
+# items end further LEFT, so they cannot bias a rightmost-selection at
+# all -- taking the max already immunises against them. The filter's real
+# and much narrower job is to stop a thin OVERHANGING fragment from
+# setting the edge, which is rare here. Kept as a cheap guard, not as a
+# tuning knob: do not expect gains from adjusting it.
+LAST_COL_MIN_ITEM_FRAC = 0.60
+
 
 def analyse(conn, page_id: str, blocks: list[dict] | None = None,
             exclude_block_idx: set | None = None) -> dict | None:
@@ -342,6 +358,43 @@ def _snap(predicted: float, peaks: list[tuple[float, int]]) -> tuple[float, bool
     if not near:
         return predicted, False
     return round(max(near)[2], 2), True
+
+
+def wide_right_edges(conn, page_id: str, kept: list[dict],
+                     exclude_block_idx: set, min_width_pct: float) -> list[float]:
+    """Right edges of blocks and lines at least `min_width_pct` wide.
+
+    Short items are excluded deliberately: at the ragged right margin
+    they mark where a line of text happened to stop, not where the column
+    ends.
+    """
+    out = [b["R"] for b in kept if (b["R"] - b["L"]) >= min_width_pct]
+    for r in conn.execute(
+        "SELECT block_idx, left_pct L, right_pct R FROM page_hocr_lines WHERE page_id=?",
+        (page_id,),
+    ):
+        if r["block_idx"] in exclude_block_idx:
+            continue
+        if (r["R"] - r["L"]) >= min_width_pct:
+            out.append(round(r["R"], 2))
+    return out
+
+
+def _snap_rightmost(predicted: float, peaks: list[tuple[float, int]],
+                    window: float) -> tuple[float, bool]:
+    """Pull an edge to the most RIGHTWARD significant peak in a window.
+
+    For the final column only. `peaks` should already be built from
+    WIDE items alone (see wide_right_edges) -- short items at a ragged
+    margin mark where text stopped, not where the column ends.
+
+    `predicted` comes from the column pitch established by the other
+    columns, so this stays anchored to the grid rather than free-running.
+    """
+    near = [x for x, _w in peaks if abs(x - predicted) <= window]
+    if not near:
+        return predicted, False
+    return round(max(near), 2), True
 
 
 def detect(conn, page_id: str) -> dict:
@@ -379,15 +432,34 @@ def detect(conn, page_id: str) -> dict:
     ll, lr = line_edges(conn, page_id, dropped)
     left_peaks = _peaks(bl + ll)
     right_peaks = _peaks(br + lr)
+    wide_peaks = _peaks(wide_right_edges(
+        conn, page_id, kept, dropped,
+        grid["col_width"] * LAST_COL_MIN_ITEM_FRAC))
 
+    last = grid["n_columns"] - 1
     columns, snapped = [], 0
     for k in range(grid["n_columns"]):
         pl = grid["offset"] + k * grid["pitch"]
         left, hit_l = _snap(pl, left_peaks)
-        right, hit_r = _snap(left + grid["col_width"], right_peaks)
+        predicted_right = left + grid["col_width"]
+        if k == last:
+            # Ragged right margin -- lean rightward using WIDE items only,
+            # anchored on the pitch prediction from the other columns.
+            # Window widened a little: this is the edge most likely to be
+            # under-reached.
+            right, hit_r = _snap_rightmost(predicted_right, wide_peaks,
+                                           SNAP_SEARCH_PCT * 1.5)
+        else:
+            right, hit_r = _snap(predicted_right, right_peaks)
         if right - left < grid["col_width"] * 0.5:   # snapped onto itself
-            right = round(left + grid["col_width"], 2)
+            right = round(predicted_right, 2)
             hit_r = False
+        # Columns may not overlap: a snap that crosses the previous
+        # column's right edge would put one column inside another.
+        if columns and left < columns[-1]["right_pct"]:
+            mid = round((left + columns[-1]["right_pct"]) / 2, 2)
+            columns[-1]["right_pct"] = mid
+            left = mid
         snapped += int(hit_l) + int(hit_r)
         columns.append({"col_idx": k, "left_pct": round(left, 2),
                         "right_pct": round(right, 2),

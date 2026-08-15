@@ -1,18 +1,23 @@
-"""Plot the raw signal the grid fit rests on: a histogram of block
-left-edge x-positions.
+"""Plot the raw signal the grid fit rests on: block edge positions.
 
-No matplotlib on this machine, so this draws with PIL -- which keeps the
-package dependency-free and consistent with the rest of `scaled`.
+Two panels, stacked, so the refinement step can be judged directly:
 
-The point of looking at this directly: if the typesetting model is right,
-this histogram should show *spikes at regular intervals*, because every
-block was aligned to the same printed column guides. A smooth or
-shapeless distribution would falsify the premise.
+  TOP     before refinement -- every block, and the pass-1 rigid lattice
+  BOTTOM  after refinement  -- stray blocks subsumed, and the pass-2
+                              columns snapped to the majority alignment
+
+If the typesetting model is right, the histogram should show spikes at
+regular intervals, because every block was aligned to the same printed
+column guides. A smooth or shapeless distribution would falsify the
+premise.
+
+No matplotlib on this machine, so this draws with PIL -- keeping the
+package dependency-free, like the rest of `scaled`.
 
 Usage::
 
     python3 -m transcribe.scaled.plot_edges 1980-04-06 --page 11
-    python3 -m transcribe.scaled.plot_edges 1980-04-06          # all pages
+    python3 -m transcribe.scaled.plot_edges 1980-04-06
 """
 
 from __future__ import annotations
@@ -27,116 +32,135 @@ from . import detect_grid as _grid
 
 OUT_DIR = os.path.join(_sup.REPO_ROOT, "preview", "scaled", "edge_plots")
 
-W, H = 1400, 520
-PAD_L, PAD_R, PAD_T, PAD_B = 70, 24, 60, 70
+W = 1400
+PANEL_H = 300
+PAD_L, PAD_R, PAD_T, PAD_B = 70, 24, 46, 46
 BIN_PCT = 0.25
 
 LEFT_COLOUR = (10, 90, 200)      # blue
 RIGHT_COLOUR = (0, 95, 55)       # dark green
-GRID_COLOUR = (235, 185, 10)     # yellow-gold; read as too red at (200,120,0)
+GRID_COLOUR = (235, 185, 10)     # yellow-gold
 GUTTER_COLOUR = (252, 240, 190)  # pale wash marking the gutter band
+DROP_COLOUR = (200, 60, 140)     # blocks removed by the refinement
+
+
+def _hist(vals: list[float], nbins: int) -> list[int]:
+    h = [0] * nbins
+    for v in vals:
+        h[min(nbins - 1, max(0, int(v / BIN_PCT)))] += 1
+    return h
+
+
+def _panel(d: ImageDraw.ImageDraw, top: int, title: str,
+           lefts: list[float], rights: list[float],
+           columns: list[tuple[float, float]],
+           dropped: list[float], peak: int) -> None:
+    """One histogram panel drawn at vertical offset `top`."""
+    nbins = int(100 / BIN_PCT) + 1
+    pw = W - PAD_L - PAD_R
+    ph = PANEL_H - PAD_T - PAD_B
+    base = top + PAD_T + ph
+
+    # Gutters first, behind everything.
+    for i in range(len(columns) - 1):
+        xr = PAD_L + pw * (columns[i][1] / 100.0)
+        xn = PAD_L + pw * (columns[i + 1][0] / 100.0)
+        if xn > xr:
+            d.rectangle([xr, top + PAD_T, xn, base], fill=GUTTER_COLOUR)
+
+    # Axes
+    d.line([(PAD_L, base), (PAD_L + pw, base)], fill=(0, 0, 0), width=2)
+    d.line([(PAD_L, top + PAD_T), (PAD_L, base)], fill=(0, 0, 0), width=2)
+    for pct in range(0, 101, 10):
+        x = PAD_L + pw * (pct / 100.0)
+        d.line([(x, base), (x, base + 5)], fill=(0, 0, 0), width=1)
+        d.text((x - 8, base + 10), f"{pct}", fill=(0, 0, 0))
+    step = max(1, peak // 4)
+    for c in range(0, peak + 1, step):
+        y = base - ph * (c / peak)
+        d.line([(PAD_L - 5, y), (PAD_L, y)], fill=(0, 0, 0), width=1)
+        d.text((PAD_L - 32, y - 6), f"{c}", fill=(0, 0, 0))
+
+    hl, hr = _hist(lefts, nbins), _hist(rights, nbins)
+    hd = _hist(dropped, nbins)
+    bw = max(1, pw / nbins)
+
+    # Bars at their TRUE x. Where series share a bin the taller is drawn
+    # first so the shorter stays visible.
+    for i in range(nbins):
+        x = PAD_L + pw * (i * BIN_PCT / 100.0)
+        stack = []
+        if hl[i]:
+            stack.append((hl[i], LEFT_COLOUR))
+        if hr[i]:
+            stack.append((hr[i], RIGHT_COLOUR))
+        if hd[i]:
+            stack.append((hd[i], DROP_COLOUR))
+        for cnt, colour in sorted(stack, reverse=True):
+            d.rectangle([x, base - ph * (cnt / peak), x + bw, base], fill=colour)
+
+    # Column edges last, on top.
+    for l, r in columns:
+        for x_pct in (l, r):
+            x = PAD_L + pw * (x_pct / 100.0)
+            d.line([(x, top + PAD_T), (x, base)], fill=GRID_COLOUR, width=3)
+
+    d.text((PAD_L, top + 10), title, fill=(0, 0, 0))
 
 
 def plot_page(conn, page_row, out_path: str) -> str:
-    rows = conn.execute(
-        "SELECT bbox_left_pct L, bbox_right_pct R FROM page_ocr_blocks WHERE page_id=?",
-        (page_row["id"],)).fetchall()
-    lefts = [r["L"] for r in rows]
-    rights = [r["R"] for r in rows]
-    if not lefts:
-        return ""
-
-    nbins = int(100 / BIN_PCT) + 1
-    hist_l = [0] * nbins
-    hist_r = [0] * nbins
-    for v in lefts:
-        hist_l[min(nbins - 1, int(v / BIN_PCT))] += 1
-    for v in rights:
-        hist_r[min(nbins - 1, int(v / BIN_PCT))] += 1
-    peak = max(max(hist_l), max(hist_r)) or 1
-
-    img = Image.new("RGB", (W, H), (255, 255, 255))
-    d = ImageDraw.Draw(img)
-    pw = W - PAD_L - PAD_R
-    ph = H - PAD_T - PAD_B
-
-    res = _grid.detect(conn, page_row["id"])
+    pid = page_row["id"]
+    res = _grid.detect(conn, pid)
     g = res.get("grid")
 
-    # Axes
-    d.line([(PAD_L, PAD_T + ph), (PAD_L + pw, PAD_T + ph)], fill=(0, 0, 0), width=2)
-    d.line([(PAD_L, PAD_T), (PAD_L, PAD_T + ph)], fill=(0, 0, 0), width=2)
-    for pct in range(0, 101, 10):
-        x = PAD_L + pw * (pct / 100.0)
-        d.line([(x, PAD_T + ph), (x, PAD_T + ph + 6)], fill=(0, 0, 0), width=1)
-        d.text((x - 8, PAD_T + ph + 12), f"{pct}", fill=(0, 0, 0))
-    step = max(1, peak // 5)
-    for c in range(0, peak + 1, step):
-        y = PAD_T + ph - ph * (c / peak)
-        d.line([(PAD_L - 6, y), (PAD_L, y)], fill=(0, 0, 0), width=1)
-        d.text((PAD_L - 34, y - 6), f"{c}", fill=(0, 0, 0))
+    blocks = _grid.page_blocks(conn, pid)
+    if not blocks:
+        return ""
+    kept, subsumed = _grid.subsume_stray_blocks(blocks)
 
-    # (gutter wash is painted before the bars -- see below)
+    raw_l = [b["L"] for b in blocks]
+    raw_r = [b["R"] for b in blocks]
+    kept_l = [b["L"] for b in kept]
+    kept_r = [b["R"] for b in kept]
+    drop_l = [b["L"] for b in subsumed]
+
+    # Pass-1 lattice: rigid, every slot the same width.
+    before_cols = []
     if g:
-        for i in range(len(g["edges"]) - 1):
-            l = g["edges"][i]
-            r = min(100.0, l + g["col_width"])
-            nxt = g["edges"][i + 1]
-            xr = PAD_L + pw * (r / 100.0)
-            xn = PAD_L + pw * (nxt / 100.0)
-            if xn > xr:
-                d.rectangle([xr, PAD_T, xn, PAD_T + ph], fill=GUTTER_COLOUR)
+        before_cols = [(round(g["offset"] + k * g["pitch"], 2),
+                        round(g["offset"] + k * g["pitch"] + g["col_width"], 2))
+                       for k in range(g["n_columns"])]
+    after_cols = [(c["left_pct"], c["right_pct"]) for c in res.get("columns", [])]
 
-    # Bars sit at their TRUE x position -- no side-by-side offset, so a
-    # bar's position is exactly the measured edge position. Where both
-    # series land in the same bin, the taller is drawn first so the
-    # shorter stays visible on top of it.
-    bw = max(1, pw / nbins)
-    for i in range(nbins):
-        x = PAD_L + pw * (i * BIN_PCT / 100.0)
-        pair = []
-        if hist_l[i]:
-            pair.append((hist_l[i], LEFT_COLOUR))
-        if hist_r[i]:
-            pair.append((hist_r[i], RIGHT_COLOUR))
-        for cnt, colour in sorted(pair, reverse=True):
-            y = PAD_T + ph - ph * (cnt / peak)
-            d.rectangle([x, y, x + bw, PAD_T + ph], fill=colour)
+    nbins = int(100 / BIN_PCT) + 1
+    peak = max([1] + _hist(raw_l, nbins) + _hist(raw_r, nbins))
 
-    # Predicted grid LAST, so it reads on top of the bars. Both edges of
-    # every column are drawn -- start AND start+col_width -- so the
-    # GUTTER between one column's right edge and the next column's left
-    # edge is visible as a gap, rather than being implied by a single
-    # line per slot.
-    if g:
-        for i in range(len(g["edges"]) - 1):
-            l = g["edges"][i]
-            r = min(100.0, l + g["col_width"])
-            for x_pct in (l, r):
-                x = PAD_L + pw * (x_pct / 100.0)
-                d.line([(x, PAD_T), (x, PAD_T + ph)], fill=GRID_COLOUR, width=3)
-
+    img = Image.new("RGB", (W, PANEL_H * 2 + 30), (255, 255, 255))
+    d = ImageDraw.Draw(img)
     date = f"{page_row['year']}-{page_row['month']:02d}-{page_row['day']:02d}"
-    d.text((PAD_L, 12), f"{date} p{page_row['page']} — block edges, "
-                        f"{len(lefts)} blocks, {BIN_PCT}% bins", fill=(0, 0, 0))
+
+    _panel(d, 0,
+           f"{date} p{page_row['page']} — BEFORE refinement: {len(blocks)} blocks, "
+           f"pass-1 rigid lattice"
+           + (f" ({g['n_columns']} slots, pitch {g['pitch']}%, col {g['col_width']}%)"
+              if g else " (no fit)"),
+           raw_l, raw_r, before_cols, [], peak)
+
+    _panel(d, PANEL_H + 30,
+           f"AFTER refinement: {len(kept)} blocks ({len(subsumed)} stray subsumed), "
+           f"pass-2 columns snapped to majority alignment "
+           f"({res.get('edges_snapped', 0)}/{res.get('edges_total', 0)} edges moved)",
+           kept_l, kept_r, after_cols, drop_l, peak)
+
+    # Legend along the bottom.
+    y = PANEL_H * 2 + 8
     lx = PAD_L
-    d.rectangle([lx, 32, lx + 16, 42], fill=LEFT_COLOUR)
-    d.text((lx + 22, 30), "left edges", fill=(0, 0, 0))
-    lx += 110
-    d.rectangle([lx, 32, lx + 16, 42], fill=RIGHT_COLOUR)
-    d.text((lx + 22, 30), "right edges", fill=(0, 0, 0))
-    lx += 118
-    d.rectangle([lx, 32, lx + 16, 42], fill=GUTTER_COLOUR)
-    d.rectangle([lx, 32, lx + 2, 42], fill=GRID_COLOUR)
-    d.rectangle([lx + 14, 32, lx + 16, 42], fill=GRID_COLOUR)
-    if g:
-        d.text((lx + 22, 30), f"column edges + gutter — {g['n_columns']} slots, "
-                              f"pitch {g['pitch']}%, col {g['col_width']}%, "
-                              f"gutter {g['gutter']}%, fit {res['fit']:.2f}",
-               fill=(0, 0, 0))
-    else:
-        d.text((lx + 22, 30), "predicted grid — no fit", fill=(0, 0, 0))
-    d.text((PAD_L + pw // 2 - 60, H - 26), "x position (% of page width)", fill=(0, 0, 0))
+    for colour, label in ((LEFT_COLOUR, "left edges"), (RIGHT_COLOUR, "right edges"),
+                          (DROP_COLOUR, "subsumed (lower panel)"),
+                          (GRID_COLOUR, "column edges"), (GUTTER_COLOUR, "gutter")):
+        d.rectangle([lx, y, lx + 16, y + 10], fill=colour)
+        d.text((lx + 22, y - 2), label, fill=(0, 0, 0))
+        lx += 30 + 7 * len(label)
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     img.save(out_path)
@@ -153,10 +177,9 @@ def _cmd(args):
         if args.page:
             sql += " AND page=?"
             params.append(args.page)
-        rows = [dict(r) for r in conn.execute(sql + " ORDER BY page", params)]
-        for r in rows:
-            p = os.path.join(OUT_DIR, args.date, f"p{r['page']}_left_edges.png")
-            got = plot_page(conn, r, p)
+        for r in conn.execute(sql + " ORDER BY page", params):
+            p = os.path.join(OUT_DIR, args.date, f"p{r['page']}_edges.png")
+            got = plot_page(conn, dict(r), p)
             print(f"  {got or '(no blocks) p%d' % r['page']}")
     finally:
         conn.close()
