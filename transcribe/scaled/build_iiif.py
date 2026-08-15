@@ -121,7 +121,7 @@ VARIANTS = {
 # the pipeline: Tesseract (raw) -> Columns -> Items -> Refined. Items and
 # Refined are not built yet; the viewer shows them disabled rather than
 # pretending they exist.
-DERIVED = ("grid",)
+DERIVED = ("grid1", "grid2", "grid")
 
 
 def _derived_layers(conn, page_id, cid, W, H, variant):
@@ -129,7 +129,7 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
     produced nothing for this page, so an empty layer never masquerades as
     a real result."""
     out = []
-    if variant == "grid":
+    if variant in ("grid", "grid1", "grid2"):
         # Both passes as separate layers, so the refinement can be judged
         # against what it started from rather than taken on trust.
         res = _detect_grid.detect(conn, page_id)
@@ -147,8 +147,9 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
                 "", f"slot {k}", kind="grid (1) rigid lattice",
                 detail=f"slot {k} · {l:.2f}%-{r:.2f}% · pitch {g['pitch']}% · "
                        f"col {g['col_width']}% · gutter {g['gutter']}%"))
-        out.append((f"Underlying grid (1) — rigid lattice, "
-                    f"{g['n_columns']} slots @ pitch {g['pitch']}%", pass1))
+        if variant in ("grid", "grid1"):
+            out.append((f"Underlying grid (1) — rigid lattice, "
+                        f"{g['n_columns']} slots @ pitch {g['pitch']}%", pass1))
 
         pass2 = []
         cols = res.get("columns", [])
@@ -162,7 +163,7 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
                 detail=f"col {c['col_idx']} · {c['left_pct']:.2f}%-{c['right_pct']:.2f}% "
                        f"(w {c['right_pct'] - c['left_pct']:.2f}%)"
                        + (f" · gutter {gut:+.2f}%" if gut is not None else " · right margin")))
-        if pass2:
+        if pass2 and variant in ("grid", "grid2"):
             out.append((f"Underlying grid (2) — leaned to extremes, "
                         f"{len(pass2)} columns", pass2))
     return out
@@ -295,7 +296,9 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
             "all": "raw Tesseract hOCR (blocks + lines)",
             "blocks": "raw Tesseract hOCR (blocks)",
             "lines": "raw Tesseract hOCR (lines)",
-            "grid": "stage 2: underlying column grid",
+            "grid": "stage 2: underlying column grid (both passes)",
+            "grid1": "stage 2: underlying grid (1) — rigid lattice",
+            "grid2": "stage 2: underlying grid (2) — leaned to extremes",
         }.get(variant, variant)]},
         "summary": {"en": [
             "Unmodified Tesseract hOCR rendered as IIIF annotation layers, "
