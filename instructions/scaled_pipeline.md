@@ -164,7 +164,19 @@ settles this:
 | Clover | ❌ | ❌ | **no annotation support — ruled out** |
 | Universal Viewer | ❌ | ❌ | **no annotation support — ruled out** |
 
-**Decision: emit one standards-compliant manifest and support all
+**Status 2026-08-15: only Mirador is confirmed working.** TIFY does not
+render overlays for these manifests even after fixing the
+`view==='fulltext'` gate found in its bundle — that fix was predicted to
+work and was falsified on device. Cause not yet found. Mirador is the
+default; TIFY stays selectable for debugging only. Theseus was removed
+entirely (hosted-only, unpublished source, and unreachable behind
+Cloudflare Access).
+
+Mirador working is itself the useful result: it independently proves the
+manifest is valid and the Text Granularity extension is harmless, so a
+TIFY-only failure is a TIFY problem, not a data problem.
+
+**Original decision: emit one standards-compliant manifest and support all
 three.** TIFY is the built-in (self-hosted, no third-party runtime
 dependency, works behind the existing tunnel). Theseus and Mirador get
 opened via the **IIIF Content State API**: parameter is `iiif-content`,

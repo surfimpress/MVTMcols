@@ -42,8 +42,10 @@ that.
     the page*. Never trust a score from this pipeline without running
     `transcribe/scaled/render_overlay.py` first.
   - Viewers: manifest is the contract, viewers are swappable clients.
-    `preview/scaled/iiif/viewer.html` embeds **TIFY and Mirador**, both
-    configured with annotations ON. **Mirador's default
+    `preview/scaled/iiif/viewer.html` embeds Mirador (default, **the only
+    one confirmed working**) and TIFY (**does NOT render overlays for
+    these manifests — unresolved**; the `view:'fulltext'` fix was
+    predicted to work and falsified on device). **Mirador's default
     `filteredMotivations` EXCLUDES `supplementing`** — the motivation all
     our annotations use — so an unconfigured/hosted Mirador silently
     shows nothing; that override is why it is embedded, not linked.

@@ -12,12 +12,18 @@
   builds on, so later stages can be added as further layers and compared
   against it.
 
-  Mirador is the DEFAULT because it is the one confirmed working on a
-  real device (2026-08-15): it renders these annotation boundaries
-  correctly, which also independently proves the manifest is sound and
-  that the Text Granularity extension causes no harm. TIFY needs
-  view:'fulltext' before it will even fetch annotations, which costs
-  screen space -- kept as a switchable alternative, not the default.
+  Mirador is the DEFAULT and is the only viewer confirmed working here
+  (2026-08-15): it renders these annotation boundaries correctly, which
+  also independently proves the manifest is sound and that the Text
+  Granularity extension causes no harm.
+
+  TIFY DOES NOT SHOW OVERLAYS FOR THESE MANIFESTS -- unresolved. Reading
+  TIFY 0.33's bundle identified one real gate (annotations are only
+  fetched when view==='fulltext', or on mobile with view 'scan'/''), and
+  setting view:'fulltext' was PREDICTED to fix it. Tested on device: it
+  did not. So there is at least one further condition not yet found. Do
+  not assume TIFY works; verify on a device before relying on it. Kept
+  selectable only for further debugging.
 
   Annotations are switched ON in each viewer's own config:
 
@@ -198,8 +204,10 @@ window.__cfg = (function () {
     //                       && isMobile()
     // and annotations are only FETCHED when annotationsActive is true.
     // `view: null` therefore gave no overlays AND no annotations toggle
-    // icon (the icon renders only when annotations.length > 0). 'fulltext'
-    // is the one value that activates them on both desktop and mobile.
+    // icon (the icon renders only when annotations.length > 0). Setting
+    // 'fulltext' fixes THAT gate -- but overlays still do not appear on
+    // device, so something further is wrong. Unresolved; see the note at
+    // the top of this file.
     view: cfg.view,
     urlQueryKey: 'tify',
     viewer: { immediateRender: true }
