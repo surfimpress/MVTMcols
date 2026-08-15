@@ -89,19 +89,25 @@ window.__cfg = (function () {
   var q = new URLSearchParams(location.search);
   var issue = q.get('issue') || '1980-04-06';
   var viewer = q.get('viewer') || 'tify';
+  // 'fulltext' is required for TIFY to load/draw annotations at all
+  // (see the note at the Tify() call). Overridable for experimentation.
+  var view = q.get('view') || 'fulltext';
   var rel = issue + '/manifest.json';
   var abs = new URL(rel, location.href).href;
 
   var si = document.getElementById('issue'), sv = document.getElementById('viewer');
   if ([].some.call(si.options, function (o) { return o.value === issue; })) si.value = issue;
   if ([].some.call(sv.options, function (o) { return o.value === viewer; })) sv.value = viewer;
-  function go() { location.search = '?issue=' + si.value + '&viewer=' + sv.value; }
+  function go() {
+    location.search = '?issue=' + si.value + '&viewer=' + sv.value +
+                      (view !== 'fulltext' ? '&view=' + view : '');
+  }
   si.addEventListener('change', go);
   sv.addEventListener('change', go);
 
   document.getElementById('manifest-link').href = rel;
 
-  return { issue: issue, viewer: viewer, rel: rel, abs: abs };
+  return { issue: issue, viewer: viewer, view: view, rel: rel, abs: abs };
 })();
 </script>
 
@@ -148,7 +154,15 @@ window.__cfg = (function () {
     container: '#tify',
     manifestUrl: cfg.rel,   // relative keeps it same-origin behind Cloudflare Access
     annotationsVisible: true,
-    view: null,             // media only -- no side panel stealing width on mobile
+    // MUST NOT be null. From TIFY 0.33's own bundle:
+    //   annotationsActive = view === 'fulltext'
+    //                    || ['scan',''].includes(view) && annotationsVisible !== false
+    //                       && isMobile()
+    // and annotations are only FETCHED when annotationsActive is true.
+    // `view: null` therefore gave no overlays AND no annotations toggle
+    // icon (the icon renders only when annotations.length > 0). 'fulltext'
+    // is the one value that activates them on both desktop and mobile.
+    view: cfg.view,
     urlQueryKey: 'tify',
     viewer: { immediateRender: true }
   });
