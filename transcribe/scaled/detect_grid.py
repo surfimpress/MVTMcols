@@ -54,7 +54,20 @@ SNAP_TOL_PCT = 0.9
 # Plausible column pitch as % of page width. A 1-column page would be
 # ~100%; 12 narrow classified columns ~8%. Outside this, it isn't a
 # newspaper column grid.
-MIN_PITCH_PCT = 6.0
+# A column has to be wide enough to SET BODY TEXT IN. This is the
+# typographic floor, and it is what stops the fitter halving a real grid.
+#
+# Why it was needed: on 1980-04-06 p2 the lattice locked onto the internal
+# item/price sub-columns of a full-page grocery ad and returned 14 columns
+# at 6.45% pitch, when the obituary and news columns on the same page are
+# plainly ~10.5% wide. Rendered and confirmed by eye.
+#
+# 8.0% of a ~15in broadsheet is ~1.2in, about 7 picas. `typesetting_practice.md`
+# records real body columns at 11-13 picas, so nothing legitimate is
+# excluded, and the corpus agrees: across 90 fitted pages the halved fits
+# sit at 6.25-7.20% pitch and every sound fit at 11.30% or above. The
+# threshold sits in an empty gap, not against a cluster edge.
+MIN_PITCH_PCT = 8.0
 MAX_PITCH_PCT = 55.0
 
 PITCH_STEP = 0.05     # % of page width -- fine enough to land on real pitches
@@ -166,7 +179,36 @@ def vertical_rules(conn, page_id: str, line_h: float) -> list[dict]:
         if centre < EDGE_MARGIN_PCT or centre > EDGE_MARGIN_RIGHT_PCT:
             continue
         item = {"block_idx": None, "L": r["L"], "T": r["T"],
-                "R": r["R"], "B": r["B"], "n_lines": 0, "is_rule": True}
+                "R": r["R"], "B": r["B"], "n_lines": 0,
+                "is_rule": True, "is_weak": True}
+        if usable(item, line_h):
+            out.append(item)
+    return out
+
+
+def photo_regions(conn, page_id: str, line_h: float) -> list[dict]:
+    """Tesseract's own ocr_photo regions as weak layout items.
+
+    A photo is dummied onto the grid like anything else, so its edges are
+    column edges -- free evidence that costs nothing to read.
+
+    Two differences from `vertical_rules`:
+      * Edges map STRAIGHT THROUGH (L->left, R->right). A rule sits in the
+        gutter and has to be crossed over; a photo sits ON the columns.
+      * Same reduced weight as a rule. Tesseract's photo boxes are only
+        approximately placed and it reports halftone noise as photo too,
+        so they inform the fit without being allowed to drive it.
+
+    Same height minimums and full-height truncation as every other item.
+    """
+    out = []
+    for r in conn.execute(
+        "SELECT left_pct L, top_pct T, right_pct R, bottom_pct B "
+        "FROM page_hocr_regions WHERE page_id=? AND region_class='ocr_photo'",
+        (page_id,),
+    ):
+        item = {"block_idx": None, "L": r["L"], "T": r["T"], "R": r["R"],
+                "B": r["B"], "n_lines": 0, "is_weak": True}
         if usable(item, line_h):
             out.append(item)
     return out
@@ -423,8 +465,14 @@ def fit_grid(lefts: list[float], rights: list[float],
     for k in range(best["n_columns"]):
         start = best["offset"] + k * best["pitch"]
         end = start + best["pitch"]
+        # Only peaks in the slot's END REGION can be a column end. An
+        # earlier version accepted any peak inside the slot, which let a
+        # wide-spanning item (a photo, a multi-column ad) that happens to
+        # stop early set col_width -- collapsing the column and inflating
+        # the gutter to 8-13% on pages whose real gutter is ~1 pica.
+        floor_x = start + (end - start) * COL_END_ZONE_FRAC
         inside = [(cnt, p) for p, cnt in right_peaks
-                  if start < p <= end + SNAP_TOL_PCT]
+                  if floor_x < p <= end + SNAP_TOL_PCT]
         if inside:
             widths.append(max(inside)[1] - start)
     col_w = round(statistics.median(widths), 2) if widths else round(best["pitch"], 2)
@@ -448,6 +496,13 @@ SNAP_SEARCH_PCT = 2.0
 # real column structure -- must not be allowed to set an edge.
 HEIGHT_PCTL_FLOOR = 10
 
+# A printed rule or a photo box is real evidence, but weaker than a text
+# block: rules get confused with photo borders, box edges and scan
+# artefacts, photo boxes are only loosely placed, and misaligned pages
+# traced to exactly that confusion. Text blocks count full value;
+# separators and photo regions count half.
+WEAK_WEIGHT_FRAC = 0.5
+
 # For the LAST column only. The right margin is ragged: most lines stop
 # short of the column edge, so the heaviest right-edge cluster sits LEFT
 # of the truth and snapping to it makes the last column too narrow.
@@ -463,6 +518,18 @@ HEIGHT_PCTL_FLOOR = 10
 # setting the edge, which is rare here. Kept as a cheap guard, not as a
 # tuning knob: do not expect gains from adjusting it.
 LAST_COL_MIN_ITEM_FRAC = 0.60
+
+# A column's right edge must lie in the last part of its slot. Anything
+# earlier is an item that stopped short, not the column measure.
+COL_END_ZONE_FRAC = 0.70
+
+# Below this many text lines a page cannot evidence a column grid, and a
+# fit is a guess dressed as a measurement. 1980-04-06 p7 is the case:
+# a full-page picture spread with 25 lines, all captions and no body text.
+# It fitted 5 columns where the issue's grid is 8 -- but 8 was never
+# verified either, because there is nothing on the page to verify against.
+# Flagged rather than silently returned.
+MIN_LINES_FOR_GRID = 60
 
 
 def analyse(conn, page_id: str, blocks: list[dict] | None = None,
@@ -482,10 +549,11 @@ def analyse(conn, page_id: str, blocks: list[dict] | None = None,
     # that would otherwise dominate a height-weighted fit.
     ok = [b for b in blocks if usable(b, line_h)]
     rules = vertical_rules(conn, page_id, line_h)
-    bl = tall_edges(ok + rules, "left")
-    br = tall_edges(ok + rules, "right")
-    bh = [i["B"] - i["T"] for i in (ok + rules)
-          if (i["B"] - i["T"]) >= _decile_floor(ok + rules)]
+    photos = photo_regions(conn, page_id, line_h)
+    items = ok + rules + photos
+    bl = tall_edges(items, "left")
+    br = tall_edges(items, "right")
+    bh = item_weights(items)
     w = bh if (WEIGHT_BY_HEIGHT and len(bh) == len(bl)) else None
     return fit_grid(bl, br, w, w)
 
@@ -520,6 +588,48 @@ def _lean(predicted: float, edges: list[float], window: float,
     if not near:
         return predicted, False
     return round(max(near) if rightward else min(near), 2), True
+
+
+def item_weights(items: list[dict]) -> list[float]:
+    """Weight per surviving item: its height, halved for printed rules.
+
+    Rules and photo regions are genuine evidence but less trustworthy than
+    text -- Tesseract reports photo borders and box edges as separators
+    too, and pages that came out misaligned traced to exactly that
+    confusion.
+    """
+    floor = _decile_floor(items)
+    out = []
+    for i in items:
+        h = i["B"] - i["T"]
+        if h < floor:
+            continue
+        out.append(h * (WEAK_WEIGHT_FRAC if i.get("is_weak") else 1.0))
+    return out
+
+
+def line_right_extent(conn, page_id: str, left_bound: float,
+                      exclude_block_idx: set | None = None) -> float | None:
+    """Rightmost edge of any hOCR LINE in a block starting at or right of
+    `left_bound`.
+
+    This is the one place lines are consulted for geometry. A block's
+    bbox can under-report its true extent, but its lines cannot: the
+    longest line in the rightmost block marks where text actually reaches.
+    The column must not end to the LEFT of that -- doing so would clip
+    real text out of the column.
+    """
+    rows = conn.execute(
+        """SELECT max(l.right_pct) AS mx
+             FROM page_hocr_lines l
+             JOIN page_ocr_blocks b
+               ON b.page_id = l.page_id AND b.block_idx = l.block_idx
+            WHERE l.page_id = ? AND b.bbox_left_pct >= ?""",
+        (page_id, left_bound),
+    ).fetchone()
+    if not rows or rows["mx"] is None:
+        return None
+    return round(rows["mx"], 2)
 
 
 def _decile_floor(items: list[dict]) -> float:
@@ -577,7 +687,19 @@ def detect(conn, page_id: str) -> dict:
     dropped = {b["block_idx"] for b in subsumed}
     second = analyse(conn, page_id, kept, exclude_block_idx=dropped)
 
+    # Pass 2 REFINES pass 1's reading; it does not get to overturn it.
+    # Subsuming stray blocks changes the edge distribution slightly, so a
+    # correction of one column either way is a legitimate sharpening -- but
+    # a jump to twice as many columns means pass 2 has found a
+    # sub-division (an ad's internal price columns, a table's cells), not
+    # a better grid. Seen live: 1980-04-06 p12 went 4 -> 8 this way.
     grid = second or first
+    if first and second and abs(second["n_columns"] - first["n_columns"]) > 1:
+        grid = first
+        count_guarded = (second["n_columns"], first["n_columns"])
+    else:
+        count_guarded = None
+
     if grid is None:
         return {"grid": None, "fit": 0.0, "note": "insufficient edges",
                 "n_blocks": len(blocks), "n_kept": len(kept),
@@ -586,9 +708,10 @@ def detect(conn, page_id: str) -> dict:
     # Majority-alignment refinement, using the cleaned edge distribution.
     line_h = median_line_height(conn, page_id)
     ok = [b for b in kept if usable(b, line_h)]
-    rules = vertical_rules(conn, page_id, line_h)
-    left_edges = tall_edges(ok + rules, "left")
-    right_edges = tall_edges(ok + rules, "right")
+    weak = (vertical_rules(conn, page_id, line_h)
+            + photo_regions(conn, page_id, line_h))
+    left_edges = tall_edges(ok + weak, "left")
+    right_edges = tall_edges(ok + weak, "right")
 
     # LEFT edges first, for every column. Each leans leftward to the
     # outermost block start near its predicted slot, bounded so it cannot
@@ -617,12 +740,28 @@ def detect(conn, page_id: str) -> dict:
         if right - lefts[k] < grid["col_width"] * 0.5:
             right = round(lefts[k] + grid["col_width"], 2)
             hit_r = False
+        if k == n - 1:
+            # LAST column: a block bbox can under-report its extent, but
+            # its LINES cannot. The rightmost line in the rightmost block
+            # marks where text actually reaches, and the column must not
+            # end left of that or it would clip real text.
+            ext = line_right_extent(conn, page_id, lefts[k] - SNAP_SEARCH_PCT, dropped)
+            if ext is not None and ext > right:
+                right = ext
+                hit_r = True
         moved += int(hit_left[k]) + int(hit_r)
         columns.append({"col_idx": k, "left_pct": round(lefts[k], 2),
                         "right_pct": round(right, 2),
                         "snapped_left": hit_left[k], "snapped_right": hit_r})
 
+    n_lines = conn.execute(
+        "SELECT count(*) c FROM page_hocr_lines WHERE page_id=?",
+        (page_id,)).fetchone()["c"]
+
     return {"grid": grid, "fit": grid["score"],
+            "count_guarded": count_guarded,
+            "low_evidence": n_lines < MIN_LINES_FOR_GRID,
+            "n_lines": n_lines,
             "fit_before_refine": first["score"] if first else None,
             "columns": columns,
             "edges_snapped": moved, "edges_total": 2 * grid["n_columns"],

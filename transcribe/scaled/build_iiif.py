@@ -121,7 +121,7 @@ VARIANTS = {
 # the pipeline: Tesseract (raw) -> Columns -> Items -> Refined. Items and
 # Refined are not built yet; the viewer shows them disabled rather than
 # pretending they exist.
-DERIVED = ("grid1", "grid2", "grid")
+DERIVED = ("grid1", "grid2")
 
 
 def _derived_layers(conn, page_id, cid, W, H, variant):
