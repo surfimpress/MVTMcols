@@ -62,29 +62,24 @@ SIDE_SLACK_PCT = 2.0
 def _extent_match(a: dict, b: dict) -> tuple[float, float] | None:
     """Do two horizontal rules bound the same box? If so, its x-extent.
 
-    Two cases, and the second is not optional:
+    STRICT: both ends must agree. Nothing clever.
 
-    1. The ends AGREE -- the simple case, both rules drawn for this box.
+    A containment variant was tried (allowing a wide rule to pair with a
+    narrow one, on the theory that Tesseract merges collinear rules from
+    adjacent boxes) and it was a clear failure -- boxes went from 6.8 to
+    20.8 per page and the render showed overlapping rectangles cutting
+    across body text on 1980-04-06 p6. It let almost any rule pair with
+    almost any other. REVERTED; do not reintroduce it.
 
-    2. One rule CONTAINS the other. Tesseract merges collinear rules from
-       ADJACENT boxes into a single long run, so a box's bottom edge is
-       frequently reported as part of a rule spanning several boxes.
-       MEASURED on 1980-04-06 p11: the ONTARIO GOVERNMENT NOTICE box has
-       a top rule at x 73.8-96.2, but its bottom arrives inside a rule
-       spanning 38.6-96.0. Requiring both ends to agree rejected it, and
-       most other boxes on that page, for the same reason.
-
-       The NARROWER extent wins: it is the one specific to this box, and
-       the wider rule is by construction shared with its neighbours.
+    The lesson, which the page render made obvious: Tesseract's separator
+    rules ALREADY trace these boxes. On p6 the rules alone outline the
+    Pakenham Seniors panel, the Beach Party ad, the Sidewalk Sale, HI
+    MOM/RELAX and the I.D.A. ad correctly. The job is to read them, not
+    to infer boxes they do not support.
     """
     if (abs(a["L"] - b["L"]) <= EDGE_TOL_PCT
             and abs(a["R"] - b["R"]) <= EDGE_TOL_PCT):
         return min(a["L"], b["L"]), max(a["R"], b["R"])
-
-    narrow, wide = (a, b) if (a["R"] - a["L"]) <= (b["R"] - b["L"]) else (b, a)
-    if (wide["L"] <= narrow["L"] + EDGE_TOL_PCT
-            and wide["R"] >= narrow["R"] - EDGE_TOL_PCT):
-        return narrow["L"], narrow["R"]
     return None
 
 
@@ -126,6 +121,12 @@ def find_boxes(conn, page_id: str, cols: list[dict]) -> list[dict]:
                     if (abs(v["x"] - left) <= EDGE_TOL_PCT
                             or abs(v["x"] - right) <= EDGE_TOL_PCT):
                         sides += 1
+                if sides < 3:
+                    # No vertical side found between these two rules, so
+                    # there is no evidence of a box -- just two rules that
+                    # happen to share an x-extent (a story's top and
+                    # bottom cutoff rules, for instance).
+                    break
                 span = _hl.column_span(left, right, cols) if cols else None
                 boxes.append({
                     "left_pct": round(left, 2), "right_pct": round(right, 2),
@@ -136,9 +137,6 @@ def find_boxes(conn, page_id: str, cols: list[dict]) -> list[dict]:
                     "col_lo": span[0] if span else None,
                     "col_hi": span[1] if span else None,
                 })
-                # NOT claimed: a merged rule is the bottom edge of several
-                # boxes at once, so consuming it would lose all but the
-                # first. Only the top rule is consumed, by `i`.
                 break
     return boxes
 

@@ -551,15 +551,24 @@ Tesseract does not reliably report all four sides.
 **What works: a top and bottom rule sharing an x-extent.** That pair is
 the box's signature and survives the verticals being absent.
 
-**Containment matching is required, and this was the key finding.**
-Tesseract *merges collinear rules from adjacent boxes into one long run*,
-so a box's bottom edge frequently arrives inside a rule spanning several
-boxes. On 1980-04-06 p11 the ONTARIO GOVERNMENT NOTICE box has a top rule
-at x 73.8–96.2 but its bottom sits inside a rule spanning 38.6–96.0.
-Requiring both ends to agree rejected it and most other boxes on the
-page. So a wider rule may CONTAIN a narrower one, the narrower extent
-wins (it is specific to this box), and a merged rule is **not consumed** —
-it is the bottom edge of several boxes at once.
+**Containment matching was tried and REVERTED — do not reintroduce it.**
+The theory was that Tesseract merges collinear rules from adjacent boxes,
+so a wide rule should be allowed to pair with a narrow one. It raised
+recall on paper but let almost any rule pair with almost any other: boxes
+went from 6.8 to **20.8 per page**, and the render of 1980-04-06 p6 was a
+thicket of overlapping rectangles cutting across body text. The user's
+verdict — *"The box detection is not working out … overcomplication of
+your detection methods more than anything else"* — was correct.
+
+**The lesson, and it generalises.** Rendering the raw `ocr_separator`
+regions over p5 and p6 shows that **Tesseract's rules already trace these
+boxes**: the Pakenham Seniors panel, the Beach Party ad, the Sidewalk
+Sale, HI MOM/RELAX and Heritage IDA are each outlined by their own four
+rules. The job was to READ that, not to infer boxes the rules do not
+support. Current rule: strict extent match on the horizontal pair, and a
+vertical side must be present between them (`n_sides >= 3`) — a box has
+sides. Result: **p6 gives 7 boxes and all 7 are correct**; corpus median
+2/page.
 
 **`n_sides` is recorded, never filtered on at write time.** 4-sided boxes
 are near-perfect; 2-sided ones are where only a top and bottom were
@@ -607,10 +616,13 @@ continuously. There is no vertical pitch to fit and pretending otherwise
 would repeat, on the other axis, the error `typesetting_practice.md`
 warns about.
 
-Evidence weights: horizontal rule 1.0 (a deliberate cutoff — unlike the
-*vertical* case it is NOT downweighted, it is the most direct evidence
-there is), `ocr_header` line top 1.0, photo top/bottom 0.75, block
-top/bottom 0.5.
+Evidence: horizontal rules (1.0), `ocr_header` line tops (1.0), photo
+top/bottom (0.75). **Block edges were used and have been REMOVED.** They
+took the page from ~17 alignments to ~44, and the extra ~27 were inferred
+boundaries with no printed counterpart; rendered, they obscured the real
+structure rather than describing it. What remains is what the page
+actually prints. If a boundary has no rule, photo edge or heading, this
+stage does not claim it. Corpus median is now **20/page**, was 44.
 
 **Validation against a non-circular signal.** Horizontal rules do not
 feed the stage-2 column fit, so they independently corroborate it: rule

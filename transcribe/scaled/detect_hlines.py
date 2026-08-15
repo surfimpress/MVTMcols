@@ -65,8 +65,8 @@ from . import detect_content_area as _ca
 MERGE_LINES = 0.75
 
 # An alignment must be agreed by at least this many distinct columns.
-# The user's framing is "multi-column spans", so a single column's own
-# block boundary is not an alignment -- it is just a block edge.
+# "multi-column spans" is the whole point, so a single column's own edge
+# is not an alignment.
 MIN_COLUMNS = 2
 
 # Evidence weight by kind. Same discipline as stage 2: a printed rule or
@@ -77,7 +77,6 @@ WEIGHT = {
     "rule": 1.0,        # ocr_separator, horizontal -- a printed cutoff
     "photo": 0.75,      # ocr_photo top/bottom -- placed, but loosely
     "header": 1.0,      # ocr_header line top -- Tesseract's own class
-    "block": 0.5,       # ordinary block top/bottom -- numerous, weakest
 }
 
 # A rule narrower than this is furniture inside one item (a table rule, a
@@ -160,10 +159,15 @@ def candidates(conn, page_id: str, cols: list[dict]) -> list[dict]:
     ):
         add(r["T"], r["L"], r["R"], "header")
 
-    for b in _grid.page_blocks(conn, page_id):
-        add(b["T"], b["L"], b["R"], "block")
-        add(b["B"], b["L"], b["R"], "block")
-
+    # Block edges are NOT used. They were, and they were the problem:
+    # they took the page from ~17 alignments to ~44, and the extra 27 were
+    # inferred boundaries with no printed counterpart. Rendered on
+    # 1980-04-06 p6 the result was a thicket of lines that obscured the
+    # real structure rather than describing it.
+    #
+    # What is left is what the page actually prints: horizontal rules,
+    # photo edges, and heading tops. If a boundary has none of those, this
+    # stage does not claim it.
     return out
 
 

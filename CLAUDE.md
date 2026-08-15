@@ -85,15 +85,16 @@ that.
     matching does NOT work and shouldn't be retried:** only 22% of the
     4,452 horizontal-rule endpoints sit within 0.5% of a vertical rule's
     end (median distance 9.0%); Tesseract doesn't report all four sides.
-    What works is a **top+bottom rule pair sharing an x-extent**, plus
-    **containment matching** — Tesseract merges collinear rules from
-    ADJACENT boxes into one long run, so a box's bottom often arrives
-    inside a much wider rule; the narrower extent wins and the merged rule
-    is not consumed. `n_sides` (2/3/4) is recorded, never filtered at
-    write time. **Judge by rendering, not by the ad metric:** vs
-    `display_ad` it scores 27% recall / 20% precision, but 19 of 20
-    four-sided boxes on 1980-04-06 p11 are right by eye — the metric
-    counts notices and tenders as false positives.
+    What works is a **strict top+bottom rule pair sharing an x-extent, with
+    a vertical side present between them** — a box has sides.
+    **Containment matching was tried and REVERTED:** it took boxes from
+    6.8 to 20.8/page and produced overlapping rectangles cutting across
+    text (1980-04-06 p6). Do not reintroduce it. **The general lesson:**
+    rendering the raw separators shows Tesseract's rules ALREADY trace
+    these boxes — the job is to read them, not to infer boxes they don't
+    support. Now 7/7 correct on p6, corpus median 2/page. Judge by
+    rendering, not by the `display_ad` overlap metric (it counts notices
+    and tenders as false positives).
   - **Stage 3 is HORIZONTAL ALIGNMENTS** (`detect_hlines.py`,
     `render_hlines.py`, `page_hlines` schema v17). Every alignment carries
     a **column span** — on a post-1980 mosaic an alignment is local
@@ -106,12 +107,27 @@ that.
     ads are sold by the column INCH so vertical rhythm is not quantised.
     Horizontal rules don't feed the stage-2 fit, so they independently
     corroborate it (rule endpoints within 1% of a column edge 52% vs 21%
-    control). Recall of LLM-labelled display-ad edges 72% at min 2
-    agreeing columns, median offset 0.30% — **lift over control is real
-    but modest (1.65x), say so**. No threshold baked in: all alignments
-    stored, filtering is the caller's. `pages.content_top_pct`/
+    control). **Evidence is printed rules, photo edges and heading tops
+    ONLY — block edges were removed**, they doubled the count to ~44/page
+    with inferred boundaries that had no printed counterpart and obscured
+    the real structure on render. Now ~20/page. No threshold baked in:
+    all alignments stored, filtering is the caller's. `pages.content_top_pct`/
     `content_bottom_pct` need >=2 words per line (a one-word sheet-edge
     artefact moved a content top from 2.42% to 0.46%).
+  - **Stage 2c is PHOTO+CAPTION pairing** (`detect_captions.py`,
+    `page_photo_captions` schema v19). A caption is the strip directly
+    beneath a photo, within the photo's x-extent, terminated by a
+    horizontal rule matching the photo's width, the next photo, or a gap.
+    That one model covers both observed shapes: 1980-04-06 p1 (caption in
+    TWO legs not following the page grid, closed by a rule at y 68.44
+    matching the photo's 5.1-65.3 extent) and p3 (photo feature page,
+    captions between photos). **Tesseract's `ocr_caption` is NOT the
+    test** — only 5-7 lines/page, one caption block gets split across
+    `ocr_caption`/`ocr_textfloat`/`ocr_header`, and it tags p7's page
+    headline as a caption. Geometry decides; `ocr_caption` is recorded as
+    corroboration. Multi-leg captions stay ONE record with `n_runs`.
+    Nested ocr_photo regions are dropped (a caption can't belong to two
+    photos). 45% of photos captioned corpus-wide.
   - **Confidence scoring is an ARCHIVED DEAD END**
     (`transcribe/scaled/archive/`). Earlier detectors discovered layout
     from weak signals then scored their own trustworthiness; every
