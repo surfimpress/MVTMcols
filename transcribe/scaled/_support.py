@@ -53,6 +53,28 @@ def px_to_pct(px, dim):
     return round(px / dim * 100.0, 2)
 
 
+# --- the grid cell ----------------------------------------------------
+#
+# A cell is CELL_PCT of the page WIDTH, and SQUARE. It reads as two
+# different percentages only because x% is of width and y% of height; on
+# 1980-04-06 p13 the same physical distance reads 1.41x larger vertically.
+#
+# This lives here, not in `experiments/separator_grid`, because stages
+# need it too and a stage must not import from experiments. See
+# scaled_pipeline.md 5z.7 for why any threshold shared across both axes
+# has to be expressed in cells.
+CELL_PCT = 0.5
+
+
+def cell_size(conn, page_id: str) -> tuple[float, float]:
+    """One cell, as (width%, height%) -- THE conversion between the units."""
+    row = conn.execute(
+        "SELECT display_width_px w, display_height_px h FROM pages WHERE id=?",
+        (page_id,)).fetchone()
+    aspect = (row["h"] / row["w"]) if row and row["w"] else 1.4
+    return CELL_PCT, CELL_PCT / aspect
+
+
 # --- db (copied from transcribe/db.py) -------------------------------
 
 def now_iso() -> str:

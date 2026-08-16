@@ -140,7 +140,7 @@ VARIANTS = {
 # the pipeline: Tesseract (raw) -> Columns -> Items -> Refined. Items and
 # Refined are not built yet; the viewer shows them disabled rather than
 # pretending they exist.
-DERIVED = ("grid", "hlines", "boxes", "captions", "boxphotos",
+DERIVED = ("content", "grid", "hlines", "boxes", "captions", "boxphotos",
            "separators", "photos", "overlay")
 
 
@@ -331,14 +331,17 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
             if boxes:
                 out.append((f"Horizontal alignments — {label} ({len(boxes)})", boxes))
 
+    if variant == "content":
         # Stage 1c's content rectangle, drawn whole. Every later stage is
         # measured from it, so it is the first thing to check when a page
-        # looks displaced.
+        # looks displaced. BOTH derivations are drawn, as separate layers,
+        # because the only way to choose between them is to look at them on
+        # the page -- see scaled_pipeline.md §5z.
         box = _detect_content_area.content_box(conn, page_id)
         if box.get("left") is not None and box.get("top") is not None:
             x0, x1 = _sup.pct_to_px(box["left"], W), _sup.pct_to_px(box["right"], W)
             y0, y1 = _sup.pct_to_px(box["top"], H), _sup.pct_to_px(box["bottom"], H)
-            out.append(("Content area (stage 1c)", [_anno(
+            out.append(("Content area — from text LINES (current)", [_anno(
                 f"{cid}/anno/content/box", cid, x0, y0,
                 max(1, x1 - x0), max(1, y1 - y0), "", "content area",
                 kind="content area",
@@ -346,6 +349,21 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
                        f"{box['top']}%-{box['bottom']}% "
                        f"(w {box['width']}% h {box['height']}%) "
                        f"from {box['n_lines']} text lines")]))
+
+        blk = _detect_content_area.content_box_blocks(conn, page_id)
+        if blk.get("left") is not None and blk.get("top") is not None:
+            x0, x1 = _sup.pct_to_px(blk["left"], W), _sup.pct_to_px(blk["right"], W)
+            y0, y1 = _sup.pct_to_px(blk["top"], H), _sup.pct_to_px(blk["bottom"], H)
+            out.append(("Content area — from text BLOCKS (proposed)", [_anno(
+                f"{cid}/anno/contentblk/box", cid, x0, y0,
+                max(1, x1 - x0), max(1, y1 - y0), "", "content area (blocks)",
+                kind="content area (blocks)",
+                detail=f"{blk['left']}%-{blk['right']}% x "
+                       f"{blk['top']}%-{blk['bottom']}% "
+                       f"(w {blk['width']}% h {blk['height']}%) "
+                       f"from {blk['n_items']} text blocks · "
+                       f"{blk['n_outside']} of {blk['n_all']} items of all "
+                       f"types fall outside it")]))
     return out
 
 
@@ -520,6 +538,7 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
             "blocks": "raw Tesseract hOCR (blocks)",
             "lines": "raw Tesseract hOCR (lines)",
             "grid": "stage 2: columns",
+            "content": "stage 1c: the page content area",
             "hlines": "stage 3: horizontal alignments",
             "boxes": "stage 2b: boxed zones",
             "separators": "stage 1: raw ocr_separator rules",

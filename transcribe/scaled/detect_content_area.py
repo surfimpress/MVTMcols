@@ -162,6 +162,107 @@ def _edge_cluster(vals: list[float], leftmost: bool) -> float | None:
     return round(min(xs) if leftmost else max(xs), 2)
 
 
+# --- the block derivation ------------------------------------------------
+#
+# A separator lying entirely within this many cells of a page edge is a
+# SCAN SHADOW, not printing: the binding gutter and the sheet edge both
+# come back from Tesseract as long thin separators hard against the edge.
+# Measured, they sit at 0.0-0.1 cells from the edge and run most of the
+# page height -- 1994-01-05 p12 has one at x 99.64-100.00 spanning y
+# 0.12-99.98. 346 such separators across 82 of 90 pages.
+#
+# Two cells is deliberately tight. A printed border cannot be there: the
+# measured page margin is 7-9 cells, so real ruling starts well inside.
+EDGE_SHADOW_CELLS = 2.0
+
+
+def _items(conn, page_id: str) -> list[dict]:
+    """Every Tesseract item on the page, of EVERY type.
+
+    Text areas, photo regions and printed rules all bound the printed
+    content, and all three are already on disk. The line-based derivation
+    below uses only text lines, which is what made it fail on ragged right
+    edges: a block's bbox already spans its own ragged lines, so blocks do
+    not need the raggedness modelled at all.
+    """
+    out = [dict(r) for r in conn.execute(
+        "SELECT bbox_left_pct L, bbox_top_pct T, bbox_right_pct R, "
+        "bbox_bottom_pct B, COALESCE(block_class,'ocr_carea') kind "
+        "FROM page_ocr_blocks WHERE page_id=? AND n_words > 0", (page_id,))]
+    out += [dict(r) for r in conn.execute(
+        "SELECT left_pct L, top_pct T, right_pct R, bottom_pct B, "
+        "region_class kind FROM page_hocr_regions WHERE page_id=?",
+        (page_id,))]
+    return [r for r in out if r["R"] > r["L"] and r["B"] > r["T"]]
+
+
+def _is_edge_shadow(i: dict, cw: float, chh: float) -> bool:
+    """A separator hard against a page edge: binding gutter or sheet edge."""
+    if i["kind"] != "ocr_separator":
+        return False
+    return (i["R"] <= EDGE_SHADOW_CELLS * cw
+            or i["L"] >= 100 - EDGE_SHADOW_CELLS * cw
+            or i["B"] <= EDGE_SHADOW_CELLS * chh
+            or i["T"] >= 100 - EDGE_SHADOW_CELLS * chh)
+
+
+def content_box_blocks(conn, page_id: str) -> dict:
+    """The content rectangle: the extremes of the TEXT BLOCKS.
+
+    One rule, no tuned parameters. Take every `ocr_carea` that has words,
+    drop any sitting hard against a page edge, and take the extremes.
+
+    WHY BLOCKS AND NOT LINES. An individual line's right edge is wherever
+    its last word happened to end, so right edges are RAGGED and do not
+    cluster the way left edges do -- body text is set flush left, so
+    hundreds of lines share an x, and nothing equivalent is true on the
+    right. `_edge_cluster` assumes both edges cluster, and its four tuned
+    parameters exist to cope when they do not. Measured, it still failed:
+    on 1994-01-05 p12 the ragged right edges scattered into clusters that
+    each fell under `MIN_CLUSTER_SHARE`, all were discarded, and the
+    content right edge came back as 49.93% on a page whose text runs to
+    94.08% -- half the page excluded. A BLOCK's bbox already spans its own
+    ragged lines, so raggedness never has to be modelled.
+
+    WHY TEXT BLOCKS AND NOT ITEMS OF EVERY TYPE. Every type was tried
+    first, and photo regions turn out to be the main source of edge
+    artefacts -- the binding shadow comes back as an `ocr_photo` more often
+    than as a separator (2001-01-03 p5: a photo at x 98.17-100.00 spanning
+    y 0.02-100.00). Measured, extremes over all types collapse the margin
+    to 0.0 cells on most pages, and no edge-band width fixes it: even
+    excluding everything within 8 cells of an edge, 44 of 90 pages still
+    collapse. Photos and rules are kept for VALIDATION instead -- see
+    `n_outside`.
+
+    MEASURED against the line derivation, 90 pages:
+
+        derivation      items outside box    1994-01-05 p12 right edge
+        lines                   14.5%              49.93%   (wrong)
+        text blocks              7.8%              94.08%   (right)
+
+    The margins come out about 2 cells tighter, which is expected rather
+    than wrong: a block's bbox is at least as wide as the lines inside it.
+    """
+    cw, chh = _sup.cell_size(conn, page_id)
+    every = _items(conn, page_id)
+    items = [i for i in every
+             if i["kind"] == "ocr_carea" and not _is_edge_shadow(i, cw, chh)]
+    if len(items) < 5:
+        return {"left": None, "right": None, "top": None, "bottom": None,
+                "n_items": len(items), "note": "too few text blocks"}
+
+    left = round(min(i["L"] for i in items), 2)
+    right = round(max(i["R"] for i in items), 2)
+    top = round(min(i["T"] for i in items), 2)
+    bottom = round(max(i["B"] for i in items), 2)
+    outside = sum(1 for i in every if i["L"] < left - 0.01 or i["R"] > right + 0.01
+                  or i["T"] < top - 0.01 or i["B"] > bottom + 0.01)
+    return {"left": left, "right": right, "top": top, "bottom": bottom,
+            "width": round(right - left, 2), "height": round(bottom - top, 2),
+            "n_items": len(items), "n_all": len(every), "n_outside": outside,
+            "fell_back": []}
+
+
 def content_box(conn, page_id: str) -> dict:
     """The page's content rectangle, plus what it was derived from."""
     lines = [l for l in _lines(conn, page_id)

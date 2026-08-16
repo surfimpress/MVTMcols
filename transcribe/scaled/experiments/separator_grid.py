@@ -38,7 +38,7 @@ from .. import detect_captions as _captions
 
 OUT_DIR = os.path.join(_sup.REPO_ROOT, "preview", "scaled", "grids")
 
-CELL_PCT = 0.5        # cell side, as a percentage of PAGE WIDTH
+CELL_PCT = _sup.CELL_PCT   # cell side, as a percentage of PAGE WIDTH
 
 # The chart is pure pixels, so it is sized to land INSIDE the preview
 # unscaled. Any resampling on the way to the screen turns 1px grid lines
@@ -160,22 +160,9 @@ def _fold_contained(regions: list[dict]) -> tuple[list[dict], list[dict]]:
     return keep, folded
 
 
-def cell_size(conn, page_id: str) -> tuple[float, float]:
-    """One cell, as (width%, height%) -- THE conversion between the two units.
-
-    The cell is SQUARE. It reads as two different percentages only because
-    x% is of page width and y% of page height, and those are different
-    dimensions; on 1980-04-06 p13 the same physical distance reads 1.41x
-    larger vertically. Every caller needs both numbers and none of them
-    should re-derive `CELL_PCT / aspect` by hand -- that expression was
-    written out at four separate sites, which is four chances to use the
-    wrong one. See §5z.7.
-    """
-    row = conn.execute(
-        "SELECT display_width_px w, display_height_px h FROM pages WHERE id=?",
-        (page_id,)).fetchone()
-    aspect = (row["h"] / row["w"]) if row and row["w"] else 1.4
-    return CELL_PCT, CELL_PCT / aspect
+# Re-exported from _support, which is where it lives now: stage modules
+# need the cell size too, and a stage must not import from experiments.
+cell_size = _sup.cell_size
 
 
 def _gutter_centres(conn, page_id: str, cw: float,
