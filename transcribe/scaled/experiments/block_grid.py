@@ -31,6 +31,7 @@ from PIL import Image, ImageDraw
 
 from .. import _support as _sup
 from . import separator_grid as _sg
+from . import sliver_pass as _sliver
 
 OUT_DIR = os.path.join(_sup.REPO_ROOT, "preview", "scaled", "grids")
 
@@ -69,16 +70,32 @@ def _perimeter_cells(i, cw, chh, n_cols, n_rows):
     return cells
 
 
+def _sliver_items(every, verdicts):
+    """`every` re-keyed to the objects sliver_pass judged, so identity
+    comparison works across the two module's separate queries."""
+    by_key = {(round(r["sep"]["L"], 4), round(r["sep"]["T"], 4),
+               round(r["sep"]["R"], 4), round(r["sep"]["B"], 4)): r["sep"]
+              for r in verdicts}
+    out = []
+    for i in every:
+        k = (round(i["L"], 4), round(i["T"], 4), round(i["R"], 4), round(i["B"], 4))
+        out.append(by_key.get(k, i) if i["kind"] == "ocr_separator" else i)
+    return out
+
+
 def build(conn, page_id: str):
     cw, chh = _sup.cell_size(conn, page_id)
     n_cols = int(round(100 / cw))
     n_rows = int(round(100 / chh))
 
-    # FIRST PASS: drop the scan shadows, and keep them aside for the render.
+    # FIRST PASS: drop the sliver separators, and keep them aside for the
+    # render. The decision lives in `sliver_pass` -- one definition, so
+    # this view cannot drift from the pass it is drawn to check.
     every = _items(conn, page_id)
-    shadows, kept = [], []
-    for i in every:
-        (shadows if _is_shadow(i, cw, chh, every) else kept).append(i)
+    verdicts, _rim, _counts = _sliver.classify(conn, page_id)
+    drop = {id(r["sep"]) for r in verdicts if r["verdict"] == "remove"}
+    shadows = [r["sep"] for r in verdicts if r["verdict"] == "remove"]
+    kept = [i for i in _sliver_items(every, verdicts) if id(i) not in drop]
 
     counts = [[0] * n_cols for _ in range(n_rows)]
     owner = [[None] * n_cols for _ in range(n_rows)]
