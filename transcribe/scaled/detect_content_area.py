@@ -171,9 +171,60 @@ def _edge_cluster(vals: list[float], leftmost: bool) -> float | None:
 # page height -- 1994-01-05 p12 has one at x 99.64-100.00 spanning y
 # 0.12-99.98. 346 such separators across 82 of 90 pages.
 #
-# Two cells is deliberately tight. A printed border cannot be there: the
-# measured page margin is 7-9 cells, so real ruling starts well inside.
-EDGE_SHADOW_CELLS = 2.0
+# Four cells, and it sits on a plateau. At 2 the shadows pair up and agree
+# with each other, dragging an edge to within one cell of the sheet on
+# 45/90 pages; at 4 that falls to 16/90 and the answers on the known-good
+# pages stop moving:
+#
+#     band   margins L/R/T/B (cells)   edge <1 cell   p3 left   p12 right
+#      2       4.6 / 5.9 / 10.0 / 9.8      45/90        0.94%     94.08%
+#      4       6.5 / 6.8 / 10.4 / 10.0     16/90        4.03%     94.08%
+#      6       6.7 / 6.9 / 11.6 / 10.1     10/90        4.03%     94.08%
+#
+# Still well inside the measured 7-9 cell page margin, so real printing
+# cannot be caught by it.
+EDGE_SHADOW_CELLS = 4.0
+
+# AN EDGE MUST BE AGREED BY AT LEAST THIS MANY ITEMS.
+#
+# The content edge is a position that several items SHARE, not the
+# outermost thing on the page. Measured, an extreme is set by a single
+# item on 45-71 of 90 pages depending on the edge -- so extremes are
+# essentially unconfirmed, which is what let 1994-01-05 p12 sit at 49.93%.
+#
+# TWO, and not more, because the required agreement must not exceed what
+# the page has to offer. 1980-04-06 p3 is a photo page whose top is set by
+# exactly two photos (y 2.11-23.24 and 2.45-25.92, within one cell of each
+# other). At K=2 they confirm each other and the top is right at 2.11%; at
+# K=3 there is no third item up there, the walk continues inward, and the
+# top lands at 54.21% -- half way down the page.
+#
+#     K   margins L/R/T/B (cells)   items outside   p3 top    p12 right
+#     2      4.6 / 5.9 / 10.0 / 9.8       4.7%       2.11%      94.08%
+#     3      6.2 / 7.0 / 14.3 / 10.3      8.5%      54.21%      93.74%
+#     4      6.6 / 7.2 / 18.1 / 10.8     12.4%      54.21%      93.74%
+MIN_AGREE = 2
+
+# WHY AGREEMENT IS COUNTED ACROSS ALL TYPES, with no per-type rule.
+# Measured, for an item of each kind, how many others share its edge
+# within one cell (% of items with >=2 agreeing):
+#
+#     kind             left   right    top   bottom
+#     ocr_carea         80%     75%    39%      41%
+#     ocr_separator     73%     75%    61%      61%
+#     ocr_photo         68%     73%    47%      45%
+#
+# Left and right agree strongly for EVERY type, because everything sits on
+# the column grid. Top and bottom agree weakly for every type, because
+# vertical position is not quantised -- ads are sold by the column inch,
+# see 5h. No type earns exclusion, and none needs a whitelist: on a photo
+# page the top is set by photos because photos are what is there.
+#
+# This also removed a MIN_PHOTO_CELLS size rule. Agreement subsumes it --
+# a shadow sliver has nothing to agree with.
+
+# A margin outside this band is reported in `sanity`, never corrected.
+SANE_MARGIN_CELLS = (1.0, 30.0)
 
 
 def _items(conn, page_id: str) -> list[dict]:
@@ -197,13 +248,32 @@ def _items(conn, page_id: str) -> list[dict]:
 
 
 def _is_edge_shadow(i: dict, cw: float, chh: float) -> bool:
-    """A separator hard against a page edge: binding gutter or sheet edge."""
-    if i["kind"] != "ocr_separator":
-        return False
+    """Any item lying hard against a page edge: binding gutter, sheet edge.
+
+    Every type, not just separators. The binding shadow comes back as an
+    `ocr_photo` at least as often (2001-01-03 p5: x 98.17-100.00 spanning
+    y 0.02-100.00), and occasionally as an `ocr_carea`.
+    """
     return (i["R"] <= EDGE_SHADOW_CELLS * cw
             or i["L"] >= 100 - EDGE_SHADOW_CELLS * cw
             or i["B"] <= EDGE_SHADOW_CELLS * chh
             or i["T"] >= 100 - EDGE_SHADOW_CELLS * chh)
+
+
+def _agreed_edge(items, key, outermost_low, tol):
+    """The outermost position at least MIN_AGREE items share, and the count.
+
+    This is the whole derivation. Walk in from the page edge and stop at
+    the first position that more than one item agrees on. Returns
+    (position, how many agreed) so the frequency travels with the value
+    and a caller can see how well attested the edge is.
+    """
+    vals = sorted((i[key] for i in items), reverse=not outermost_low)
+    for x in vals:
+        n = sum(1 for y in vals if abs(y - x) <= tol)
+        if n >= MIN_AGREE:
+            return round(x, 2), n
+    return None, 0
 
 
 def content_box_blocks(conn, page_id: str) -> dict:
@@ -224,44 +294,56 @@ def content_box_blocks(conn, page_id: str) -> dict:
     94.08% -- half the page excluded. A BLOCK's bbox already spans its own
     ragged lines, so raggedness never has to be modelled.
 
-    WHY TEXT BLOCKS AND NOT ITEMS OF EVERY TYPE. Every type was tried
-    first, and photo regions turn out to be the main source of edge
-    artefacts -- the binding shadow comes back as an `ocr_photo` more often
-    than as a separator (2001-01-03 p5: a photo at x 98.17-100.00 spanning
-    y 0.02-100.00). Measured, extremes over all types collapse the margin
-    to 0.0 cells on most pages, and no edge-band width fixes it: even
-    excluding everything within 8 cells of an edge, 44 of 90 pages still
-    collapse. Photos and rules are kept for VALIDATION instead -- see
-    `n_outside`.
+    PHOTOS COUNT, IF THEY ARE BIG ENOUGH. On a photo page they are most
+    of the content: 1980-04-06 p3 carries two photos spanning y 2.11-23.24
+    and 2.45-25.92 above its first text block, and text blocks alone put
+    the content top at 22.44% -- a fifth of the way down a page whose
+    content starts at 2.11%. But photo regions are also where the binding
+    shadow ends up (2001-01-03 p5: an ocr_photo at x 98.17-100.00 spanning
+    y 0.02-100.00), so they are admitted only at MIN_PHOTO_CELLS on both
+    axes. A real photo is a substantial rectangle and a shadow is a
+    sliver.
+
+    RULES ARE NOT USED, only validated against. A separator is thin by
+    nature, so the sliver test that separates real photos from shadows
+    cannot separate real rules from them.
 
     MEASURED against the line derivation, 90 pages:
 
-        derivation      items outside box    1994-01-05 p12 right edge
-        lines                   14.5%              49.93%   (wrong)
-        text blocks              7.8%              94.08%   (right)
+        derivation             outside   p12 right edge   p3 top
+        lines                    14.5%       49.93% wrong   22.44% wrong
+        blocks, no photos         7.8%       94.08% right   22.44% wrong
+        blocks + photos >=8       4.7%       94.08% right    2.11% right
 
     The margins come out about 2 cells tighter, which is expected rather
     than wrong: a block's bbox is at least as wide as the lines inside it.
     """
     cw, chh = _sup.cell_size(conn, page_id)
     every = _items(conn, page_id)
-    items = [i for i in every
-             if i["kind"] == "ocr_carea" and not _is_edge_shadow(i, cw, chh)]
-    if len(items) < 5:
+    items = [i for i in every if not _is_edge_shadow(i, cw, chh)]
+    if len(items) < MIN_AGREE:
         return {"left": None, "right": None, "top": None, "bottom": None,
-                "n_items": len(items), "note": "too few text blocks"}
+                "n_items": len(items), "note": "too few items"}
 
-    left = round(min(i["L"] for i in items), 2)
-    right = round(max(i["R"] for i in items), 2)
-    top = round(min(i["T"] for i in items), 2)
-    bottom = round(max(i["B"] for i in items), 2)
+    left, nl = _agreed_edge(items, "L", True, cw)
+    right, nr = _agreed_edge(items, "R", False, cw)
+    top, nt = _agreed_edge(items, "T", True, chh)
+    bottom, nb = _agreed_edge(items, "B", False, chh)
+    if None in (left, right, top, bottom):
+        return {"left": left, "right": right, "top": top, "bottom": bottom,
+                "n_items": len(items), "note": "an edge had no agreement"}
+
     outside = sum(1 for i in every if i["L"] < left - 0.01 or i["R"] > right + 0.01
                   or i["T"] < top - 0.01 or i["B"] > bottom + 0.01)
+    lo, hi = SANE_MARGIN_CELLS
+    sanity = [n for n, v in (("left", left / cw), ("right", (100 - right) / cw),
+                             ("top", top / chh), ("bottom", (100 - bottom) / chh))
+              if v < lo or v > hi]
     return {"left": left, "right": right, "top": top, "bottom": bottom,
             "width": round(right - left, 2), "height": round(bottom - top, 2),
+            "agree": {"left": nl, "right": nr, "top": nt, "bottom": nb},
             "n_items": len(items), "n_all": len(every), "n_outside": outside,
-            "fell_back": []}
-
+            "sanity": sanity, "fell_back": []}
 
 def content_box(conn, page_id: str) -> dict:
     """The page's content rectangle, plus what it was derived from."""
