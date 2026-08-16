@@ -78,7 +78,7 @@ def build(conn, page_id: str):
     every = _items(conn, page_id)
     shadows, kept = [], []
     for i in every:
-        (shadows if _is_shadow(i, cw, chh) else kept).append(i)
+        (shadows if _is_shadow(i, cw, chh, every) else kept).append(i)
 
     counts = [[0] * n_cols for _ in range(n_rows)]
     owner = [[None] * n_cols for _ in range(n_rows)]
@@ -110,8 +110,44 @@ THIN_CELLS = 8.0
 EDGE_BAND_CELLS = 8.0
 
 
-def _is_shadow(i, cw, chh):
-    """A scan shadow: a sliver lying near a page edge.
+MIN_AGREE = 2
+
+
+def _agreement(i, others, cw, chh, vertical):
+    """How many other items share this sliver's position on its long axis.
+
+    A vertical sliver is asked about x, a horizontal one about y, and
+    either of its two edges may be the one that matches -- a rule sitting
+    in a gutter has the column to its left ending on it and the column to
+    its right starting on it.
+    """
+    tol = cw if vertical else chh
+    a1, a2 = (i["L"], i["R"]) if vertical else (i["T"], i["B"])
+    n = 0
+    for j in others:
+        if j is i:
+            continue
+        b1, b2 = (j["L"], j["R"]) if vertical else (j["T"], j["B"])
+        if min(abs(b1 - a1), abs(b2 - a2),
+               abs(b1 - a2), abs(b2 - a1)) <= tol:
+            n += 1
+    return n
+
+
+def _is_shadow(i, cw, chh, others=()):
+    """A scan shadow: a sliver lying ALONG a page edge.
+
+    The edge tested is the one the sliver runs PARALLEL to, which is the
+    only one it can be hugging. A binding shadow or a sheet edge lies
+    along the edge it came from; it does not cross the page.
+
+    Taking the nearest edge in any direction instead was wrong, and
+    1990-10-10 p5 showed it: a full-width horizontal rule at y 43.39-43.67
+    spanning x 35.15-96.18 was dropped because its right END reaches
+    within 7.6 cells of the right margin. It is 122 cells long, sits in
+    the middle of the page, and is printing. Three of the eight items
+    dropped on that page were this mistake, all perpendicular to the edge
+    they were charged against.
 
     Separators and photos only. A block with words is real type, and the
     same test applied to blocks drops 664 of 8,969 corpus-wide -- narrow
@@ -120,9 +156,29 @@ def _is_shadow(i, cw, chh):
     if i["kind"] not in ("ocr_separator", "ocr_photo"):
         return False
     w, h = (i["R"] - i["L"]) / cw, (i["B"] - i["T"]) / chh
-    edge = min(i["L"] / cw, (100 - i["R"]) / cw,
-               i["T"] / chh, (100 - i["B"]) / chh)
-    return min(w, h) <= THIN_CELLS and edge <= EDGE_BAND_CELLS
+    if min(w, h) > THIN_CELLS:
+        return False
+    vertical = h >= w
+    if vertical:
+        edge = min(i["L"] / cw, (100 - i["R"]) / cw)
+    else:
+        edge = min(i["T"] / chh, (100 - i["B"]) / chh)
+    if edge > EDGE_BAND_CELLS:
+        return False
+    # AND NOTHING AGREES WITH IT.
+    #
+    # Thin-and-near-an-edge alone drops real printing: the page margin is
+    # 7-9 cells, so the band unavoidably reaches the content edge, and a
+    # box border sitting ON that edge looks exactly like a shadow.
+    # Measured, 244 of 773 items it dropped lay wholly INSIDE the content
+    # area -- 32% false positives. 1990-10-10 p5's left panel border
+    # (x 3.92-4.40, 19x5197px, the full height of the panel) was one.
+    #
+    # A shadow is corroborated by nothing; printing is corroborated by the
+    # column it belongs to. On that page the panel border agrees with 15
+    # other items, the right-hand rule with 11, and the true binding
+    # shadow at x 99.11-99.31 with none.
+    return _agreement(i, others, cw, chh, vertical) < MIN_AGREE
 
 
 def render(counts, owner, kept, shadows, n_cols, n_rows, cw, chh,
