@@ -1473,6 +1473,128 @@ sweeping across the corpus and, more likely, making adaptive — a rule's
 weight is a property of the printing, and §5j already records opposite
 sides of one box differing 28px vs 48px.
 
+## 5u. CLOSED — vision-only layout analysis (tested 2026-08-16)
+
+**Do not reopen without a reason that is not in this section.** Four
+subagent runs were given 2001-01-03 p7 as images only and told not to
+write code — Read tool and visual judgement alone. Scored against the
+production LLM route's 17 items for that page.
+
+    run                        tokens  tools  sec  items  hit  recall  meanIoU  ncol
+    1 Opus   892+grid+tiles    67,605      8  210     20   12   12/17    0.513     8
+    2 Haiku  600, no grid      38,500      1   21     11    6    6/17    0.540     3
+    3 Haiku  892+grid+tiles    61,047      8  164     23    9    9/17    0.412     3
+    4 Sonnet 892+grid+tiles    86,552     13  282     19    7    7/17    0.449     3
+
+    our classical route: 6 zones. Fitted lattice: 8 columns.
+
+### Why it is closed
+
+**The cost is the cost we are trying to escape.** The scaled experiment
+exists because the OCR+LLM route measures 77-104k tokens/page. A vision
+pass is 38-87k tokens for ONE page. It is not a cheaper route to the same
+place; it is the same order of price as the thing being replaced.
+
+### What was learned, and is worth keeping
+
+**Imagery drives coordinates; the MODEL drives the reasoning.** Run 3 gave
+Haiku run 1's exact inputs: matches went 6 -> 9, so the drawn grid and the
+detail tiles are worth ~50% more. But `n_columns` stayed 3. The two
+effects are separable and they do not substitute for each other.
+
+**Only Opus derived the typographic grid.** Every other run answered 3,
+describing the three visual STACKS — left standing column, centre well,
+right ad rail. Opus measured one article's four text-column starts to get
+a pitch, then TESTED that pitch against unrelated blocks (left 2 + centre
+4 + right 2; bottom 3 + 3 + 2, both summing to 8) and answered 8, matching
+`detect_grid`. Deriving a ruler and validating it against independent
+evidence is the step that separates the runs, and it is exactly what
+`typesetting_practice.md` argues for.
+
+**Cost and quality are not monotonic.** Sonnet cost 28% more than Opus and
+scored 7 matches against 12. Do not pick a model here on price.
+
+**Sonnet reasoned best and measured worst.** It worked out unprompted that
+the bottom ads do not align to the text grid above them BECAUSE ads are
+sold by the column inch and dummied first — our own typesetting note,
+reached from the page — and it caught that the masthead does not extend
+over the ad column by cross-checking two tiles. Good prose, weak boxes.
+
+**Haiku keeps identification and order, loses geometry.** At 600px with no
+grid it named the five right-hand ads correctly and in sequence, but the
+stack is stretched (first ad reported 12-23% where it is 7.0-14.2%).
+Tested three linear rescalings onto the true content box: 6 hits before, 6
+after, mean IoU slightly worse. So it is a non-uniform misjudgement of
+heights, not a correctable offset. Useful if a future task needs only an
+inventory of WHAT is on a page; unusable for anything consuming
+coordinates.
+
+### The caveat that limits every number above
+
+**The 17 production items are themselves an LLM's output, not ground
+truth.** These are concordance figures, not accuracy. Items with no
+production counterpart score zero while arguably being right — Opus's
+folio line, Sonnet's separate captions. A real accuracy ranking needs
+hand-drawn ground truth for this page, and per §5v none exists for any
+post-1980 page anywhere.
+
+### The one result that does transfer
+
+The vision pass found ~20 items where our classical route finds 6. That
+is an independent measure of how far stage 2b has to go, from a reader
+that shares no authorship with our pipeline and never touched Tesseract.
+Artefacts: `preview/scaled/layout_test/`.
+
+## 5v. PRIOR ART for layout/whitespace analysis (researched 2026-08-16)
+
+Kept because it was expensive to obtain and because two of its findings
+were acted on immediately.
+
+**Tesseract's hOCR line classes are COLUMN-SPAN verdicts, not typography.**
+`publictypes.h`: `PT_FLOWING_TEXT` "text that lives inside a column",
+`PT_HEADING_TEXT` "text that spans more than one column",
+`PT_PULLOUT_TEXT` "cross-column pull-out region". `hocrrenderer.cpp`
+stamps every line in a block with the block's type. Verified on this
+corpus — median columns spanned: `ocr_line` 1 (20% span >1),
+`ocr_textfloat` 1 (43%), `ocr_header` 2 (77%), `ocr_caption` 2 (53%).
+This retires §5j's complaint that `ocr_caption` is unreliable because it
+tagged a page headline: a page headline does span columns.
+
+**Tesseract computes a y-varying column layout and hOCR discards it.**
+`colfind.h`: `best_columns_` is "the best assigned column division at each
+grid y coordinate" — the modular case, explicitly. Acted on: stage 1a
+(§ `layout_blocks.py`) now recovers `BlockPolygon()` and the full 15-value
+`BlockType()` via tesserocr's `AnalyseLayout()`.
+
+**Smith's published objection to whitespace rectangles**, which is our own
+archived failure stated by its author: *"the ends of white rectangles do
+not match the ends of the region bounded by the tab-stops, because the
+white rectangles run on into the perpendicular whitespace."*
+
+**If a whitespace detector is ever built, build the Google patent, not a
+projection profile.** US8290268B2 (expired, Google News Archive): centre a
+tall narrow window on each pixel, mark it a gutter pixel if ~99% of rows
+in the window are white, with window dimensions a constant multiple of the
+MODE CONNECTED-COMPONENT HEIGHT so it auto-scales to body type across
+eras. Inherently local — no full-height assumption. A box filter and two
+thresholds.
+
+**Algorithms, assessed:** Breuel's whitespace cover (DAS 2002) is the
+right family but has the run-on problem above; recursive XY-cut is
+structurally Manhattan and cannot express a modular page; RLSA, Docstrum
+and Voronoi all emit foreground groupings, never background geometry.
+
+**Nothing off-the-shelf does this.** Every modern tool (eynollah, Kraken,
+LayoutParser, dhSegment, Surya, PP-Structure) emits labelled content
+regions. `ocrd_cis`'s `compute_colseps_conv` is the closest borrowable
+code (MIT) but assumes near-full-height separators and a per-page cap on
+their number — both wrong for modular pages.
+
+**There is NO evaluation standard for whitespace detection, and NO layout
+ground truth after 1950** — none North American, none modular. ENP is 528
+pages, all pre-1950 European. Chronicling America's ALTO is machine
+output, so using it would be grading one detector against another.
+
 ## 5o. NEXT — the agreed sequence (set 2026-08-16, planned 2026-08-16)
 
 Four steps, in order, each depending on the one before. Every step is
@@ -1750,3 +1872,11 @@ python3 -m transcribe.scaled.render_overlay YYYY-MM-DD [--page N]
   conversions, zones 276 -> 360, `page_zones.source` records the
   derivation. The merged-region guard came from rendering, not metrics.
   See §5t.
+- **2026-08-16** — Vision-only layout analysis tested across four
+  subagent runs and CLOSED: 38-87k tokens for ONE page, which is the same
+  order as the 77-104k/page the whole experiment exists to escape. See
+  §5u for what was learned (imagery drives coordinates, model drives
+  reasoning; only Opus derived the column grid; cost and quality are not
+  monotonic) and §5v for the prior-art brief, two of whose findings were
+  acted on — hOCR line classes are column-span verdicts, and stage 1a now
+  recovers Tesseract's own layout polygons.

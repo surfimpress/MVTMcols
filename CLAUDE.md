@@ -272,6 +272,31 @@ that.
     (3) re-track horizontals now that boxes are known, separating ad
     boundaries from editorial ones; (4) join non-boxed content into single
     items, respecting modular layout — this is the 72%-of-token-cost prize.
+  - **Stage 1a is `layout_blocks.py`** — Tesseract's OWN layout analysis,
+    via tesserocr `AnalyseLayout()` at `PSM.AUTO_ONLY`, ~3s/page and no
+    OCR cost. Recovers two things hOCR discards: `BlockPolygon()` (the
+    real region outline — 2,703 of 12,274 blocks are non-rectangular, up
+    to 36 points, and an L-shaped story wrapping an ad has an L-shaped
+    polygon) and the full 15-value `BlockType()` (eleven types against
+    hOCR's three). **hOCR's LINE CLASSES ARE COLUMN-SPAN VERDICTS, NOT
+    TYPOGRAPHY** — `PT_FLOWING_TEXT` is "text that lives inside a
+    column", `PT_HEADING_TEXT` "text that spans more than one column".
+    Verified: median columns spanned is 1 for `ocr_line` (20% span >1)
+    against 2 for `ocr_header` (77%). That retires the §5j complaint that
+    `ocr_caption` is unreliable for tagging a page headline — a page
+    headline does span columns. IIIF `layout` variant draws the real
+    outlines via `SvgSelector` (a `<path>`, not a `<polygon>` — see
+    mirador#3875).
+  - **VISION-ONLY layout analysis is CLOSED** (2026-08-16, four runs,
+    `instructions/scaled_pipeline.md` §5u). 38-87k tokens for ONE page,
+    the same order as the 77-104k/page the experiment exists to escape.
+    Worth knowing anyway: imagery drives coordinate accuracy but the
+    MODEL drives the reasoning; only Opus derived the 8-column grid
+    (everything else reported the 3 visual stacks); Sonnet cost 28% more
+    than Opus and scored worse, so cost and quality are not monotonic.
+    §5v holds the prior-art brief — including that there is no
+    evaluation standard for whitespace detection and no layout ground
+    truth after 1950 anywhere.
   - **Confidence scoring is an ARCHIVED DEAD END**
     (`transcribe/scaled/archive/`). Earlier detectors discovered layout
     from weak signals then scored their own trustworthiness; every
