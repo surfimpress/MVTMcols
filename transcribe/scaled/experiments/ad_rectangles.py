@@ -69,10 +69,16 @@ ON_LINE_TOL = 1.0     # cells: a corner this close to a side lies on it
 MIN_SIDE_CELLS = 4    # a side shorter than this is furniture
 
 
-def _lines(values, tol=LINE_TOL):
-    """1-D clustering by sorting and splitting on gaps. Order-independent."""
+def _lines(values, tol=LINE_TOL, want_index=False):
+    """1-D clustering by sorting and splitting on gaps. Order-independent.
+
+    With `want_index`, also returns a value -> cluster-index map, so a
+    caller can ask which line a corner BELONGS to rather than how far it
+    sits from the line's centroid. Those differ: splitting on gaps lets a
+    chain of corners form a cluster wider than `tol`.
+    """
     if not values:
-        return []
+        return ([], {}) if want_index else []
     vals = sorted(values)
     groups, run = [], [vals[0]]
     for v in vals[1:]:
@@ -82,7 +88,11 @@ def _lines(values, tol=LINE_TOL):
             groups.append(run)
             run = [v]
     groups.append(run)
-    return [sum(g) / len(g) for g in groups]
+    centres = [sum(g) / len(g) for g in groups]
+    if not want_index:
+        return centres
+    index = {v: i for i, g in enumerate(groups) for v in g}
+    return centres, index
 
 
 def _interrupted(x0, y0, x1, y1, corners):
@@ -116,24 +126,37 @@ def ad_rectangles(corners, column_lines=(), photos=(),
     if not corners:
         return []
 
-    xs = _lines([c[0] for c in corners])
-    ys = _lines([c[1] for c in corners])
+    # Cluster once, and remember WHICH cluster each corner joined.
+    #
+    # `has_corner` used to measure distance to the cluster's CENTROID with
+    # the same tolerance used to build it. Clustering splits on gaps, so a
+    # run of corners each within LINE_TOL of the previous chains into a
+    # cluster wider than LINE_TOL -- measured, 18 such clusters corpus-wide,
+    # the worst 3.0 cells across 14 corners. 25 corners on 9 pages then sat
+    # further than LINE_TOL from their own cluster's centroid and could not
+    # certify the line they had themselves defined, silently costing real
+    # boxes. Membership is the right test: a corner belongs to the line it
+    # was clustered into.
+    xs, x_of = _lines([c[0] for c in corners], want_index=True)
+    ys, y_of = _lines([c[1] for c in corners], want_index=True)
+    have = {(x_of[c[0]], y_of[c[1]]) for c in corners}
 
-    def has_corner(x, y):
-        return any(abs(cx - x) <= LINE_TOL and abs(cy - y) <= LINE_TOL
-                   for (cx, cy) in corners)
+    def has_corner(xi, yi):
+        return (xi, yi) in have
 
     out = []
     for i, x0 in enumerate(xs):
-        for x1 in xs[i + 1:]:
+        for xj in range(i + 1, len(xs)):
+            x1 = xs[xj]
             if x1 - x0 < min_side:
                 continue
             for j, y0 in enumerate(ys):
-                for y1 in ys[j + 1:]:
+                for yj in range(j + 1, len(ys)):
+                    y1 = ys[yj]
                     if y1 - y0 < min_side:
                         continue
-                    if not (has_corner(x0, y0) and has_corner(x1, y0)
-                            and has_corner(x0, y1) and has_corner(x1, y1)):
+                    if not (has_corner(i, j) and has_corner(xj, j)
+                            and has_corner(i, yj) and has_corner(xj, yj)):
                         continue
                     # THE test.
                     if _interrupted(x0, y0, x1, y1, corners):
@@ -156,5 +179,52 @@ def ad_rectangles(corners, column_lines=(), photos=(),
                                 "R": round(x1, 2), "B": round(y1, 2),
                                 "w": round(x1 - x0, 2), "h": round(y1 - y0, 2),
                                 "score": round(score, 2), "reasons": reasons})
+    out = _resolve_crossings(out)
     return sorted(out, key=lambda r: (-r["score"],
                                       -(r["R"] - r["L"]) * (r["B"] - r["T"])))
+
+
+def _crosses(a: dict, b: dict) -> bool:
+    """Do two rectangles straddle each other rather than nest?"""
+    ox = min(a["R"], b["R"]) - max(a["L"], b["L"])
+    oy = min(a["B"], b["B"]) - max(a["T"], b["T"])
+    if ox <= 0 or oy <= 0:
+        return False
+
+    def contains(p, q):
+        return (p["L"] >= q["L"] - LINE_TOL and p["R"] <= q["R"] + LINE_TOL
+                and p["T"] >= q["T"] - LINE_TOL and p["B"] <= q["B"] + LINE_TOL)
+
+    return not (contains(a, b) or contains(b, a))
+
+
+def _resolve_crossings(rects: list[dict]) -> list[dict]:
+    """Rectangles may NEST or be DISJOINT. They may not cross.
+
+    Two rectangles that overlap without either containing the other cannot
+    both be printed regions of one page, so at least one is spurious. The
+    corner predicate is local -- it judges each rectangle against the
+    corner set -- and cannot see this, which is why the check is separate.
+    On 1980-04-06 p8 it left three crossing pairs, all in the Sidewalk
+    Sale, where a vertical strip down one product column crossed three
+    horizontal row-bands.
+
+    Resolution is by how much trouble a rectangle causes: repeatedly drop
+    whichever one crosses the MOST others, breaking ties on the lower
+    score and then the smaller area, until none cross. Deterministic, and
+    independent of input order because every comparison is recomputed over
+    the whole surviving set.
+    """
+    keep = list(rects)
+    while True:
+        counts = [sum(1 for b in keep if b is not a and _crosses(a, b))
+                  for a in keep]
+        worst = max(counts) if counts else 0
+        if worst == 0:
+            return keep
+        victims = [(c, -k["score"], -(k["R"] - k["L"]) * (k["B"] - k["T"]), i)
+                   for i, (k, c) in enumerate(zip(keep, counts)) if c == worst]
+        # max on (crossings, -score, -area) -> most crossings, then lowest
+        # score, then smallest.
+        drop = max(victims)[3]
+        keep.pop(drop)
