@@ -261,8 +261,9 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
 
     if variant in ("boxes", "boxphotos"):
         # Zones from the grid: Tesseract separators -> cleaned rules ->
-        # square cells -> corners -> one predicate. Content is carried
-        # alongside as evidence, never as a filter.
+        # square cells -> corners -> one predicate (no corner may
+        # interrupt a side). Content travels with each zone as evidence,
+        # never as a filter.
         res = _detect_zones.detect(conn, page_id)
         zones = res["zones"]
         if zones:
@@ -284,134 +285,6 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
                              + (f" · {z['reasons']}" if z["reasons"] else "")
                              + (f" · FLAGS {z['flags']}" if z["flags"] else ""))
                 for z in zones]))
-
-    if variant in ("captions", "boxphotos"):
-        # ONE layer: the encompassing rectangle per photo -- photo plus
-        # its caption, or just the photo where no caption was found. A
-        # photo and its caption are one editorial unit, and drawing the
-        # halves separately only cluttered the page. Everything else
-        # (line count, legs, ocr_caption tagging, the caption text) is
-        # kept and surfaced in the annotation detail instead.
-        res = _detect_captions.detect(conn, page_id)
-        boxes = []
-        for i, pr in enumerate(res["pairs"]):
-            p_, c = pr["photo"], pr["caption"]
-            L, T, R, B = p_["L"], p_["T"], p_["R"], p_["B"]
-            if c:
-                L, T = min(L, c["left_pct"]), min(T, c["top_pct"])
-                R, B = max(R, c["right_pct"]), max(B, c["bottom_pct"])
-                legs = f", {c['n_runs']} legs" if c["n_runs"] > 1 else ""
-                detail = (f"photo {p_['L']:.2f}%-{p_['R']:.2f}% x "
-                          f"{p_['T']:.2f}%-{p_['B']:.2f}% · caption "
-                          f"{c['n_lines']} lines{legs}"
-                          + (" · Tesseract tagged ocr_caption"
-                             if c["tesseract_caption"] else "")
-                          + " — " + (c["text"][:180] or ""))
-                kind = "photo + caption"
-            else:
-                detail = (f"photo {L:.2f}%-{R:.2f}% x {T:.2f}%-{B:.2f}%"
-                          " · no caption found")
-                kind = "photo, no caption"
-            x0, x1 = _sup.pct_to_px(L, W), _sup.pct_to_px(R, W)
-            y0, y1 = _sup.pct_to_px(T, H), _sup.pct_to_px(B, H)
-            boxes.append(_anno(
-                f"{cid}/anno/cap/{i}", cid, x0, y0,
-                max(1, x1 - x0), max(1, y1 - y0), "",
-                f"photo + caption {i}", kind=kind, detail=detail))
-        if boxes:
-            out.append((f"Photos with captions ({len(boxes)}, "
-                        f"{res['n_captioned']} captioned)", boxes))
-
-    if variant == "photos":
-        # Tesseract's ocr_photo regions on their own. Split into the ones
-        # that survive the size/edge filter and the ones that don't:
-        # Tesseract reports the sheet edge and binding shadow as photos
-        # too (a 0.3%-wide sliver at x 99.7 on 1980-04-06 p1), and seeing
-        # which is which is the point of having this layer.
-        kept = _detect_captions.real_photos(conn, page_id)
-        keptset = {(round(k["L"], 2), round(k["T"], 2)) for k in kept}
-        rows = [dict(r) for r in conn.execute(
-            "SELECT left_pct L, top_pct T, right_pct R, bottom_pct B "
-            "FROM page_hocr_regions WHERE page_id=? AND region_class='ocr_photo' "
-            "ORDER BY top_pct", (page_id,))]
-        groups = {"Photos": [], "Rejected as scan artefacts": []}
-        for i, r in enumerate(rows):
-            key = "Photos" if (round(r["L"], 2), round(r["T"], 2)) in keptset \
-                  else "Rejected as scan artefacts"
-            x0, x1 = _sup.pct_to_px(r["L"], W), _sup.pct_to_px(r["R"], W)
-            y0, y1 = _sup.pct_to_px(r["T"], H), _sup.pct_to_px(r["B"], H)
-            groups[key].append(_anno(
-                f"{cid}/anno/photo/{i}", cid, x0, y0,
-                max(1, x1 - x0), max(1, y1 - y0), "", "ocr_photo",
-                kind="ocr_photo",
-                detail=f"{r['L']:.2f}%-{r['R']:.2f}% x "
-                       f"{r['T']:.2f}%-{r['B']:.2f}% "
-                       f"({r['R'] - r['L']:.2f} x {r['B'] - r['T']:.2f})"))
-        for label, boxes in groups.items():
-            if boxes:
-                out.append((f"{label} ({len(boxes)})", boxes))
-
-    if variant == "separators":
-        # Tesseract's raw ocr_separator regions, undigested. This is the
-        # signal every ruled-structure stage is built on, so being able to
-        # see it directly is what makes those stages debuggable -- it is
-        # how the box detector's failures were diagnosed.
-        for orient, label in (("vertical", "Vertical rules"),
-                              ("horizontal", "Horizontal rules")):
-            rows = [dict(r) for r in conn.execute(
-                "SELECT left_pct L, top_pct T, right_pct R, bottom_pct B, "
-                "width_px wd, height_px ht FROM page_hocr_regions "
-                "WHERE page_id=? AND region_class='ocr_separator' "
-                "AND orientation=? ORDER BY top_pct, left_pct",
-                (page_id, orient))]
-            if not rows:
-                continue
-            boxes = []
-            for i, r in enumerate(rows):
-                x0, x1 = _sup.pct_to_px(r["L"], W), _sup.pct_to_px(r["R"], W)
-                y0, y1 = _sup.pct_to_px(r["T"], H), _sup.pct_to_px(r["B"], H)
-                # Thickness is the point of this layer as much as position
-                # -- it distinguishes a hairline from a drop shadow -- so
-                # the box is drawn at its true size, never padded.
-                thick = r["wd"] if orient == "vertical" else r["ht"]
-                boxes.append(_anno(
-                    f"{cid}/anno/sep/{orient}/{i}", cid, x0, y0,
-                    max(1, x1 - x0), max(1, y1 - y0), "",
-                    f"{orient} rule", kind=f"ocr_separator ({orient})",
-                    detail=f"{r['L']:.2f}%-{r['R']:.2f}% x "
-                           f"{r['T']:.2f}%-{r['B']:.2f}% · "
-                           f"{thick or '?'}px thick"))
-            out.append((f"{label} ({len(boxes)})", boxes))
-
-    if variant in ("boxes", "boxphotos"):
-        # Ruled rectangles. Tiered by how many sides were actually found:
-        # 4-sided boxes are near-perfect by eye, 2-sided ones are where
-        # Tesseract only reported a top and bottom rule. Both are kept --
-        # the consumer chooses, this stage does not throw any away.
-        res = _detect_boxes.detect(conn, page_id)
-        for label, want in (("4 sides, printed", 4),
-                            ("3 sides, foot inferred — REVIEW", 3),
-                            ("2 sides", 2)):
-            boxes = [b for b in res["boxes"] if b["n_sides"] == want]
-            if not boxes:
-                continue
-            out.append((f"Boxed zones — {label} ({len(boxes)})", [
-                _anno(f"{cid}/anno/box/{want}/{i}", cid,
-                      _sup.pct_to_px(b["left_pct"], W),
-                      _sup.pct_to_px(b["top_pct"], H),
-                      max(1, _sup.pct_to_px(b["right_pct"], W)
-                          - _sup.pct_to_px(b["left_pct"], W)),
-                      max(1, _sup.pct_to_px(b["bottom_pct"], H)
-                          - _sup.pct_to_px(b["top_pct"], H)),
-                      "", f"box {i}", kind="boxed zone",
-                      detail=f"{b['left_pct']}%-{b['right_pct']}% x "
-                             f"{b['top_pct']}%-{b['bottom_pct']}% · "
-                             f"{b['n_sides']} sides"
-                             + (" · FOOT INFERRED, needs review"
-                                if b.get("needs_review") else "")
-                             + (f" · columns {b['col_lo']}-{b['col_hi']}"
-                                if b["col_lo"] is not None else ""))
-                for i, b in enumerate(boxes)]))
 
     if variant == "hlines":
         # Stage 3: horizontal alignments. Each is drawn only across the
