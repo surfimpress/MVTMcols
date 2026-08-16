@@ -275,7 +275,9 @@ def _close_open_boxes(H: list[dict], V: list[dict], done: list) -> list:
             if not barrier:
                 continue
             out.append((vl["x"], heads[0]["y"], vr["x"], foot,
-                        [vl["t"], vr["t"], heads[0]["t"], 0], 3))
+                        [vl["t"], vr["t"], heads[0]["t"], 0], 3,
+                        abs(vl["x"] - heads[0]["x0"])
+                        + abs(vr["x"] - heads[0]["x1"])))
     return out
 
 
@@ -327,25 +329,57 @@ def find_boxes(conn, page_id: str, cols: list[dict]) -> list[dict]:
             L, R = vl["x"], vr["x"]
             # Each consecutive pair is a box (stacked boxes share
             # verticals) ...
+            # How well these two verticals fit the rules they bound. A
+            # gutter holds TWO verticals -- this box's own side and the
+            # neighbouring box's -- and both bridge the same horizontals.
+            # The right one is the tighter fit: a box's own side sits at
+            # the end of its own rules. On 1980-04-06 p13 the JOHNSON
+            # CROSS YANOSIK ad is bounded by x 39.22 and 61.11 against
+            # horizontals spanning 38.98-61.22, while its neighbours' rules
+            # at 37.97 and 62.11 bridge equally well and were being
+            # preferred because they make a bigger box.
+            # Slack is measured against the TWO rules that bound each box,
+            # never across the whole bridging set: a page-wide rule in the
+            # set otherwise swamps the comparison and both pairs score the
+            # same.
+            def _slack(a, b):
+                # Score against whichever bounding rule fits BEST, not
+                # against both together. One of the two is often a
+                # page-wide rule shared with the neighbours, and combining
+                # them lets it swamp the comparison so both candidate
+                # pairs score the same. The rule specific to this box is
+                # the one that identifies its true sides.
+                return min(abs(vl["x"] - h["x0"]) + abs(vr["x"] - h["x1"])
+                           for h in (a, b))
+
             for a, b in zip(span, span[1:]):
                 if b["y"] - a["y"] >= MIN_HEIGHT_PCT:
                     raw.append((L, a["y"], R, b["y"],
-                                [vl["t"], vr["t"], a["t"], b["t"]], 4))
+                                [vl["t"], vr["t"], a["t"], b["t"]], 4,
+                                _slack(a, b)))
             # ... and the whole enclosure is the container they sit in.
             if span[-1]["y"] - span[0]["y"] >= MIN_HEIGHT_PCT:
                 raw.append((L, span[0]["y"], R, span[-1]["y"],
-                            [vl["t"], vr["t"], span[0]["t"], span[-1]["t"]], 4))
+                            [vl["t"], vr["t"], span[0]["t"], span[-1]["t"]],
+                            4, _slack(span[0], span[-1])))
 
     raw.extend(_close_open_boxes(H, V, raw))
 
-    out = []
-    for L, T, R, B, side_px, sides in sorted(
-            raw, key=lambda b: -(b[2] - b[0]) * (b[3] - b[1])):
-        if any(abs(o["left_pct"] - L) < DEDUPE_PCT
-               and abs(o["right_pct"] - R) < DEDUPE_PCT
-               and abs(o["top_pct"] - T) < DEDUPE_PCT
-               and abs(o["bottom_pct"] - B) < DEDUPE_PCT for o in out):
+    # Dedupe FIRST, keeping the tightest fit -- not the largest. Sorting by
+    # area here is what let a neighbour's rule stand in for a box's own
+    # side. Then the crossing filter runs largest-first, which it needs.
+    tight = []
+    for cand in sorted(raw, key=lambda b: b[6]):
+        L, T, R, B = cand[0], cand[1], cand[2], cand[3]
+        if any(abs(o[0] - L) < DEDUPE_PCT and abs(o[2] - R) < DEDUPE_PCT
+               and abs(o[1] - T) < DEDUPE_PCT and abs(o[3] - B) < DEDUPE_PCT
+               for o in tight):
             continue
+        tight.append(cand)
+
+    out = []
+    for L, T, R, B, side_px, sides, _slack in sorted(
+            tight, key=lambda b: -(b[2] - b[0]) * (b[3] - b[1])):
         # A box may sit INSIDE another or beside it, never straddle its
         # edge. Fraser's price rows were being drawn from the column
         # gutter at x 49.13 while Fraser's own box starts at 61.89, so the
