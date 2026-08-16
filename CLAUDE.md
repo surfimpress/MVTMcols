@@ -91,20 +91,36 @@ that.
     p13: 8 rectangles, the complete set. Two earlier generations are in
     `archive/corner_quadrilaterals.py` and `archive/percent_box_filters.py`.
   - **Stage 2b is `detect_zones`** — boxed zones FROM THE GRID:
-    Tesseract separators -> `rules.py` (conjoined dropped, fragments
-    rejoined) -> `separator_grid` (square cells, corners) ->
-    `ad_rectangles` (one predicate) -> content. Schema v20 `page_zones`,
-    266 zones over 90 pages. Each zone carries its blocks/lines/photos,
-    column span, score and advisory flags (`empty`, `pictorial`,
-    `duplicate`, `encloses`) — **geometry decides, content is evidence,
-    nothing is dropped on a content test** (28.8% of boxes hold no text
-    block and many are pictorial ads). Corpus flags: 53 empty, 14
-    pictorial, zero duplicates or enclosures — but do NOT read that as
-    evidence the predicate works: `encloses` only fires when the inner
-    zones' blocks exactly cover the outer's, so it can barely fire at all,
-    and 13 geometric nestings exist. Three earlier generations are
+    Tesseract separators RAW -> `separator_grid` (square cells, corners)
+    -> `ad_rectangles` (one predicate) -> content. Schema v20
+    `page_zones`, 273 zones over 90 pages. **`rules.py` is NOT in this
+    path** — its conjoined-dropping and fragment-rejoining were built for
+    the rule-PAIRING detector, and measured against the corner
+    derivation they give 251 zones against 266, worse on 14 pages and
+    better on 11, losing p13's Sidewalk Sale. `build()` defaults
+    `clean=False`; `--clean` is a diagnostic. Three docs claimed
+    otherwise and were wrong.
+    Each zone carries its blocks/lines/photos, column span, score and
+    advisory flags (`empty`, `pictorial`, `duplicate`, `encloses`) —
+    **geometry decides, content is evidence, nothing is dropped on a
+    content test** (28.8% of boxes hold no text block and many are
+    pictorial ads). Corpus flags: 54 empty, 14 pictorial, zero
+    duplicates or enclosures — but do NOT read that as evidence the
+    predicate works: `encloses` only fires when the inner zones' blocks
+    exactly cover the outer's, so it can barely fire at all, and 13
+    geometric nestings exist.
+    **Both halves of the predicate ask cluster MEMBERSHIP, never
+    distance to a cluster centroid** (fixed 2026-08-16). Clusters are
+    built by splitting on gaps, so a cluster can be WIDER than the
+    tolerance that built it; comparing a corner to its own line's
+    centroid then fails in both directions at once, and a fifth of a
+    cell of centroid wobble decided whether a whole stack of real ads
+    on 1980-04-06 p10 survived. **Rectangles may nest or be disjoint,
+    never cross** — a separate pass, because the corner predicate is
+    local and structurally cannot see it. Three earlier generations are
     archived: `detect_boxes_pairing`, `corner_quadrilaterals`,
-    `percent_box_filters`.
+    `percent_box_filters`; `experiments/confirm_boxes_ccl.py` is an
+    independent connected-component cross-check.
   - **Superseded — old stage 2b (rule pairing)** (`detect_boxes.py`, `page_boxes` schema
     v18). Ruled rectangles — ads, notices, tenders, panels. Built from
     FOUR sides, allowing for three real properties of the print:
