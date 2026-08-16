@@ -508,6 +508,19 @@ def render(counts, junction, near, crossing, gutter, photo, n_cols, n_rows,
     img = Image.new("RGB", (W, H), (255, 255, 255))
     d = ImageDraw.Draw(img)
 
+    # Grid lines FIRST, as a background. Drawn after the fills they ate a
+    # pixel off every cell -- measured: a 4px cell showed as a 3px run.
+    # Underneath, a filled cell covers its full CELL_PX and the grid shows
+    # only where there is no data, which is all it is for.
+    for x in range(n_cols + 1):
+        gx = min(W - 1, x * CELL_PX)
+        d.line([(gx, 0), (gx, H - 1)],
+               fill=GRID_MAJOR if x % MAJOR_EVERY == 0 else GRID_LINE)
+    for y in range(n_rows + 1):
+        gy = min(H - 1, y * CELL_PX)
+        d.line([(0, gy), (W - 1, gy)],
+               fill=GRID_MAJOR if y % MAJOR_EVERY == 0 else GRID_LINE)
+
     for y in range(n_rows):
         for x in range(n_cols):
             n = counts[y][x]
@@ -535,20 +548,12 @@ def render(counts, junction, near, crossing, gutter, photo, n_cols, n_rows,
             if junction[y][x]:
                 fill = JUNCTION
             if fill:
-                d.rectangle([x0, y0, x0 + CELL_PX, y0 + CELL_PX], fill=fill)
-
-    # Grid lines LAST, so they sit over the fills without being repainted
-    # per cell, and only one line per edge rather than one per cell.
-    for x in range(n_cols + 1):
-        major = x % MAJOR_EVERY == 0
-        gx = pad_l + x * CELL_PX
-        d.line([(gx, pad_t), (gx, pad_t + n_rows * CELL_PX)],
-               fill=GRID_MAJOR if major else GRID_LINE)
-    for y in range(n_rows + 1):
-        major = y % MAJOR_EVERY == 0
-        gy = pad_t + y * CELL_PX
-        d.line([(pad_l, gy), (pad_l + n_cols * CELL_PX, gy)],
-               fill=GRID_MAJOR if major else GRID_LINE)
+                # -1 because PIL's rectangle is INCLUSIVE of the far edge:
+                # x0+CELL_PX would paint CELL_PX+1 pixels and overlap the
+                # next cell by one. Every cell is now exactly CELL_PX px,
+                # on integer boundaries, with no overlap.
+                d.rectangle([x0, y0, x0 + CELL_PX - 1, y0 + CELL_PX - 1],
+                            fill=fill)
 
     # Derived boxes LAST, drawn 1px down the CENTRE LINE of the corner
     # cells -- the corner is inside that cell, not at its edge, so a
