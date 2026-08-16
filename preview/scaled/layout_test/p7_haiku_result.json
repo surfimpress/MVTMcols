@@ -1,0 +1,13 @@
+{"content_area":{"left":2,"top":5,"right":98,"bottom":95},"n_columns":3,"column_pitch_pct":33,
+ "items":[
+ {"type":"standing_column","left":2,"top":7,"right":22,"bottom":35,"label":"CALENDAR"},
+ {"type":"photo","left":25,"top":12,"right":55,"bottom":45,"label":"exhibit photo"},
+ {"type":"headline","left":25,"top":42,"right":58,"bottom":48,"label":"Photo exhibit raises thousands"},
+ {"type":"article","left":25,"top":48,"right":65,"bottom":75,"label":"photo exhibit body"},
+ {"type":"display_ad","left":65,"top":12,"right":98,"bottom":23,"label":"COLWELL BANKER"},
+ {"type":"display_ad","left":65,"top":23,"right":98,"bottom":35,"label":"CUSTOM SEWING"},
+ {"type":"display_ad","left":65,"top":35,"right":98,"bottom":48,"label":"Almonte Pharmacy"},
+ {"type":"display_ad","left":65,"top":48,"right":98,"bottom":62,"label":"Almonte Civic Club"},
+ {"type":"article","left":2,"top":48,"right":22,"bottom":72,"label":"GOOD NEWS FILE"},
+ {"type":"display_ad","left":65,"top":62,"right":98,"bottom":78,"label":"THE VALLEY PLAYERS"},
+ {"type":"article","left":2,"top":72,"right":65,"bottom":95,"label":"Calabogie Peaks + lower classifieds"}]}
