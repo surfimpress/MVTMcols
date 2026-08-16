@@ -125,7 +125,8 @@ VARIANTS = {
 # the pipeline: Tesseract (raw) -> Columns -> Items -> Refined. Items and
 # Refined are not built yet; the viewer shows them disabled rather than
 # pretending they exist.
-DERIVED = ("grid", "hlines", "boxes", "captions", "separators", "photos")
+DERIVED = ("grid", "hlines", "boxes", "captions", "boxphotos",
+           "separators", "photos")
 
 
 def _derived_layers(conn, page_id, cid, W, H, variant):
@@ -159,7 +160,7 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
         if res.get("low_evidence"):
             label += f" · LOW EVIDENCE ({res['n_lines']} text lines)"
         out.append((label, boxes))
-    if variant == "captions":
+    if variant in ("captions", "boxphotos"):
         # ONE layer: the encompassing rectangle per photo -- photo plus
         # its caption, or just the photo where no caption was found. A
         # photo and its caption are one editorial unit, and drawing the
@@ -257,7 +258,7 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
                            f"{thick or '?'}px thick"))
             out.append((f"{label} ({len(boxes)})", boxes))
 
-    if variant == "boxes":
+    if variant in ("boxes", "boxphotos"):
         # Ruled rectangles. Tiered by how many sides were actually found:
         # 4-sided boxes are near-perfect by eye, 2-sided ones are where
         # Tesseract only reported a top and bottom rule. Both are kept --
@@ -472,6 +473,7 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
             "separators": "stage 1: raw ocr_separator rules",
             "photos": "stage 1: raw ocr_photo regions",
             "captions": "stage 2c: photos with captions",
+            "boxphotos": "stage 2b+2c: boxed zones and photos with captions",
         }.get(variant, variant)]},
         "summary": {"en": [
             "Unmodified Tesseract hOCR rendered as IIIF annotation layers, "

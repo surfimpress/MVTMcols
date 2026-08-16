@@ -33,6 +33,7 @@ from PIL import Image, ImageDraw
 
 from .. import _support as _sup
 from .. import detect_boxes as _boxes
+from .. import detect_captions as _captions
 
 OUT_DIR = os.path.join(_sup.REPO_ROOT, "preview", "scaled", "grids")
 
@@ -44,6 +45,8 @@ LABEL = (90, 96, 108)
 JUNCTION = (200, 30, 40)   # a separator END meeting another separator
 GUTTER = (250, 214, 60)    # column gutter CENTRE line, blended in
 GUTTER_MIX = 0.30          # how strongly the gutter tint shows through
+PHOTO = (120, 180, 235)    # photo + caption PERIMETER, blended in
+PHOTO_MIX = 0.45
 
 # Padding around the content area. Rules that RUN ALONG the content edge
 # (a box's outer border, the rule under a masthead) must survive, so the
@@ -124,6 +127,23 @@ def _gutter_centres(conn, page_id: str) -> list[float]:
             for i in range(len(cols) - 1)]
 
 
+def _photo_units(conn, page_id: str) -> list[tuple]:
+    """Encompassing rectangle per photo -- with its caption where found.
+
+    The same unit stage 2c stores and the viewer draws, so the grid and
+    the IIIF layer are describing the same thing.
+    """
+    out = []
+    for pr in _captions.detect(conn, page_id)["pairs"]:
+        p_, c = pr["photo"], pr["caption"]
+        L, T, R, B = p_["L"], p_["T"], p_["R"], p_["B"]
+        if c:
+            L, T = min(L, c["left_pct"]), min(T, c["top_pct"])
+            R, B = max(R, c["right_pct"]), max(B, c["bottom_pct"])
+        out.append((L, T, R, B))
+    return out
+
+
 def _ends(r: dict) -> list[tuple]:
     """The two end points of a separator."""
     if (r["R"] - r["L"]) >= (r["B"] - r["T"]):      # horizontal
@@ -196,15 +216,30 @@ def build(conn, page_id: str, clean: bool = False):
         if 0 <= cx < n_cols:
             gutter[cx] = True
 
-    return (counts, junction, gutter, n_cols, n_rows,
-            len(regions), len(swallowed))
+    # PERIMETER only, not the filled rectangle: this grid is a view of
+    # boundaries, and flooding the interior would bury the rules and
+    # junctions that the rest of it is about.
+    photo = [[False] * n_cols for _ in range(n_rows)]
+    units = _photo_units(conn, page_id)
+    for (L, T, R, B) in units:
+        c0 = max(0, min(n_cols - 1, int(L / CELL_PCT)))
+        c1 = max(0, min(n_cols - 1, int(R / CELL_PCT)))
+        r0 = max(0, min(n_rows - 1, int(T / cell_h_pct)))
+        r1 = max(0, min(n_rows - 1, int(B / cell_h_pct)))
+        for x in range(c0, c1 + 1):
+            photo[r0][x] = photo[r1][x] = True
+        for y in range(r0, r1 + 1):
+            photo[y][c0] = photo[y][c1] = True
+
+    return (counts, junction, gutter, photo, n_cols, n_rows,
+            len(regions), len(swallowed), len(units))
 
 
 def _blend(base: tuple, tint: tuple, amount: float) -> tuple:
     return tuple(int(b * (1 - amount) + t * amount) for b, t in zip(base, tint))
 
 
-def render(counts, junction, gutter, n_cols, n_rows,
+def render(counts, junction, gutter, photo, n_cols, n_rows,
            title: str, out_path: str) -> str:
     pad_l, pad_t, pad_b = 34, 26, 8
     W = pad_l + n_cols * CELL_PX
@@ -228,6 +263,8 @@ def render(counts, junction, gutter, n_cols, n_rows,
             # is the whole point of the overlay.
             if gutter[x]:
                 fill = _blend(fill or (255, 255, 255), GUTTER, GUTTER_MIX)
+            if photo[y][x]:
+                fill = _blend(fill or (255, 255, 255), PHOTO, PHOTO_MIX)
             if fill:
                 d.rectangle([x0, y0, x0 + CELL_PX, y0 + CELL_PX], fill=fill)
             d.rectangle([x0, y0, x0 + CELL_PX, y0 + CELL_PX],
@@ -255,19 +292,21 @@ def _cmd(args):
         if not row:
             print("no such page")
             return
-        counts, junc, gut, nc, nr, n, folded = build(conn, row["id"], args.clean)
+        (counts, junc, gut, photo, nc, nr,
+         n, folded, nphoto) = build(conn, row["id"], args.clean)
         busiest = max(max(r) for r in counts)
         cells = sum(1 for r in counts for v in r if v)
         njunc = sum(1 for r in junc for v in r if v)
         kind = "cleaned" if args.clean else "raw"
         title = (f"{args.date} p{args.page} — {n} {kind} separators "
                  f"(+{folded} folded) · {cells} cells · busiest {busiest} "
-                 f"· {njunc} junction (red) · {sum(gut)} gutter columns "
-                 f"(yellow) · grid {nc}x{nr} at {CELL_PCT}% of width")
+                 f"· {njunc} junction (red) · {sum(gut)} gutters (yellow) "
+                 f"· {nphoto} photo+caption perimeters (blue) "
+                 f"· grid {nc}x{nr} at {CELL_PCT}% of width")
         suffix = "_clean" if args.clean else ""
         out = os.path.join(OUT_DIR, args.date,
                            f"p{args.page}_sepgrid{suffix}.png")
-        print(" ", render(counts, junc, gut, nc, nr, title, out))
+        print(" ", render(counts, junc, gut, photo, nc, nr, title, out))
         print(f"  {n} regions kept, {folded} folded as contained, "
               f"{cells} cells touched, busiest {busiest}, {njunc} junctions")
     finally:
