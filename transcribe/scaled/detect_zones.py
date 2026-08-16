@@ -2,11 +2,18 @@
 
 The pipeline, in the order it actually runs:
 
-    Tesseract separators
-      -> rules.py            conjoined regions dropped, fragments rejoined
-      -> separator_grid       quantised onto SQUARE cells; corners resolved
-      -> ad_rectangles        rectangles, from corners alone
-      -> content             what each one contains, and what that says
+    Tesseract separators   RAW -- see the note below
+      -> separator_grid     quantised onto SQUARE cells; corners resolved
+      -> ad_rectangles      rectangles, from corners alone
+      -> content            what each one contains, and what that says
+
+The separators are used RAW. `rules.py` cleans them -- dropping conjoined
+regions, rejoining fragments -- and that cleaning is NOT applied here, on
+measurement: across 90 pages it gives 251 zones against 266, worse on 14
+pages and better on 11, and on p13 it loses the Sidewalk Sale. It was
+built for the rule-pairing detector, where a fragment broke the pair; the
+corner derivation wants rule ENDS, and merging fragments removes them.
+An earlier version of this docstring claimed the cleaning ran. It did not.
 
 This replaces the rule-PAIRING detector (archived as
 `archive/detect_boxes_pairing.py`). That one asked "is this a valid

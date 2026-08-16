@@ -540,17 +540,40 @@ ad. Verified by rendering, not by the fit number.
 
 Boxed zones now run from the grid, in one path:
 
-    Tesseract separators
-      -> rules.py          conjoined regions dropped, fragments rejoined
+    Tesseract separators   RAW
       -> separator_grid     quantised onto SQUARE cells; corners resolved
       -> ad_rectangles      rectangles, from corners alone
       -> content            what each contains, and what that says
 
-**Carried forward** from the retired pairing detector, because it is about
-the RULES rather than the boxes: conjoined-region removal, fragment
-rejoining, the page-edge margin, the content-area filter. That
-preprocessing was the real discovery in `detect_boxes` and now lives in
-`transcribe/scaled/rules.py`.
+**Correction, 2026-08-16.** An earlier version of this section said the
+separators are cleaned first by `rules.py` (conjoined regions dropped,
+fragments rejoined). **They are not.** `separator_grid.build()` defaults to
+`clean=False` and the live path reads raw `ocr_separator` rows; the
+cleaning runs only under `--clean`. The claim was written without checking
+that any live caller reached it — the review that caught this is the same
+class of error as everything else in §5z.
+
+And it should stay off, on measurement across 90 pages:
+
+| | zones |
+|---|---|
+| raw separators (live) | **266** |
+| cleaned | 251 — worse on 14 pages, better on 11 |
+
+On p13 cleaning drops 8 → 7, losing the Sidewalk Sale, the very box
+`_merge_fragments` was written to rescue. The reason it reverses: that
+cleaning was built for the rule-PAIRING detector, where a fragmented rule
+broke the pair and a conjoined region invented one. The corner derivation
+wants rule **ends** — they become corners once near-misses resolve to
+their axis crossing — and merging fragments removes ends.
+
+`rules.py` is kept rather than archived because `--clean` is a useful
+comparison, and because the observation (Tesseract both merges and
+splits rules) is durable even though the remedy is not.
+
+**Carried forward** from the retired pairing detector: the content-area
+filter, and the page-edge exclusion of scan artefacts (which lives in
+`separator_grid`, not in `rules.py` — `rules.EDGE_MARGIN_PCT` is dead).
 
 **Left behind with it:** the six geometric thresholds, and `n_sides` with
 its three-sided closure — which inferred a foot where none was printed.
@@ -562,9 +585,14 @@ flags — `empty`, `pictorial`, `duplicate`, `encloses`. Geometry decides;
 content is evidence. Nothing is dropped on a content test: 28.8% of boxes
 hold no text block and many are pictorial ads, so an emptiness rule
 counting only text would delete them. Corpus: 53 `empty`, 14 `pictorial`,
-no duplicates and no enclosures — the last two being exactly what the
-corner predicate already prevents, so their absence is a live check that
-it is working.
+no duplicates and no enclosures.
+
+**Withdrawn:** an earlier version called those two zeroes "a live check
+that the corner predicate is working". They are not. `encloses` only fires
+when the inner zones' blocks EXACTLY cover the outer's, so an outer box
+carrying any text of its own can never trip it — and 13 geometric nestings
+do exist in the corpus. The flag proves nothing about the predicate. A
+real check would test the geometry directly.
 
 Schema v20 adds `page_zones`. 266 zones over 90 pages, 3.0/page.
 

@@ -1,4 +1,29 @@
-"""Separator rules from Tesseract, cleaned. The input to everything ruled.
+"""Separator rules from Tesseract, cleaned. NOT IN THE LIVE PATH.
+
+**This module is OFF by default and the live pipeline does not use it.**
+`separator_grid.build()` defaults to `clean=False` and reads raw
+`ocr_separator` rows; this cleaning runs only under `--clean`, as a
+comparison.
+
+MEASURED, 90 pages, corner-derived zones:
+
+    raw separators (live)   266 zones
+    cleaned                 251 zones      worse on 14 pages, better on 11
+
+On 1980-04-06 p13 cleaning drops the count 8 -> 7, and the box it loses is
+the Sidewalk Sale -- the very box `_merge_fragments` was written to
+rescue.
+
+Why it reverses: this cleaning was built for the rule-PAIRING detector
+(`archive/detect_boxes_pairing.py`), where a fragmented rule broke the
+pair and a conjoined region invented one. The corner derivation wants rule
+ENDS -- they are what become corners once near-misses are resolved to
+their axis crossing -- and merging fragments removes ends.
+
+Kept, not archived, because `--clean` is a genuinely useful diagnostic and
+because the observation below is durable even though the remedy is not.
+
+---
 
 Tesseract reports the printed rules on a page as `ocr_separator` regions,
 but it reports them imperfectly in two opposite ways, and BOTH have to be

@@ -99,8 +99,10 @@ that.
     `duplicate`, `encloses`) — **geometry decides, content is evidence,
     nothing is dropped on a content test** (28.8% of boxes hold no text
     block and many are pictorial ads). Corpus flags: 53 empty, 14
-    pictorial, ZERO duplicates or enclosures, which is a live check that
-    the corner predicate is doing its job. Three earlier generations are
+    pictorial, zero duplicates or enclosures — but do NOT read that as
+    evidence the predicate works: `encloses` only fires when the inner
+    zones' blocks exactly cover the outer's, so it can barely fire at all,
+    and 13 geometric nestings exist. Three earlier generations are
     archived: `detect_boxes_pairing`, `corner_quadrilaterals`,
     `percent_box_filters`.
   - **Superseded — old stage 2b (rule pairing)** (`detect_boxes.py`, `page_boxes` schema

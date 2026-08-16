@@ -260,10 +260,9 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
             out.append((f"{label} ({len(boxes)})", boxes))
 
     if variant in ("boxes", "boxphotos"):
-        # Zones from the grid: Tesseract separators -> cleaned rules ->
-        # square cells -> corners -> one predicate (no corner may
-        # interrupt a side). Content travels with each zone as evidence,
-        # never as a filter.
+        # Zones from the grid: RAW Tesseract separators -> square cells ->
+        # corners -> one predicate (no corner may interrupt a side).
+        # Content travels with each zone as evidence, never as a filter.
         res = _detect_zones.detect(conn, page_id)
         zones = res["zones"]
         if zones:

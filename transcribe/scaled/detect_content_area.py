@@ -69,6 +69,12 @@ MIN_CLUSTER_SHARE = 0.015
 # several bins.
 CLUSTER_MERGE_PCT = 0.6
 
+# A bin must hold at least this many lines before it may set the margin.
+# Guards the RIM of the winning cluster, where merging can drag in a lone
+# outlier. Two, not more: a narrow real column can be sparse, and the
+# share floor already vouches for the cluster as a whole.
+MIN_BIN_LINES = 2
+
 # Nothing outside this is content: it is sheet edge, binding shadow or
 # scanner backing. Deliberately generous -- this is a sanity bound, not
 # the measurement.
@@ -124,10 +130,24 @@ def _edge_cluster(vals: list[float], leftmost: bool) -> float | None:
         return None
 
     grp = groups[0] if leftmost else groups[-1]
-    xs = [x for b in grp for x in hist[b]]
+
     # Within the winning cluster take the extreme, not the median: the
     # margin is where the column STARTS, and lines that begin a paragraph
     # with an indent sit to the right of it.
+    #
+    # But the extreme is taken only over bins holding MIN_BIN_LINES or
+    # more. Merging before the floor is right for CHOOSING the cluster --
+    # it is what recovers ragged-right ad text -- but it also pulls a
+    # one-line outlier into the cluster if it sits within
+    # CLUSTER_MERGE_PCT, and an unfiltered extreme then lets that single
+    # line set the margin. Measured across 90 pages, the unfiltered form
+    # made the margin equal to the single outermost line on the page on
+    # 70/90 pages at the left and 56/90 at the right -- exactly what this
+    # module's docstring says must not happen.
+    #
+    # The share floor guards the cluster; this guards its rim.
+    solid = [b for b in grp if len(hist[b]) >= MIN_BIN_LINES]
+    xs = [x for b in (solid or grp) for x in hist[b]]
     return round(min(xs) if leftmost else max(xs), 2)
 
 
