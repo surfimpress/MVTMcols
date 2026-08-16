@@ -1473,6 +1473,81 @@ sweeping across the corpus and, more likely, making adaptive — a rule's
 weight is a property of the printing, and §5j already records opposite
 sides of one box differing 28px vs 48px.
 
+## 5x. What stage 1a's extra signal is and is NOT good for (tested 2026-08-16)
+
+Four obvious uses of the recovered `BlockType`/`BlockPolygon` data were
+tested as soon as it landed. **Three are negatives.** Recorded so they are
+not re-tried.
+
+### NEGATIVE — it does not rescue the grocery-ad page
+
+1986-01-08 p2 is §5q's blind spot: our corner derivation finds 2 zones
+because Tesseract reports only 22 separators for a ~40-cell lattice.
+`AnalyseLayout` returns **106 blocks** on that page (50 FLOWING_IMAGE, 52
+FLOWING_TEXT, 2 TABLE), which looked like the answer.
+
+**It is not.** Rendering it shows those blocks CUTTING ACROSS the product
+cells horizontally — fragments spanning cell boundaries, not the cells.
+The count was encouraging and the render was not, which is §5z's standing
+lesson in yet another coat. The page remains unsolved.
+
+What it does give: those cross-cell blocks are a large, concrete
+population for §5w's splitter to work on.
+
+### NEGATIVE — the IMAGE subtypes do not identify display ads
+
+Plausible idea: a display ad set as artwork should be `PULLOUT_IMAGE`
+(cross-column pull-out) rather than `FLOWING_IMAGE`. Measured against
+`items.item_type='display_ad'` at IoU>=0.5:
+
+    PULLOUT_IMAGE   n=1075   coincide with a display_ad   69   6.4%
+    FLOWING_IMAGE   n=1255                                35   2.8%
+    HEADING_IMAGE   n=  80                                 0   0.0%
+
+Stage 2a's own rule (>=6 body lines, spanning >50% of the box) scores 35
+of 86 conversions, ~41%. **Do not replace stage 2a's gate with the image
+subtype.**
+
+### NEGATIVE — FLOWING_TEXT is not better evidence for the column fit
+
+`PT_FLOWING_TEXT` means "text that lives inside a column", so it ought to
+be the cleanest evidence for fitting the lattice. Share of blocks with an
+edge landing on a fitted column boundary, within one cell:
+
+    FLOWING_TEXT      48.0%
+    all hOCR carea    49.7%   <- what the fit uses today
+    PULLOUT_TEXT      52.6%
+
+No material difference, and the supposedly cross-column PULLOUT_TEXT
+aligns slightly BEST. Restricting the fit to FLOWING_TEXT would not
+improve it. This also weakens the assumption behind §5o step 1 — that
+excluding contaminating blocks improves the fit — so measure before
+building that step.
+
+### POSITIVE — AnalyseLayout finds rules hOCR does not report
+
+`HORZ_LINE` + `VERT_LINE` total 524 against 3,570 `ocr_separator`, so it
+is a much smaller set, but **191 of the 524 do not coincide with any
+`ocr_separator`**. Given §5q identifies missing rules as a real ceiling on
+stage 2b, that is 191 pieces of rule evidence currently unused. Modest,
+but free and additive.
+
+### UNTESTED, and still the most promising
+
+  * **The polygons for step 4.** 2,703 non-rectangular outlines, up to 36
+    points. Step 4 needs a story that wraps an inset ad to be a
+    rectilinear region rather than a bounding box — the same lesson as
+    `project_merge_polygon_union_not_bbox` — and these are exactly that
+    geometry, already computed and previously destroyed by hOCR.
+  * **HEADING_TEXT as horizontal barriers for stage 3.** 493 blocks, 80%
+    spanning >1 column. Smith's reading-order rules treat a
+    column-spanning heading as a structural break, which is what stage 3
+    is trying to find; it currently infers heading tops from `x_size`
+    instead.
+  * **VERTICAL_TEXT**, 219 blocks. Our pipeline has no concept of rotated
+    text; worth a look purely to know whether it is corrupting block
+    statistics somewhere.
+
 ## 5w. OPEN — split Tesseract blocks that wrongly cross columns
 
 **Proposed by the user 2026-08-16, not built.** This is a live direction,
@@ -1950,3 +2025,10 @@ python3 -m transcribe.scaled.render_overlay YYYY-MM-DD [--page N]
   recovers Tesseract's own layout polygons. **Only the LLM-vision line is
   closed.** §5v (prior art) and §5w (splitting cross-column blocks from
   ink gaps) are LIVE.
+- **2026-08-16** — Tested four uses of stage 1a's recovered signal; three
+  are negatives (it does not rescue 1986-01-08 p2, the IMAGE subtypes do
+  not identify display ads at 6.4% against stage 2a's 41%, and
+  FLOWING_TEXT is not better column-fit evidence at 48.0% against 49.7%).
+  One positive: 191 of 524 layout rules coincide with no `ocr_separator`.
+  The polygons and HEADING_TEXT remain untested and are the most
+  promising. See §5x.
