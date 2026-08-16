@@ -1153,6 +1153,69 @@ uses a flat ±0.5 page-percent for its enclosure containment. It is an
 experiment, not in the live path, and is left alone deliberately rather
 than changed as a side effect of an unrelated pass.
 
+## 5t. Stage 2a — PHOTOS THAT ARE ACTUALLY ADS (built 2026-08-16)
+
+`transcribe/scaled/detect_photo_ads.py`. Runs between stage 1c and stage
+2b, so converted rectangles are available AS zone evidence rather than
+being reconciled afterwards.
+
+Tesseract labels a display ad `ocr_photo` when the ad is mostly artwork
+with type set into it. Stage 2b never sees those, because it derives
+rectangles from rule corners and an ad of this kind often has no ruled
+border at all.
+
+**Line count is the signal, and it separates hard.** Measured against
+`items.item_type='display_ad'`, which is produced from the page IMAGE so
+corners and separators contribute nothing to it:
+
+    lines inside the photo    n     coincide with an ad (IoU>=0.5)
+        0                    853              0%
+        1-2                  257              1%
+        3-5                   88              3%
+        6-9                   30             23%
+        10-19                 45             51%
+
+Two thirds of all photos carry no text and are never considered.
+
+**The gate:** >= `MIN_LINES` (6) body lines, spanning > `MIN_SPAN` (50%)
+of the photo's height. Both are FREE PARAMETERS read off that table, fitted
+on 47 positives — record them as knobs, like `MIN_SIDE_CELLS`.
+
+**The three exclusions, and one that had to be corrected.** Words read out
+of the image (a road sign; one real case is a 120x62-cell photo whose only
+line is `'fas i AR RL SA |'`) and a headline sitting over a photo
+(`'Monumental ceremony'`) are both caught by the line count, since they
+live in the 1-5 band. A caption inside the photo's own bbox needed care:
+the obvious rule, *veto if stage 2c found a caption*, is WRONG — measured,
+it cut recall from 74% to 51%, because stage 2c pairs ad copy as a caption
+just as readily as a real one. The caption's lines are SUBTRACTED from the
+count instead.
+
+**MERGED REGIONS, caught on render and by nothing else.** 2001-01-03 p7's
+top conversion spanned the Santa photo AND the right-hand ad column; its
+middle one spanned the "Photo exhibit" article photo AND the Valley
+Players ad. Both passed the gate comfortably (18 and 36 lines, 94% and 95%
+vertical span), and horizontal span does not separate them (137% and 98%,
+against 210% for a good conversion). What does: **a single ad does not
+CONTAIN other independent ruled boxes.** A photo candidate enclosing a
+corner-derived rectangle is refused. 12 of 95 candidates, including
+1986-01-08 p16 at x 0.00-100.00 y 6.04-100.00 holding four zones.
+
+**Two costs, both real.** Refusing a merged region also loses the good ads
+inside it — p7's Valley Players ad is no longer converted. And a genuine
+full-page ad ruled into cells encloses too, so it is refused; 1986-01-08
+p2, the grocery ad of §5q, is probably one.
+
+**Result:** 86 conversions across 42 pages. Zones 276 -> 360 (274 corner,
+86 photo; two corner zones lost to crossing resolution against the new
+ones). Agreement with the production label, reported as a DISTRIBUTION
+because the two boxes are drawn by different processes and differ in
+extent even when they describe the same ad: IoU >=0.5 on 35, 0.2-0.5 on
+24, 0-0.2 on 23, none on 26 — some overlap on 76%.
+
+Nothing is destroyed: the `ocr_photo` record stands, stage 2c still sees
+it, and `page_zones.source` records which derivation produced each zone.
+
 ## 5s. Stage 1c REBUILT — the content area is the OUTER PERIMETER, floored
 
 Set by the user 2026-08-16 after comparing the two derivations on the
@@ -1682,3 +1745,8 @@ python3 -m transcribe.scaled.render_overlay YYYY-MM-DD [--page N]
   top/bottom on 84 of 90 pages. Also corrected a standing error in these
   notes: `detect_grid` does NOT read the content rectangle; only
   `separator_grid` does. Zones 273 -> 276.
+- **2026-08-16** — Stage 2a added (`detect_photo_ads.py`): photos that are
+  really display ads become zone candidates before stage 2b. 86
+  conversions, zones 276 -> 360, `page_zones.source` records the
+  derivation. The merged-region guard came from rendering, not metrics.
+  See §5t.

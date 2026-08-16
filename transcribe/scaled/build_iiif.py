@@ -293,6 +293,8 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
                                 if z["col_lo"] is not None else "")
                              + f" · {len(z['blocks'])} blocks, "
                                f"{z['n_lines']} lines, {z['n_photos']} photos"
+                             + (" · FROM PHOTO"
+                                if (z["source"] or "") == "photo" else "")
                              + (f" · {z['reasons']}" if z["reasons"] else "")
                              + (f" · FLAGS {z['flags']}" if z["flags"] else ""))
                 for z in zones]))

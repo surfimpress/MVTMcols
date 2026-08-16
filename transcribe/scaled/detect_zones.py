@@ -73,9 +73,30 @@ import argparse
 
 from . import _support as _sup
 from . import detect_grid as _grid
+from . import detect_photo_ads as _photo_ads
 from . import detect_hlines as _hl
 from .experiments import ad_rectangles as _ads
 from .experiments import separator_grid as _sepgrid
+
+
+# A photo candidate this close to a corner-derived rectangle is the same
+# region found twice; the corner version wins.
+DUP_IOU = 0.5
+
+
+def _encloses(a: dict, b: dict, pad: float = 1.0) -> bool:
+    """Does `a` geometrically contain `b`? Pad is in CELLS."""
+    return (b["L"] >= a["L"] - pad and b["R"] <= a["R"] + pad
+            and b["T"] >= a["T"] - pad and b["B"] <= a["B"] + pad)
+
+
+def _iou(a: dict, b: dict) -> float:
+    ix = max(0.0, min(a["R"], b["R"]) - max(a["L"], b["L"]))
+    iy = max(0.0, min(a["B"], b["B"]) - max(a["T"], b["T"]))
+    inter = ix * iy
+    ua = ((a["R"] - a["L"]) * (a["B"] - a["T"])
+          + (b["R"] - b["L"]) * (b["B"] - b["T"]) - inter)
+    return inter / ua if ua else 0.0
 
 
 def _content(conn, page_id: str, zones: list[dict],
@@ -155,6 +176,46 @@ def detect(conn, page_id: str) -> dict:
     gut, edges = _sepgrid._gutter_centres(conn, page_id, cw, cols)
     rects = _ads.ad_rectangles(pts, gut + edges,
                                _sepgrid._photo_units(conn, page_id, cw, chh))
+    for r in rects:
+        r["source"] = "corners"
+
+    # STAGE 2a: photos that are really ads, added as rectangles here.
+    #
+    # They cannot come from the corner derivation -- an ad set as artwork
+    # often has no ruled border at all, so there are no corners to find.
+    # A candidate is dropped if a corner-derived rectangle already
+    # describes it (IoU >= DUP_IOU): the corner version is preferred
+    # because it came from printed evidence rather than from a content
+    # test.
+    for c in _photo_ads.zone_candidates(conn, page_id):
+        cand = {"L": c["L"] / cw, "T": c["T"] / chh,
+                "R": c["R"] / cw, "B": c["B"] / chh,
+                "score": 0.0, "reasons": [c["why"]], "source": "photo"}
+        if any(_iou(cand, r) >= DUP_IOU for r in rects):
+            continue
+        # A single ad does not CONTAIN other independent ruled boxes. A
+        # photo region that encloses one is a merged region -- Tesseract
+        # has swept a picture and its neighbours into one -- and
+        # converting it produces a zone spanning unrelated items.
+        #
+        # Caught on render, not by any metric: 2001-01-03 p7's top
+        # conversion spanned the Santa photo AND the right-hand ad column,
+        # and its middle one spanned the "Photo exhibit" article photo AND
+        # the Valley Players ad. Both passed the line and span gates
+        # comfortably (18 and 36 lines, 94% and 95% vertical span);
+        # horizontal span does not separate them either (137% and 98%
+        # against 210% for a good one).
+        #
+        # KNOWN COST: a genuine full-page ad whose interior is ruled into
+        # cells also encloses, and will be refused. 1986-01-08 p2, the
+        # full-page grocery ad, is probably one -- see 5q, which is the
+        # page whose lattice Tesseract barely reports at all.
+        if any(_encloses(cand, r) for r in rects):
+            continue
+        rects.append(cand)
+    # One combined set, so the nest-or-disjoint invariant still holds
+    # across both sources.
+    rects = _ads._resolve_crossings(rects)
     zones = []
     for i, r in enumerate(rects):
         L, T = r["L"] * cw, r["T"] * chh
@@ -166,6 +227,7 @@ def detect(conn, page_id: str) -> dict:
             "right_pct": round(R, 2), "bottom_pct": round(B, 2),
             "width_pct": round(R - L, 2), "height_pct": round(B - T, 2),
             "score": r["score"], "reasons": "; ".join(r["reasons"]),
+            "source": r.get("source", "corners"),
             "col_lo": span[0] if span else None,
             "col_hi": span[1] if span else None,
         })
@@ -173,7 +235,16 @@ def detect(conn, page_id: str) -> dict:
     return {"zones": zones, "n_corners": len(pts)}
 
 
+def _ensure_schema(conn) -> None:
+    """Additive: `source` records which derivation produced the zone."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(page_zones)")}
+    if "source" not in cols:
+        conn.execute("ALTER TABLE page_zones ADD COLUMN source TEXT")
+        conn.commit()
+
+
 def store(conn, page_id: str, res: dict) -> None:
+    _ensure_schema(conn)
     conn.execute("DELETE FROM page_zones WHERE page_id=?", (page_id,))
     now = _sup.now_iso()
     for z in res["zones"]:
@@ -181,13 +252,13 @@ def store(conn, page_id: str, res: dict) -> None:
             """INSERT INTO page_zones
                (id, page_id, idx, left_pct, top_pct, right_pct, bottom_pct,
                 col_lo, col_hi, score, reasons, n_blocks, n_lines, n_photos,
-                block_ids, flags, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                block_ids, flags, source, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (_sup.new_uuid(), page_id, z["idx"], z["left_pct"], z["top_pct"],
              z["right_pct"], z["bottom_pct"], z["col_lo"], z["col_hi"],
              z["score"], z["reasons"], len(z["blocks"]), z["n_lines"],
              z["n_photos"], ",".join(str(b) for b in z["blocks"]),
-             z["flags"], now))
+             z["flags"], z.get("source", "corners"), now))
     conn.commit()
 
 
