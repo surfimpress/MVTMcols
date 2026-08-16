@@ -42,7 +42,8 @@ CELL_PX = 8           # on-screen size of one cell
 STEP_DARK = 0.25      # each separator in a cell adds this much darkness
 GRID_LINE = (215, 219, 226)
 LABEL = (90, 96, 108)
-JUNCTION = (200, 30, 40)   # a separator END meeting another separator
+JUNCTION = (200, 30, 40)   # a separator END sharing a cell with another
+NEAR = (255, 45, 200)      # a separator END one cell away from another
 GUTTER = (250, 214, 60)    # column gutter CENTRE line, blended in
 GUTTER_MIX = 0.30          # how strongly the gutter tint shows through
 PHOTO = (120, 180, 235)    # photo + caption PERIMETER, blended in
@@ -231,17 +232,35 @@ def build(conn, page_id: str, clean: bool = False):
         for cell in cells_of(r):
             occupied.setdefault(cell, set()).add(k)
 
-    # A junction is a cell holding the END of one separator and ANY part
-    # of a different one. That is what a corner looks like: a rule stops
-    # where another passes through or stops too.
+    # Two strengths of the same idea -- a rule ending where another rule
+    # is. Rounded corners and scan skew mean the two often MISS each other
+    # by a cell, so proximity has to count as well as coincidence.
+    #
+    #   junction (red)  the end shares a cell with a different separator
+    #   near     (pink) the end is 8-adjacent to one, diagonals included
+    #
+    # A separator's own body sits next to its own end by definition, so
+    # the rule's own cells are excluded from both tests. Gutter and
+    # content-edge lines are NOT separators and deliberately take no part
+    # here -- this asks only what the ruling itself does.
     junction = [[False] * n_cols for _ in range(n_rows)]
+    near = [[False] * n_cols for _ in range(n_rows)]
+    NEIGHBOURS = [(dy, dx) for dy in (-1, 0, 1) for dx in (-1, 0, 1)
+                  if (dy, dx) != (0, 0)]
     for i, r in enumerate(list(regions) + list(swallowed)):
         for (ex, ey) in _ends(r):
             cx = max(0, min(n_cols - 1, int(ex / CELL_PCT)))
             cy = max(0, min(n_rows - 1, int(ey / cell_h_pct)))
-            others = occupied.get((cy, cx), set()) - {i}
-            if others:
+            if occupied.get((cy, cx), set()) - {i}:
                 junction[cy][cx] = True
+                continue
+            for dy, dx in NEIGHBOURS:
+                ny, nx = cy + dy, cx + dx
+                if not (0 <= ny < n_rows and 0 <= nx < n_cols):
+                    continue
+                if occupied.get((ny, nx), set()) - {i}:
+                    near[cy][cx] = True
+                    break
     # Both kinds of vertical reference get the same tint: the point is
     # "a rule here has a reason to be here", and the content edge is as
     # good a reason as a gutter.
@@ -268,7 +287,7 @@ def build(conn, page_id: str, clean: bool = False):
         for y in range(r0, r1 + 1):
             photo[y][c0] = photo[y][c1] = True
 
-    return (counts, junction, gutter, photo, n_cols, n_rows,
+    return (counts, junction, near, gutter, photo, n_cols, n_rows,
             len(regions), len(swallowed), len(units), n_gut, n_edge)
 
 
@@ -276,7 +295,7 @@ def _blend(base: tuple, tint: tuple, amount: float) -> tuple:
     return tuple(int(b * (1 - amount) + t * amount) for b, t in zip(base, tint))
 
 
-def render(counts, junction, gutter, photo, n_cols, n_rows,
+def render(counts, junction, near, gutter, photo, n_cols, n_rows,
            title: str, out_path: str) -> str:
     pad_l, pad_t, pad_b = 34, 26, 8
     W = pad_l + n_cols * CELL_PX
@@ -290,6 +309,8 @@ def render(counts, junction, gutter, photo, n_cols, n_rows,
             x0, y0 = pad_l + x * CELL_PX, pad_t + y * CELL_PX
             if junction[y][x]:
                 fill = JUNCTION
+            elif near[y][x]:
+                fill = NEAR
             elif n:
                 v = int(255 * max(0.0, 1.0 - STEP_DARK * n))
                 fill = (v, v, v)
@@ -329,23 +350,26 @@ def _cmd(args):
         if not row:
             print("no such page")
             return
-        (counts, junc, gut, photo, nc, nr,
+        (counts, junc, nr_, gut, photo, nc, nr,
          n, folded, nphoto, n_gut, n_edge) = build(conn, row["id"], args.clean)
         busiest = max(max(r) for r in counts)
         cells = sum(1 for r in counts for v in r if v)
         njunc = sum(1 for r in junc for v in r if v)
+        nnear = sum(1 for r in nr_ for v in r if v)
         kind = "cleaned" if args.clean else "raw"
         title = (f"{args.date} p{args.page} — {n} {kind} separators "
                  f"(+{folded} folded) · {cells} cells · busiest {busiest} "
-                 f"· {njunc} junction (red) · {n_gut} gutters + {n_edge} "
+                 f"· {njunc} junction (red) + {nnear} near (pink) "
+                 f"· {n_gut} gutters + {n_edge} "
                  f"content edges (yellow) · {nphoto} photo+caption "
                  f"perimeters (blue) · grid {nc}x{nr} at {CELL_PCT}% of width")
         suffix = "_clean" if args.clean else ""
         out = os.path.join(OUT_DIR, args.date,
                            f"p{args.page}_sepgrid{suffix}.png")
-        print(" ", render(counts, junc, gut, photo, nc, nr, title, out))
+        print(" ", render(counts, junc, nr_, gut, photo, nc, nr, title, out))
         print(f"  {n} regions kept, {folded} folded as contained, "
-              f"{cells} cells touched, busiest {busiest}, {njunc} junctions")
+              f"{cells} cells touched, busiest {busiest}, "
+              f"{njunc} junctions + {nnear} near")
     finally:
         conn.close()
 
