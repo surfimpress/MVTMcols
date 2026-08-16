@@ -382,12 +382,23 @@ def render(counts, junction, near, gutter, photo, n_cols, n_rows,
     return out_path
 
 
-# Alpha per layer in the OVERLAY render. White becomes fully transparent
-# so the newspaper reads through it; everything else is graded so the
-# marks stay legible over printed type. The grid ruling is dropped
-# entirely -- over a real page it is noise, and the cell positions are
-# still implied by the marks themselves.
-OVERLAY_ALPHA = {"grey": 190, "gutter": 90, "photo": 110,
+# The OVERLAY needs its OWN palette. The standalone chart draws separators
+# in light grey against pure white, which is legible there -- but composited
+# over a newspaper that grey is almost exactly the value of the paper and
+# disappears. The page is greyscale, so the overlay uses SATURATED colours,
+# which no part of the scan can compete with.
+#
+# Chosen to stay distinguishable without relying on hue discrimination
+# (orange / blue / magenta / black, no red-green pairing).
+OVERLAY_RULE = (235, 120, 0)      # separator -- orange, the main signal
+OVERLAY_JUNCTION = (0, 0, 0)      # end meets end -- black, maximum contrast
+OVERLAY_NEAR = (255, 0, 180)      # end near another -- magenta
+OVERLAY_GUTTER = (245, 200, 40)   # reference lines sit back
+OVERLAY_PHOTO = (30, 120, 220)
+
+# White is fully transparent so the page reads through. Everything else is
+# graded by how much it is meant to assert.
+OVERLAY_ALPHA = {"rule": 235, "gutter": 85, "photo": 150,
                  "near": 255, "junction": 255}
 
 
@@ -410,17 +421,17 @@ def render_overlay(conn, page_id, counts, junction, near, gutter, photo,
     for y in range(n_rows):
         for x in range(n_cols):
             rgb, a = None, 0
-            if counts[y][x]:
-                v = int(255 * max(0.0, 1.0 - STEP_DARK * counts[y][x]))
-                rgb, a = (v, v, v), OVERLAY_ALPHA["grey"]
+            # Reference lines first, so a real rule always paints over them.
             if gutter[x]:
-                rgb, a = GUTTER, max(a, OVERLAY_ALPHA["gutter"])
+                rgb, a = OVERLAY_GUTTER, OVERLAY_ALPHA["gutter"]
             if photo[y][x]:
-                rgb, a = PHOTO, max(a, OVERLAY_ALPHA["photo"])
+                rgb, a = OVERLAY_PHOTO, OVERLAY_ALPHA["photo"]
+            if counts[y][x]:
+                rgb, a = OVERLAY_RULE, OVERLAY_ALPHA["rule"]
             if near[y][x]:
-                rgb, a = NEAR, OVERLAY_ALPHA["near"]
+                rgb, a = OVERLAY_NEAR, OVERLAY_ALPHA["near"]
             if junction[y][x]:
-                rgb, a = JUNCTION, OVERLAY_ALPHA["junction"]
+                rgb, a = OVERLAY_JUNCTION, OVERLAY_ALPHA["junction"]
             if rgb:
                 px[x, y] = (rgb[0], rgb[1], rgb[2], a)
 
