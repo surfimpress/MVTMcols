@@ -404,6 +404,21 @@ GUTTER_RATIO_TOUCHING = 12.0
 GUTTER_THIN_TOUCHING = 2.0
 GUTTER_TOUCH_PCT = 0.8
 
+# A DOUBLE-RULED BORDER prints as two concentric rectangles, and Tesseract
+# reports both, so one bordered ad yields two nested boxes a pica or two
+# apart. On p13 the Sidewalk Sale appears as
+#     x 4.0-94.0  y 49.1-95.3   (inner rule)
+#     x 4.0-95.5  y 49.1-96.0   (outer rule)
+#
+# The twin-rule collapse could never catch these: a twin differs on ONE
+# edge, while a double border differs on SEVERAL at once (here right by
+# 1.5% and bottom by 0.7%), so the "three edges match" test never fired.
+#
+# Measured gaps across 1980-04-06: 0.71-2.15%, i.e. 1-2 picas, exactly a
+# border's inner-to-outer spacing. The OUTER is kept: the border belongs
+# to the item, so the item extends to its outside edge.
+DOUBLE_RULE_GAP_PCT = 2.5
+
 
 def corner_points(junction, crossing, n_cols, n_rows) -> list[tuple]:
     """Corner positions, from the two kinds of mark.
@@ -441,6 +456,28 @@ def corner_points(junction, crossing, n_cols, n_rows) -> list[tuple]:
         xs = [b[1] for b in blob]
         points.append((sum(ys) / len(ys), sum(xs) / len(xs)))
     return points
+
+
+def merge_double_rules(boxes, cell_w, cell_h):
+    """Collapse the two rectangles of one double-ruled border into one."""
+    def area(b):
+        return (b[3] - b[1]) * (b[2] - b[0])
+
+    drop = set()
+    for i, a in enumerate(boxes):
+        for b in boxes[i + 1:]:
+            inner, outer = (a, b) if area(a) < area(b) else (b, a)
+            nested = (inner[1] >= outer[1] - 1 and inner[3] <= outer[3] + 1
+                      and inner[0] >= outer[0] - 1 and inner[2] <= outer[2] + 1)
+            if not nested:
+                continue
+            gap = max(abs(a[1] - b[1]) * cell_w, abs(a[3] - b[3]) * cell_w,
+                      abs(a[0] - b[0]) * cell_h, abs(a[2] - b[2]) * cell_h)
+            # A genuine box-inside-a-box (a panel within an ad) is nested
+            # too, but sits far further in than a border's own gap.
+            if 0.01 < gap <= DOUBLE_RULE_GAP_PCT:
+                drop.add(id(inner))
+    return [b for b in boxes if id(b) not in drop]
 
 
 def drop_gutters(boxes, cell_w, cell_h):
@@ -727,9 +764,12 @@ def _cmd(args):
         derived = boxes_from_corners(pts, counts, nc, nr)
         rw = conn.execute("SELECT display_width_px w, display_height_px h "
                           "FROM pages WHERE id=?", (row["id"],)).fetchone()
+        cell_h_pct = CELL_PCT / (rw["h"] / rw["w"])
+        n_double = len(derived)
+        derived = merge_double_rules(derived, CELL_PCT, cell_h_pct)
+        n_double -= len(derived)
         n_gutters = len(derived)
-        derived = drop_gutters(derived, CELL_PCT,
-                               CELL_PCT / (rw["h"] / rw["w"]))
+        derived = drop_gutters(derived, CELL_PCT, cell_h_pct)
         n_gutters -= len(derived)
         title += f" · {len(pts)} corners -> {len(derived)} boxes"
         print(" ", render(counts, junc, nr_, cross, gut, photo, nc, nr,
@@ -742,7 +782,8 @@ def _cmd(args):
               f"{cells} cells touched, busiest {busiest}, "
               f"{njunc} junctions + {ncross} crossings + {nnear} near, "
               f"{len(pts)} corners -> {len(derived)} boxes "
-              f"({n_gutters} gutter-slivers dropped)")
+              f"({n_double} double-rule pairs merged, "
+              f"{n_gutters} gutter-slivers dropped)")
     finally:
         conn.close()
 
