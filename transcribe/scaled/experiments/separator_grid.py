@@ -382,6 +382,54 @@ def render(counts, junction, near, gutter, photo, n_cols, n_rows,
     return out_path
 
 
+# Alpha per layer in the OVERLAY render. White becomes fully transparent
+# so the newspaper reads through it; everything else is graded so the
+# marks stay legible over printed type. The grid ruling is dropped
+# entirely -- over a real page it is noise, and the cell positions are
+# still implied by the marks themselves.
+OVERLAY_ALPHA = {"grey": 190, "gutter": 90, "photo": 110,
+                 "near": 255, "junction": 255}
+
+
+def render_overlay(conn, page_id, counts, junction, near, gutter, photo,
+                   n_cols, n_rows, out_path: str) -> str:
+    """A page-sized RGBA overlay, for painting onto the IIIF canvas.
+
+    Built at ONE PIXEL PER CELL and then scaled up with NEAREST to the
+    canvas's exact pixel dimensions. That guarantees the overlay registers
+    with the page rather than drifting by a rounding error, and keeps the
+    cells hard-edged instead of interpolated.
+    """
+    row = conn.execute(
+        "SELECT display_width_px w, display_height_px h FROM pages WHERE id=?",
+        (page_id,)).fetchone()
+    W, H = row["w"], row["h"]
+
+    small = Image.new("RGBA", (n_cols, n_rows), (255, 255, 255, 0))
+    px = small.load()
+    for y in range(n_rows):
+        for x in range(n_cols):
+            rgb, a = None, 0
+            if counts[y][x]:
+                v = int(255 * max(0.0, 1.0 - STEP_DARK * counts[y][x]))
+                rgb, a = (v, v, v), OVERLAY_ALPHA["grey"]
+            if gutter[x]:
+                rgb, a = GUTTER, max(a, OVERLAY_ALPHA["gutter"])
+            if photo[y][x]:
+                rgb, a = PHOTO, max(a, OVERLAY_ALPHA["photo"])
+            if near[y][x]:
+                rgb, a = NEAR, OVERLAY_ALPHA["near"]
+            if junction[y][x]:
+                rgb, a = JUNCTION, OVERLAY_ALPHA["junction"]
+            if rgb:
+                px[x, y] = (rgb[0], rgb[1], rgb[2], a)
+
+    big = small.resize((W, H), Image.NEAREST)
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    big.save(out_path)
+    return out_path
+
+
 def _cmd(args):
     conn = _sup.open_connection()
     try:
@@ -409,6 +457,10 @@ def _cmd(args):
         out = os.path.join(OUT_DIR, args.date,
                            f"p{args.page}_sepgrid{suffix}.png")
         print(" ", render(counts, junc, nr_, gut, photo, nc, nr, title, out))
+        ov = os.path.join(OUT_DIR, args.date,
+                          f"p{args.page}_overlay{suffix}.png")
+        print(" ", render_overlay(conn, row["id"], counts, junc, nr_, gut,
+                                  photo, nc, nr, ov))
         print(f"  {n} regions kept, {folded} folded as contained, "
               f"{cells} cells touched, busiest {busiest}, "
               f"{njunc} junctions + {nnear} near")

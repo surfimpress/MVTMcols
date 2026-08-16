@@ -126,7 +126,7 @@ VARIANTS = {
 # Refined are not built yet; the viewer shows them disabled rather than
 # pretending they exist.
 DERIVED = ("grid", "hlines", "boxes", "captions", "boxphotos",
-           "separators", "photos")
+           "separators", "photos", "overlay")
 
 
 def _derived_layers(conn, page_id, cid, W, H, variant):
@@ -377,6 +377,29 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
             "annotations": [],
         }
 
+        # The overlay variant paints a SECOND image onto the same canvas.
+        # IIIF Presentation 3 has no opacity property, and Mirador's own
+        # roadmap lists per-layer transparency as deferred, so the alpha is
+        # baked into the PNG instead of relied on from the viewer: white is
+        # fully transparent there and the marks are graded. Multiple
+        # painting bodies on one canvas is the standard mechanism -- Mirador
+        # surfaces them through its CanvasLayers panel, so they can also be
+        # reordered and toggled.
+        if variant == "overlay":
+            ov = os.path.join(
+                _sup.REPO_ROOT, "preview", "scaled", "grids", date,
+                f"p{p['page']}_overlay.png")
+            if os.path.isfile(ov):
+                canvas["items"][0]["items"].append({
+                    "id": f"{cid}/painting/2",
+                    "type": "Annotation",
+                    "motivation": "painting",
+                    "body": {"id": _rel_url(ov), "type": "Image",
+                             "format": "image/png", "width": W, "height": H,
+                             "label": {"en": ["Separator grid overlay"]}},
+                    "target": cid,
+                })
+
         # --- block layers, straight from page_ocr_blocks / regions ---
         for cls, label, _colour in (BLOCK_LAYERS if want_blocks else []):
             items = []
@@ -474,6 +497,7 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
             "photos": "stage 1: raw ocr_photo regions",
             "captions": "stage 2c: photos with captions",
             "boxphotos": "stage 2b+2c: boxed zones and photos with captions",
+            "overlay": "separator grid painted over the page",
         }.get(variant, variant)]},
         "summary": {"en": [
             "Unmodified Tesseract hOCR rendered as IIIF annotation layers, "
