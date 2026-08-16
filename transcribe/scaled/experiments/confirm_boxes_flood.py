@@ -33,13 +33,37 @@ no faces at all. Every method above needs a snapping or dilation step
 first -- which is precisely what `INSET_PCT` does by hand in the
 detector.
 
-WHAT THIS IMPLEMENTS
---------------------
-The simplest independent variant: rasterise ONLY the rules, dilate to
-close the corner gaps, flood-fill from the page border, and report every
-background component the flood cannot reach. Those are areas the rules
-enclose. It shares no logic with the pairing heuristic -- no pair loop,
-no inset test, no thickness reasoning -- so agreement is real evidence.
+WHAT THIS IMPLEMENTS, AND HOW IT RELATES TO THOSE THREE
+-------------------------------------------------------
+This is NOT a fourth algorithm. It is a **raster approximation of option
+1**, and the connection is exact: the bounded faces of a planar
+arrangement ARE the connected components of the complement of the
+segments that do not touch the outer boundary. Face extraction computes
+that exactly in continuous coordinates by walking the arrangement; this
+computes the same thing approximately by labelling pixels on a grid and
+discarding whatever the border flood reaches.
+
+It borrows the MACHINERY of option 2 -- `ndimage.label` is raster
+connected-component labelling -- to compute the CONCEPT of option 1.
+(Table-recognition pipelines usually contour the ink or the cells; this
+labels the background instead, but it is the same family.) Option 3 is
+unrelated: those segment text regions by whitespace and ink density, not
+ruled boxes.
+
+HOW INDEPENDENT IS IT, HONESTLY
+--------------------------------
+Independent of the PAIRING LOGIC: no pair loop, no inset test, no
+thickness reasoning. That part is real.
+
+NOT independent of the preprocessing: it consumes the same `_rules()`
+output, including the conjoined-drop and fragment-merge. If those are
+wrong, both methods are wrong together.
+
+NOT independent of the rounded-corner assumption either: the dilation
+that closes the gaps is the raster analogue of the snapping step, so both
+methods assume corners can be bridged, just expressed differently.
+
+So agreement confirms the PAIRING, and nothing upstream of it.
 
 RESULT, 1980-04-06
 ------------------
