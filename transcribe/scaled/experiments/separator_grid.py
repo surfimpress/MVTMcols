@@ -315,12 +315,127 @@ def _font(size: int):
     return ImageFont.load_default()
 
 
+# --- deriving boxes from the corner map ------------------------------
+# A candidate edge counts as ruled if at least this share of the cells
+# along it hold a separator. Below 1.0 because a rule's ends stop short of
+# the corners (the rounded-corner inset, measured at 0.5-3.9%) and because
+# Tesseract fragments rules.
+EDGE_SUPPORT = 0.80
+BOX_MIN_CELLS = 4          # a box smaller than this is furniture
+
+
+def corner_points(junction, near, n_cols, n_rows) -> list[tuple]:
+    """Corner positions, from the two kinds of mark.
+
+    RED is a corner outright -- an end sharing a cell with another rule.
+
+    PINK is only a corner when TWO pink cells sit DIAGONALLY adjacent.
+    That pairing is the signature of a rounded corner: the horizontal
+    stops short and the vertical stops short, so their two ends land on
+    opposite diagonal cells with the true corner between them. A lone pink
+    cell is a rule passing near another and means nothing on its own.
+
+    Touching corner cells are then merged, so one physical corner yields
+    one point however many cells it lit.
+    """
+    cand = set()
+    for y in range(n_rows):
+        for x in range(n_cols):
+            if junction[y][x]:
+                cand.add((y, x))
+    for y in range(n_rows):
+        for x in range(n_cols):
+            if not near[y][x]:
+                continue
+            for dy, dx in ((-1, -1), (-1, 1), (1, -1), (1, 1)):
+                ny, nx = y + dy, x + dx
+                if 0 <= ny < n_rows and 0 <= nx < n_cols and near[ny][nx]:
+                    cand.add((y, x))
+                    cand.add((ny, nx))
+                    break
+
+    seen, points = set(), []
+    for c in sorted(cand):
+        if c in seen:
+            continue
+        blob, stack = [], [c]
+        seen.add(c)
+        while stack:
+            cy, cx = stack.pop()
+            blob.append((cy, cx))
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    n = (cy + dy, cx + dx)
+                    if n in cand and n not in seen:
+                        seen.add(n)
+                        stack.append(n)
+        ys = [b[0] for b in blob]
+        xs = [b[1] for b in blob]
+        points.append((sum(ys) / len(ys), sum(xs) / len(xs)))
+    return points
+
+
+def boxes_from_corners(points, counts, n_cols, n_rows, tol=1.6):
+    """Rectangles whose four corners are all marked and whose four edges
+    are actually ruled.
+
+    Corners alone would give a combinatorial explosion of rectangles, so
+    every candidate is checked against the ruling: an edge must be a real
+    line on the page, not merely the shortest path between two corners.
+    """
+    xs = sorted({round(p[1]) for p in points})
+    ys = sorted({round(p[0]) for p in points})
+
+    def has_corner(y, x):
+        return any(abs(p[0] - y) <= tol and abs(p[1] - x) <= tol
+                   for p in points)
+
+    def ruled_h(y, x0, x1):
+        cells = [counts[y2][x] for x in range(x0, x1 + 1)
+                 for y2 in (y - 1, y, y + 1) if 0 <= y2 < n_rows]
+        hit = sum(1 for x in range(x0, x1 + 1)
+                  if any(0 <= y2 < n_rows and counts[y2][x]
+                         for y2 in (y - 1, y, y + 1)))
+        return hit / max(1, x1 - x0 + 1) >= EDGE_SUPPORT
+
+    def ruled_v(x, y0, y1):
+        hit = sum(1 for y in range(y0, y1 + 1)
+                  if any(0 <= x2 < n_cols and counts[y][x2]
+                         for x2 in (x - 1, x, x + 1)))
+        return hit / max(1, y1 - y0 + 1) >= EDGE_SUPPORT
+
+    out = []
+    for i, x0 in enumerate(xs):
+        for x1 in xs[i + 1:]:
+            if x1 - x0 < BOX_MIN_CELLS:
+                continue
+            for j, y0 in enumerate(ys):
+                for y1 in ys[j + 1:]:
+                    if y1 - y0 < BOX_MIN_CELLS:
+                        continue
+                    if not (has_corner(y0, x0) and has_corner(y0, x1)
+                            and has_corner(y1, x0) and has_corner(y1, x1)):
+                        continue
+                    if not (ruled_h(y0, x0, x1) and ruled_h(y1, x0, x1)
+                            and ruled_v(x0, y0, y1) and ruled_v(x1, y0, y1)):
+                        continue
+                    out.append((y0, x0, y1, x1))
+    # Drop a box that duplicates one already found at the same place.
+    keep = []
+    for b in sorted(out, key=lambda b: -((b[2] - b[0]) * (b[3] - b[1]))):
+        if not any(abs(b[0] - k[0]) <= tol and abs(b[1] - k[1]) <= tol
+                   and abs(b[2] - k[2]) <= tol and abs(b[3] - k[3]) <= tol
+                   for k in keep):
+            keep.append(b)
+    return keep
+
+
 def _blend(base: tuple, tint: tuple, amount: float) -> tuple:
     return tuple(int(b * (1 - amount) + t * amount) for b, t in zip(base, tint))
 
 
 def render(counts, junction, near, gutter, photo, n_cols, n_rows,
-           title: str, out_path: str) -> str:
+           title: str, out_path: str, boxes=None) -> str:
     pad_l, pad_t, pad_b = 46, 34, 30
     f_axis, f_title = _font(FONT_AXIS), _font(FONT_TITLE)
     W = pad_l + n_cols * CELL_PX
@@ -375,6 +490,16 @@ def render(counts, junction, near, gutter, photo, n_cols, n_rows,
     for y in range(0, n_rows + 1, step):
         d.text((pad_l - 22, pad_t + y * CELL_PX), str(y),
                fill=LABEL, font=f_axis, anchor="mm")
+
+    # Derived boxes LAST, drawn 1px down the CENTRE LINE of the corner
+    # cells -- the corner is inside that cell, not at its edge, so a
+    # cell-boundary rectangle would sit half a cell out on every side.
+    for (y0, x0, y1, x1) in (boxes or []):
+        gx0 = pad_l + x0 * CELL_PX + CELL_PX // 2
+        gx1 = pad_l + x1 * CELL_PX + CELL_PX // 2
+        gy0 = pad_t + y0 * CELL_PX + CELL_PX // 2
+        gy1 = pad_t + y1 * CELL_PX + CELL_PX // 2
+        d.rectangle([gx0, gy0, gx1, gy1], outline=(0, 0, 0), width=1)
 
     d.text((pad_l, H - pad_b + 6), title, fill=(0, 0, 0), font=f_title)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -467,14 +592,19 @@ def _cmd(args):
         suffix = "_clean" if args.clean else ""
         out = os.path.join(OUT_DIR, args.date,
                            f"p{args.page}_sepgrid{suffix}.png")
-        print(" ", render(counts, junc, nr_, gut, photo, nc, nr, title, out))
+        pts = corner_points(junc, nr_, nc, nr)
+        derived = boxes_from_corners(pts, counts, nc, nr)
+        title += f" · {len(pts)} corners -> {len(derived)} boxes"
+        print(" ", render(counts, junc, nr_, gut, photo, nc, nr, title, out,
+                          boxes=derived))
         ov = os.path.join(OUT_DIR, args.date,
                           f"p{args.page}_overlay{suffix}.png")
         print(" ", render_overlay(conn, row["id"], counts, junc, nr_, gut,
                                   photo, nc, nr, ov))
         print(f"  {n} regions kept, {folded} folded as contained, "
               f"{cells} cells touched, busiest {busiest}, "
-              f"{njunc} junctions + {nnear} near")
+              f"{njunc} junctions + {nnear} near, "
+              f"{len(pts)} corners -> {len(derived)} boxes")
     finally:
         conn.close()
 
