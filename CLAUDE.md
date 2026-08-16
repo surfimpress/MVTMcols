@@ -100,10 +100,14 @@ that.
     **Containment matching was tried and REVERTED** (20.8/page, overlapping
     rectangles cutting across text on p6) — do not reintroduce it.
     **Judge by rendering, not the `display_ad` metric** (it counts notices
-    and tenders as false positives). **Known limit:** some boxes have no
-    bottom border in Tesseract's output at all (Smithson Motor Sales,
-    CENTENNIAL DOLLARS on p8) — geometry cannot recover those, see the
-    pixel-rule note.
+    and tenders as false positives). The vertical list MUST stay sorted by x — the pair loop
+    requires `vr.x - vl.x >= MIN_WIDTH`, and SQLite returns rows
+    unordered, so an unsorted list silently skipped every pair whose left
+    rule happened to be listed second. That alone was hiding CENTENNIAL
+    DOLLARS on p8 despite all four of its sides being present.
+    **Known limit:** a few boxes genuinely have no bottom border in
+    Tesseract's output (Smithson Motor Sales on p8) — geometry cannot
+    recover those, see the pixel-rule note.
   - **Stage 3 is HORIZONTAL ALIGNMENTS** (`detect_hlines.py`,
     `render_hlines.py`, `page_hlines` schema v17). Every alignment carries
     a **column span** — on a post-1980 mosaic an alignment is local

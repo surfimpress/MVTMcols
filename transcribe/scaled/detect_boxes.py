@@ -97,9 +97,19 @@ def find_boxes(conn, page_id: str, cols: list[dict]) -> list[dict]:
     # Page-edge verticals are the sheet edge and binding shadow, not box
     # sides -- the same artefacts detect_grid filters out, and letting one
     # act as a side stretched boxes across the whole page width.
-    V = [{"x": (r["L"] + r["R"]) / 2, "y0": r["T"], "y1": r["B"],
+    # SORTED BY X, and that is load-bearing. The pair loop below takes
+    # V[i], V[j] with j > i and requires vr.x - vl.x >= MIN_WIDTH_PCT. The
+    # rows arrive from SQLite in no particular order, so whenever the
+    # left-hand rule happened to be listed later the difference came out
+    # negative and the pair was skipped in silence. That is why the
+    # CENTENNIAL DOLLARS box on 1980-04-06 p8 was missed despite having
+    # all four sides present -- its left rule (x 15.68) is listed after
+    # its right one (x 49.13).
+    V = sorted(
+        ({"x": (r["L"] + r["R"]) / 2, "y0": r["T"], "y1": r["B"],
           "t": r["wd"] or 0} for r in _rules(conn, page_id, "vertical")
-         if EDGE_MARGIN_PCT <= (r["L"] + r["R"]) / 2 <= 100 - EDGE_MARGIN_PCT]
+         if EDGE_MARGIN_PCT <= (r["L"] + r["R"]) / 2 <= 100 - EDGE_MARGIN_PCT),
+        key=lambda v: v["x"])
 
     raw = []
     for i, vl in enumerate(V):

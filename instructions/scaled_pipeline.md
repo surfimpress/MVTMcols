@@ -577,10 +577,27 @@ excluded as scan artefacts, as in `detect_grid`.
 Congratulations and the Sidewalk Sale grid all correct, at container and
 cell level.
 
-**KNOWN LIMIT, not a bug here:** Smithson Motor Sales and CENTENNIAL
-DOLLARS have **no bottom border in Tesseract's output at all**, so no
-geometry over the separators can recover them. See §5k — pixel-level rule
-detection is the route and Tesseract config tuning is ruled out.
+**A bug worth recording, because the symptom looked like missing data.**
+CENTENNIAL DOLLARS on p8 was reported as "no bottom border in Tesseract's
+output" — that claim was WRONG, and checking it rather than repeating it
+found a real defect. All four sides were present:
+
+    top     H  x 15.52-49.13  y 73.63-73.94  (18px)
+    left    V  x 15.47-15.88  y 73.70-95.46  (17px)
+    right   V  x 48.80-49.47  y 39.01-95.47  (28px)
+    bottom  H  x 15.47-94.91  y 94.74-95.56  (48px)
+
+The pair loop takes `V[i], V[j]` with `j > i` and requires
+`vr.x - vl.x >= MIN_WIDTH_PCT`. SQLite returns the rows unordered, so
+whenever the LEFT-hand rule happened to be listed later, the difference
+came out negative and the pair was skipped **in silence**. Here the
+x 49.13 rule is listed before the x 15.68 one. **`V` is now sorted by x,
+and that sort is load-bearing.** Fixing it took p8 from 32 boxes to 70
+and recovered CENTENNIAL DOLLARS and its inner ticket panel.
+
+Smithson Motor Sales does remain genuinely incomplete in Tesseract's
+output. See §5k — pixel-level rule detection is the route there, and
+Tesseract config tuning is ruled out.
 
 **`n_sides` is recorded, never filtered on at write time.** 4-sided boxes
 are near-perfect; 2-sided ones are where only a top and bottom were
