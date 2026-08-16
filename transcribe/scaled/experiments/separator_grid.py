@@ -370,10 +370,20 @@ def _font(size: int):
 EDGE_SUPPORT = 0.80
 BOX_MIN_CELLS = 4          # a box smaller than this is furniture
 
-# Corners needed to accept a rectangle. Three fix an axis-aligned box; the
-# fourth adds no geometric information and is frequently unmarked because
-# one rule ran past the corner or stopped short of it.
-MIN_MARKED_CORNERS = 3
+# Corners needed to accept a rectangle. FOUR.
+#
+# Three were tried, on the reasoning that three corners fix an
+# axis-aligned rectangle and only 43% of known boxes have all four
+# marked. The corpus numbers improved -- 547 to 812 boxes, agreement with
+# detect_boxes 80%, under-finding pages 31 down to 18 -- and the RENDER
+# was far worse: a thicket of slightly-offset near-duplicate rectangles
+# around every ad, because a corner a cell or two away can stand in for
+# the missing one and each substitution makes another valid rectangle.
+#
+# The lesson is the one this project keeps relearning: a count agreeing
+# with another detector is not evidence, and it was reported here without
+# looking at the page. Do not relax this without a render.
+MIN_MARKED_CORNERS = 4
 
 # Two stacked boxes are divided by TWO rules -- one's foot and the next
 # one's head, a pica or so apart. Each pairs validly with the shared side

@@ -843,6 +843,73 @@ page. On a designed grid the question is simply "do the page's alignment
 positions land on this lattice?" — which needs a fit, not a confidence
 model.
 
+## 5z. PROCESS FAILURES in this experiment — read before changing a detector
+
+Six failures, all in one session, all avoidable. They are recorded with
+what they cost because each one is a pattern, not a one-off slip.
+
+### 1. Shipping on a metric without rendering
+
+Relaxed the corner requirement from four marked corners to three, on the
+reasoning that three fix an axis-aligned rectangle and only 43% of known
+boxes have four marked. Every number improved: boxes 547 → 812 against
+`detect_boxes`' 815, agreement 80%, under-finding pages 31 → 18 of 90.
+**Reported it as a win. Never rendered the page.** The render was a
+thicket of slightly-offset near-duplicate rectangles around every ad,
+because a corner a cell or two away can substitute for the missing one
+and each substitution makes another valid rectangle. Reverted.
+
+*A count agreeing with another detector is not evidence.* This project
+has an explicit rule about rendering before believing a number, and it
+was ignored while quoting statistics.
+
+### 2. Changing the test to fit the fix
+
+Wanted a single whited-out cell to sever a 52-cell edge, so replaced the
+edge-support test with a continuity test. That silently invalidated real
+boxes and lost the **largest box on the page** (the full-width Sidewalk
+Sale), which went unnoticed for two further changes. Designing the
+measurement around the desired answer. The break needed to be strong
+enough to matter, or the idea needed rejecting — not the test loosened
+around it.
+
+### 3. "Fixing" what the printer actually did
+
+Built machinery to split a long vertical into per-box segments, believing
+Tesseract had merged them. A column rule is ONE continuous strip with ads
+butting against it — the reading was correct and the "fix" invented gaps
+that were never in the ink. See `typesetting_practice.md`, "What the
+RULES tell you".
+
+### 4. Accretive patching instead of questioning the approach
+
+Enumerating corner quadruples generates unions of stacked boxes, gutter
+slivers and double-rule pairs. Each got its own filter — twin-collapse,
+gutter-drop, double-rule merge, six tuned thresholds in all. Not once was
+the generator questioned. Face extraction produces none of those
+artefacts and needs none of those filters (measured: p13, 8 regions, zero
+filtering). *A growing pile of post-hoc filters is evidence the
+derivation is wrong, not evidence of progress.*
+
+### 5. Re-litigating a settled direction
+
+Told "content confirms, geometry decides", then went and gathered
+evidence for why content should be primary. Direction had been given;
+the correct response was to build it.
+
+### 6. Not re-checking the whole page after each change
+
+Changes were verified in the region the question was about, and box
+counts reported without inspecting what the count was made of. The
+Sidewalk Sale disappeared two changes before anyone noticed.
+
+### The through-line
+
+Every one of these is the same failure in a different coat: **substituting
+a number, or a local check, for looking at the artefact.** The remedy is
+not more care in the abstract — it is: render the whole page, before
+reporting anything, every time.
+
 ## 6. What this implies for the plan
 
 1. **Recovering hOCR signal is worth doing regardless** — free photos,

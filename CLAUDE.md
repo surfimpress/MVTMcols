@@ -167,6 +167,14 @@ that.
     corroboration. Multi-leg captions stay ONE record with `n_runs`.
     Nested ocr_photo regions are dropped (a caption can't belong to two
     photos). 45% of photos captioned corpus-wide.
+  - **READ `instructions/scaled_pipeline.md` §5z BEFORE CHANGING A
+    DETECTOR.** Six documented process failures from this experiment,
+    every one the same mistake in a different coat: substituting a number
+    or a local check for looking at the page. Worst example — relaxing
+    the corner requirement from 4 to 3 improved every corpus statistic
+    (547→812 boxes, 80% agreement, under-finding pages 31→18) and the
+    render was far worse; it was shipped on the numbers and reverted on
+    sight. **Render the whole page before reporting anything.**
   - **Confidence scoring is an ARCHIVED DEAD END**
     (`transcribe/scaled/archive/`). Earlier detectors discovered layout
     from weak signals then scored their own trustworthiness; every
