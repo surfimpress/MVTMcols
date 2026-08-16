@@ -193,11 +193,31 @@ def build(conn, page_id: str, clean: bool = False):
     regions, swallowed = _fold_contained(regions)
 
     def cells_of(r):
-        c0 = max(0, min(n_cols - 1, int(r["L"] / CELL_PCT)))
-        c1 = max(0, min(n_cols - 1, int(r["R"] / CELL_PCT)))
+        """Cells a rule occupies: full extent along it, ONE cell across it.
+
+        Across its thin axis a rule is placed by its CENTRE LINE, not by
+        its bbox footprint. Measured on 1980-04-06 p3, the box at x 50-61
+        is bounded by single rules 0.39% and 0.46% thick -- THINNER than
+        the 0.5% cell -- but each straddles a cell boundary and so lit two
+        columns of cells. The shading then read as two separators where
+        there is one, which is exactly the wrong thing for a view whose
+        legend says each region adds 25% grey.
+
+        Thickness is not lost: it is a stored property of the region
+        (`width_px`/`height_px`) and belongs in a measurement, not in a
+        count of how many rules are present.
+        """
+        horizontal = (r["R"] - r["L"]) >= (r["B"] - r["T"])
+        if horizontal:
+            c0 = max(0, min(n_cols - 1, int(r["L"] / CELL_PCT)))
+            c1 = max(0, min(n_cols - 1, int(r["R"] / CELL_PCT)))
+            cy = max(0, min(n_rows - 1,
+                            int(((r["T"] + r["B"]) / 2) / cell_h_pct)))
+            return [(cy, x) for x in range(c0, c1 + 1)]
         r0 = max(0, min(n_rows - 1, int(r["T"] / cell_h_pct)))
         r1 = max(0, min(n_rows - 1, int(r["B"] / cell_h_pct)))
-        return [(y, x) for y in range(r0, r1 + 1) for x in range(c0, c1 + 1)]
+        cx = max(0, min(n_cols - 1, int(((r["L"] + r["R"]) / 2) / CELL_PCT)))
+        return [(y, cx) for y in range(r0, r1 + 1)]
 
     occupied = {}                       # cell -> set of region indices
     for i, r in enumerate(regions):
