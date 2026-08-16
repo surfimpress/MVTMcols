@@ -77,6 +77,19 @@ INSET_PCT = 2.5
 # A vertical this close to a page edge is a scan artefact, not a box side.
 EDGE_MARGIN_PCT = 2.0
 
+# Two verticals are "the same pair of sides" -- and so can have their feet
+# joined to close an open box -- when both ends agree within this.
+PAIR_MATCH_PCT = 1.5
+
+# An open box is only closed if a barrier (another rule, or an already
+# established box) sits below it within this distance. Without a barrier
+# there is nothing saying where the box ends.
+BARRIER_GAP_PCT = 6.0
+
+# Boxes may nest or be disjoint, never straddle. Overlap beyond this
+# fraction of the smaller box, without containment, is a crossing.
+CROSS_TOL = 0.08
+
 # Boxes agreeing within this on all four edges are the same box seen from
 # two different vertical pairs.
 DEDUPE_PCT = 1.5
@@ -88,6 +101,82 @@ def _rules(conn, page_id: str, orientation: str) -> list[dict]:
         "width_px wd, height_px ht "
         "FROM page_hocr_regions WHERE page_id=? AND region_class='ocr_separator' "
         "AND orientation=?", (page_id, orientation))]
+
+
+def _crosses(a: tuple, b: tuple) -> bool:
+    """Do two boxes straddle each other's edges (rather than nest)?"""
+    ax0, ay0, ax1, ay1 = a
+    bx0, by0, bx1, by1 = b
+    ow = min(ax1, bx1) - max(ax0, bx0)
+    oh = min(ay1, by1) - max(ay0, by0)
+    if ow <= 0 or oh <= 0:
+        return False
+    inter = ow * oh
+    smaller = min((ax1 - ax0) * (ay1 - ay0), (bx1 - bx0) * (by1 - by0))
+    if smaller <= 0:
+        return False
+    contained = ((ax0 >= bx0 - DEDUPE_PCT and ax1 <= bx1 + DEDUPE_PCT
+                  and ay0 >= by0 - DEDUPE_PCT and ay1 <= by1 + DEDUPE_PCT)
+                 or (bx0 >= ax0 - DEDUPE_PCT and bx1 <= ax1 + DEDUPE_PCT
+                     and by0 >= ay0 - DEDUPE_PCT and by1 <= ay1 + DEDUPE_PCT))
+    return not contained and inter / smaller > CROSS_TOL
+
+
+def _close_open_boxes(H: list[dict], V: list[dict], done: list) -> list:
+    """Close a box that has three printed sides but no printed foot.
+
+    The PLEXIGLASS ad on 1980-04-06 p8 is the case: a top rule and two
+    verticals whose ends match each other exactly, with the top of the
+    next box immediately below. Nothing crosses that gap, so the feet of
+    the two verticals can be joined and the box completed.
+
+    Two conditions, both required:
+      * the verticals are a genuine PAIR -- both ends agree within
+        PAIR_MATCH_PCT, i.e. they were drawn as the sides of one box
+      * a BARRIER sits below within BARRIER_GAP_PCT -- another rule, or a
+        box already established. Without one there is nothing to say
+        where the box ends, and the foot would be invention.
+
+    The result is marked `n_sides = 3` and `needs_review = 1`: it is an
+    inference, and it is labelled as one so an LLM pass can confirm it
+    rather than inheriting a guess dressed as a measurement.
+    """
+    out = []
+    for i, vl in enumerate(V):
+        for vr in V[i + 1:]:
+            if vr["x"] - vl["x"] < MIN_WIDTH_PCT:
+                continue
+            # Sides of the same box: both ends match.
+            if (abs(vl["y0"] - vr["y0"]) > PAIR_MATCH_PCT
+                    or abs(vl["y1"] - vr["y1"]) > PAIR_MATCH_PCT):
+                continue
+            top = max(vl["y0"], vr["y0"])
+            foot = min(vl["y1"], vr["y1"])
+            if foot - top < MIN_HEIGHT_PCT:
+                continue
+            # A printed head, bridging both verticals.
+            heads = [h for h in H
+                     if abs(h["y"] - top) <= INSET_PCT
+                     and h["x0"] <= vl["x"] + INSET_PCT
+                     and h["x1"] >= vr["x"] - INSET_PCT]
+            if not heads:
+                continue
+            # If a printed foot already exists the main pass handled it.
+            if any(abs(h["y"] - foot) <= INSET_PCT
+                   and h["x0"] <= vl["x"] + INSET_PCT
+                   and h["x1"] >= vr["x"] - INSET_PCT for h in H):
+                continue
+            # Something must stop it below.
+            barrier = any(foot < h["y"] <= foot + BARRIER_GAP_PCT
+                          and h["x1"] > vl["x"] and h["x0"] < vr["x"] for h in H)
+            if not barrier:
+                barrier = any(foot < d[1] <= foot + BARRIER_GAP_PCT
+                              and d[2] > vl["x"] and d[0] < vr["x"] for d in done)
+            if not barrier:
+                continue
+            out.append((vl["x"], heads[0]["y"], vr["x"], foot,
+                        [vl["t"], vr["t"], heads[0]["t"], 0], 3))
+    return out
 
 
 def find_boxes(conn, page_id: str, cols: list[dict]) -> list[dict]:
@@ -141,26 +230,42 @@ def find_boxes(conn, page_id: str, cols: list[dict]) -> list[dict]:
             for a, b in zip(span, span[1:]):
                 if b["y"] - a["y"] >= MIN_HEIGHT_PCT:
                     raw.append((L, a["y"], R, b["y"],
-                                [vl["t"], vr["t"], a["t"], b["t"]]))
+                                [vl["t"], vr["t"], a["t"], b["t"]], 4))
             # ... and the whole enclosure is the container they sit in.
             if span[-1]["y"] - span[0]["y"] >= MIN_HEIGHT_PCT:
                 raw.append((L, span[0]["y"], R, span[-1]["y"],
-                            [vl["t"], vr["t"], span[0]["t"], span[-1]["t"]]))
+                            [vl["t"], vr["t"], span[0]["t"], span[-1]["t"]], 4))
+
+    raw.extend(_close_open_boxes(H, V, raw))
 
     out = []
-    for L, T, R, B, side_px in sorted(
+    for L, T, R, B, side_px, sides in sorted(
             raw, key=lambda b: -(b[2] - b[0]) * (b[3] - b[1])):
         if any(abs(o["left_pct"] - L) < DEDUPE_PCT
                and abs(o["right_pct"] - R) < DEDUPE_PCT
                and abs(o["top_pct"] - T) < DEDUPE_PCT
                and abs(o["bottom_pct"] - B) < DEDUPE_PCT for o in out):
             continue
+        # A box may sit INSIDE another or beside it, never straddle its
+        # edge. Fraser's price rows were being drawn from the column
+        # gutter at x 49.13 while Fraser's own box starts at 61.89, so the
+        # rows crossed both their container and the gutter. Larger boxes
+        # are accepted first, so anything crossing one is the bad one.
+        if any(_crosses((L, T, R, B),
+                        (o["left_pct"], o["top_pct"],
+                         o["right_pct"], o["bottom_pct"])) for o in out):
+            continue
         span = _hl.column_span(L, R, cols) if cols else None
         out.append({
             "left_pct": round(L, 2), "right_pct": round(R, 2),
             "top_pct": round(T, 2), "bottom_pct": round(B, 2),
             "width_pct": round(R - L, 2), "height_pct": round(B - T, 2),
-            "n_sides": 4, "side_px": ",".join(str(x) for x in side_px),
+            "n_sides": sides,
+            # 3 means the foot was inferred, not printed -- surfaced so a
+            # later LLM pass can confirm or reject it rather than having
+            # the guess silently presented as a measurement.
+            "needs_review": 1 if sides < 4 else 0,
+            "side_px": ",".join(str(x) for x in side_px),
             "col_lo": span[0] if span else None,
             "col_hi": span[1] if span else None,
         })
@@ -180,11 +285,12 @@ def store(conn, page_id: str, res: dict) -> None:
         conn.execute(
             """INSERT INTO page_boxes
                (id, page_id, left_pct, top_pct, right_pct, bottom_pct,
-                n_sides, col_lo, col_hi, side_px, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                n_sides, col_lo, col_hi, side_px, needs_review, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (_sup.new_uuid(), page_id, b["left_pct"], b["top_pct"],
              b["right_pct"], b["bottom_pct"], b["n_sides"],
-             b["col_lo"], b["col_hi"], b.get("side_px"), now))
+             b["col_lo"], b["col_hi"], b.get("side_px"),
+             b.get("needs_review", 0), now))
     conn.commit()
 
 

@@ -599,6 +599,28 @@ Smithson Motor Sales does remain genuinely incomplete in Tesseract's
 output. See §5k — pixel-level rule detection is the route there, and
 Tesseract config tuning is ruled out.
 
+**Boxes may NEST or be disjoint — never straddle.** Fraser's price rows
+were being drawn from the column gutter at x 49.13 while Fraser's own box
+starts at 61.89, so every row crossed both its container and the gutter.
+Larger boxes are accepted first, so anything crossing an accepted box is
+the bad one and is dropped. p8: 70 boxes → 48.
+
+**A three-sided box can be closed, but only with a barrier, and it is
+marked for review.** The PLEXIGLASS ad has a head and two verticals but
+no printed foot, with the top of the next box immediately below. Two
+conditions must both hold: the verticals are a genuine PAIR (both ends
+agree within `PAIR_MATCH_PCT`, i.e. drawn as the sides of one box), and a
+BARRIER sits below within `BARRIER_GAP_PCT` — another rule or an
+established box. Without a barrier there is nothing to say where the box
+ends and the foot would be invention. Such a box gets `n_sides = 3` and
+**`needs_review = 1`**, so a later LLM pass confirms or rejects it rather
+than inheriting a guess dressed as a measurement. 17 across the corpus.
+
+Note PLEXIGLASS itself does NOT come through this path: its left "side"
+is a long column rule running y 29.70–95.40, not a matched pair with the
+right side at y 29.67–45.62. It is closed by the main pass using the next
+box's head. Worth knowing before tuning `PAIR_MATCH_PCT`.
+
 **`n_sides` is recorded, never filtered on at write time.** 4-sided boxes
 are near-perfect; 2-sided ones are where only a top and bottom were
 reported. The consumer chooses.

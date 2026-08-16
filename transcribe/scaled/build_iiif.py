@@ -226,7 +226,9 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
         # Tesseract only reported a top and bottom rule. Both are kept --
         # the consumer chooses, this stage does not throw any away.
         res = _detect_boxes.detect(conn, page_id)
-        for label, want in (("4 sides", 4), ("3 sides", 3), ("2 sides", 2)):
+        for label, want in (("4 sides, printed", 4),
+                            ("3 sides, foot inferred — REVIEW", 3),
+                            ("2 sides", 2)):
             boxes = [b for b in res["boxes"] if b["n_sides"] == want]
             if not boxes:
                 continue
@@ -242,6 +244,8 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
                       detail=f"{b['left_pct']}%-{b['right_pct']}% x "
                              f"{b['top_pct']}%-{b['bottom_pct']}% · "
                              f"{b['n_sides']} sides"
+                             + (" · FOOT INFERRED, needs review"
+                                if b.get("needs_review") else "")
                              + (f" · columns {b['col_lo']}-{b['col_hi']}"
                                 if b["col_lo"] is not None else ""))
                 for i, b in enumerate(boxes)]))

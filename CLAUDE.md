@@ -99,8 +99,14 @@ that.
     Page-edge verticals excluded as scan artefacts. ~9.6 boxes/page.
     **Containment matching was tried and REVERTED** (20.8/page, overlapping
     rectangles cutting across text on p6) — do not reintroduce it.
-    **Judge by rendering, not the `display_ad` metric** (it counts notices
-    and tenders as false positives). The vertical list MUST stay sorted by x — the pair loop
+    **Boxes NEST or are disjoint, never straddle** — inner boxes crossing
+    their container and the column gutter was a real defect (p8: 70 -> 48
+    boxes once crossings are dropped). A **three-sided box can be closed**
+    when its verticals are a matched pair AND a barrier sits below, but it
+    is marked `n_sides=3, needs_review=1` for an LLM pass to confirm —
+    never presented as measured. **Judge by rendering, not the
+    `display_ad` metric** (it counts notices and tenders as false
+    positives). The vertical list MUST stay sorted by x — the pair loop
     requires `vr.x - vl.x >= MIN_WIDTH`, and SQLite returns rows
     unordered, so an unsorted list silently skipped every pair whose left
     rule happened to be listed second. That alone was hiding CENTENNIAL
