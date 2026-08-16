@@ -9,7 +9,7 @@ The pipeline, in the order it actually runs:
 
 The separators are used RAW. `rules.py` cleans them -- dropping conjoined
 regions, rejoining fragments -- and that cleaning is NOT applied here, on
-measurement: across 90 pages it gives 256 zones against 273, worse on 15
+measurement: across 90 pages it gives 259 zones against 276, worse on 15
 pages and better on 10, and on p13 it loses the Sidewalk Sale. It was
 built for the rule-pairing detector, where a fragment broke the pair; the
 corner derivation wants rule ENDS, and merging fragments removes them.

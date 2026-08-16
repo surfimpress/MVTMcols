@@ -11,11 +11,11 @@ evidence. Each cell is shaded by HOW MANY perimeters pass through it, so
 a cell where several items share an edge reads darker than a cell crossed
 by one.
 
-Shadow-derived separators are removed in a FIRST PASS, before anything is
-drawn, and are shown separately so the removal itself can be checked
-rather than trusted. The binding gutter and sheet edge come back from
-Tesseract as long thin regions hard against the page edge, and they are
-not printing.
+Rim slivers are removed by STAGE 1B (`sliver_pass`) before anything is
+drawn, and every removal is filled in bright red so the pass can be judged
+by eye rather than trusted. The verdicts come from that module -- this
+view holds no copy of the rules, so it cannot drift from the pass it
+exists to check.
 
 Usage::
 
@@ -117,93 +117,6 @@ def build(conn, page_id: str):
             if owner[y][x] is None or i["kind"] == "ocr_photo":
                 owner[y][x] = i["kind"]
     return counts, owner, kept, shadows, n_cols, n_rows, cw, chh
-
-
-# A scan shadow is a SLIVER AT AN EDGE. Both conditions are needed and
-# neither works alone, measured on 1980-04-06 p4:
-#
-#   item                       min dim   edge dist
-#   photo  x  0.00- 2.34         4.7      0.0      shadow
-#   photo  x 96.32-100.00        7.4      0.0      shadow
-#   sep    x  1.13- 2.32         2.4      4.6      shadow
-#   sep    x 81.17-81.50         0.7     37.0      a REAL column rule
-#
-# Proximity alone keeps the 1.13-2.32 shadow (it is 4.6 cells in, past a
-# 4-cell band). Thinness alone kills the real column rule, which is
-# thinner than any of them. Together they separate cleanly.
-THIN_CELLS = 8.0
-EDGE_BAND_CELLS = 8.0
-
-
-MIN_AGREE = 2
-
-
-def _agreement(i, others, cw, chh, vertical):
-    """How many other items share this sliver's position on its long axis.
-
-    A vertical sliver is asked about x, a horizontal one about y, and
-    either of its two edges may be the one that matches -- a rule sitting
-    in a gutter has the column to its left ending on it and the column to
-    its right starting on it.
-    """
-    tol = cw if vertical else chh
-    a1, a2 = (i["L"], i["R"]) if vertical else (i["T"], i["B"])
-    n = 0
-    for j in others:
-        if j is i:
-            continue
-        b1, b2 = (j["L"], j["R"]) if vertical else (j["T"], j["B"])
-        if min(abs(b1 - a1), abs(b2 - a2),
-               abs(b1 - a2), abs(b2 - a1)) <= tol:
-            n += 1
-    return n
-
-
-def _is_shadow(i, cw, chh, others=()):
-    """A scan shadow: a sliver lying ALONG a page edge.
-
-    The edge tested is the one the sliver runs PARALLEL to, which is the
-    only one it can be hugging. A binding shadow or a sheet edge lies
-    along the edge it came from; it does not cross the page.
-
-    Taking the nearest edge in any direction instead was wrong, and
-    1990-10-10 p5 showed it: a full-width horizontal rule at y 43.39-43.67
-    spanning x 35.15-96.18 was dropped because its right END reaches
-    within 7.6 cells of the right margin. It is 122 cells long, sits in
-    the middle of the page, and is printing. Three of the eight items
-    dropped on that page were this mistake, all perpendicular to the edge
-    they were charged against.
-
-    Separators and photos only. A block with words is real type, and the
-    same test applied to blocks drops 664 of 8,969 corpus-wide -- narrow
-    real columns, not artefacts.
-    """
-    if i["kind"] not in ("ocr_separator", "ocr_photo"):
-        return False
-    w, h = (i["R"] - i["L"]) / cw, (i["B"] - i["T"]) / chh
-    if min(w, h) > THIN_CELLS:
-        return False
-    vertical = h >= w
-    if vertical:
-        edge = min(i["L"] / cw, (100 - i["R"]) / cw)
-    else:
-        edge = min(i["T"] / chh, (100 - i["B"]) / chh)
-    if edge > EDGE_BAND_CELLS:
-        return False
-    # AND NOTHING AGREES WITH IT.
-    #
-    # Thin-and-near-an-edge alone drops real printing: the page margin is
-    # 7-9 cells, so the band unavoidably reaches the content edge, and a
-    # box border sitting ON that edge looks exactly like a shadow.
-    # Measured, 244 of 773 items it dropped lay wholly INSIDE the content
-    # area -- 32% false positives. 1990-10-10 p5's left panel border
-    # (x 3.92-4.40, 19x5197px, the full height of the panel) was one.
-    #
-    # A shadow is corroborated by nothing; printing is corroborated by the
-    # column it belongs to. On that page the panel border agrees with 15
-    # other items, the right-hand rule with 11, and the true binding
-    # shadow at x 99.11-99.31 with none.
-    return _agreement(i, others, cw, chh, vertical) < MIN_AGREE
 
 
 def render(counts, owner, kept, shadows, n_cols, n_rows, cw, chh,

@@ -51,17 +51,33 @@ that.
     cells, set by two full-width blocks that corroborate each other).
     View it with `experiments/block_grid.py`.
   - **Stage 1c is the PAGE CONTENT AREA** (`detect_content_area.py`),
-    and it runs BEFORE columns. It owns `pages.content_left_pct`/
-    `content_right_pct`/`content_top_pct`/`content_bottom_pct`, and stage
-    2 takes its span from here rather than re-deriving one. **Why it's a
-    separate step:** the fitter used to take its bounds from block-edge
-    extremes, so a single sheet-edge artefact anchored the lattice to the
-    physical page edge — `text_left` was 0.00% on many pages, up to 7.2%
-    off, displacing every column. Now col 0's left is within 1% of the
-    content left on 100% of pages. Uses text LINES with >=2 words.
-    **Left/right are CLUSTERS, top/bottom are EXTREMES** — body text is
-    flush left so hundreds of lines share an x; taking the minimum is what
-    caused the bug. Stage 3 delegates its top/bottom here.
+    and it runs BEFORE columns. It **owns** `pages.content_left_pct`/
+    `content_right_pct`/`content_top_pct`/`content_bottom_pct` — one
+    owner, one writer, checked: `detect_hlines.store()` used to overwrite
+    the top/bottom and stage 3 runs later, so **84 of 90 pages held a
+    stored top stage 1c never produced**. That write is gone; stage 3
+    now READS.
+    **Rebuilt 2026-08-16, see `scaled_pipeline.md` §5s.** The stored box
+    is: stage 1b removes rim slivers → **left/right by AGREEMENT** among
+    the survivors, **top/bottom by EXTREME** (left/right sit on the column
+    grid and agree, 68-80% of items; vertical position is not quantised
+    and does not, 39-47%) → **OUTER PERIMETER** of that and the old
+    line-derived box, so an edge need only be found by one of them →
+    **every margin floored at 4 cells**. The floor is what makes the union
+    safe on y, where the outer box otherwise ran to the foot of the sheet;
+    it fires on bottom 42 pages, top 37, left 21, right 17. Margins median
+    L6.1 R6.6 T5.6 B5.6 cells, minimum 4.0 everywhere. Items of all types
+    outside the box 14.5% → 5.7%.
+    **Why it's a separate step:** the fitter used to take its bounds from
+    block-edge extremes, so a single sheet-edge artefact anchored the
+    lattice to the physical page edge — `text_left` was 0.00% on many
+    pages, up to 7.2% off.
+    **WHAT ACTUALLY CONSUMES IT: only `separator_grid._within_content`,
+    feeding zones.** `detect_grid` does NOT read it, contrary to what this
+    file said until 2026-08-16 — verified by grep and by dry run (column
+    counts identical on all 90 pages, no edge moving 0.01 cells). The
+    older line derivation (`content_box`, clusters on x, extremes on y)
+    is still one of the union's two inputs and still an IIIF layer.
   - **Stage 2 is COLUMNS — ONE pass** (`detect_grid.py`). Per
     `instructions/typesetting_practice.md`, fit a few numbers (margin,
     column width, gutter, count) rather than discover boundaries. Two
@@ -113,10 +129,10 @@ that.
   - **Stage 2b is `detect_zones`** — boxed zones FROM THE GRID:
     Tesseract separators RAW -> `separator_grid` (square cells, corners)
     -> `ad_rectangles` (one predicate) -> content. Schema v20
-    `page_zones`, 273 zones over 90 pages. **`rules.py` is NOT in this
+    `page_zones`, 276 zones over 90 pages. **`rules.py` is NOT in this
     path** — its conjoined-dropping and fragment-rejoining were built for
     the rule-PAIRING detector, and measured against the corner
-    derivation they give 256 zones against 273, worse on 15 pages and
+    derivation they give 259 zones against 276, worse on 15 pages and
     better on 10, losing p13's Sidewalk Sale. `build()` defaults
     `clean=False`; `--clean` is a diagnostic. Three docs claimed
     otherwise and were wrong.

@@ -271,29 +271,21 @@ def content_box_blocks(conn, page_id: str) -> dict:
     94.08% -- half the page excluded. A BLOCK's bbox already spans its own
     ragged lines, so raggedness never has to be modelled.
 
-    PHOTOS COUNT, IF THEY ARE BIG ENOUGH. On a photo page they are most
-    of the content: 1980-04-06 p3 carries two photos spanning y 2.11-23.24
-    and 2.45-25.92 above its first text block, and text blocks alone put
-    the content top at 22.44% -- a fifth of the way down a page whose
-    content starts at 2.11%. But photo regions are also where the binding
-    shadow ends up (2001-01-03 p5: an ocr_photo at x 98.17-100.00 spanning
-    y 0.02-100.00), so they are admitted only at MIN_PHOTO_CELLS on both
-    axes. A real photo is a substantial rectangle and a shadow is a
-    sliver.
-
-    RULES ARE NOT USED, only validated against. A separator is thin by
-    nature, so the sliver test that separates real photos from shadows
-    cannot separate real rules from them.
+    EVERY SURVIVING ITEM TYPE COUNTS -- blocks, photos and rules alike.
+    On a photo page the photos ARE the content: 1980-04-06 p3 carries two
+    spanning y 2.11-23.24 and 2.45-25.92 above its first text block, and
+    text blocks alone put the content top at 22.44%, a fifth of the way
+    down a page whose content starts at 2.11%. No per-type rule is needed
+    and none is used, because stage 1b has already removed the artefacts
+    that made photos and rules untrustworthy -- an earlier version of this
+    module carried its own photo size test for exactly that reason, and it
+    became redundant when the sliver pass took the job.
 
     MEASURED against the line derivation, 90 pages:
 
         derivation             outside   p12 right edge   p3 top
         lines                    14.5%       49.93% wrong   22.44% wrong
-        blocks, no photos         7.8%       94.08% right   22.44% wrong
-        blocks + photos >=8       4.7%       94.08% right    2.11% right
-
-    The margins come out about 2 cells tighter, which is expected rather
-    than wrong: a block's bbox is at least as wide as the lines inside it.
+        this one (union+floor)    5.7%       94.08% right    2.11% right
     """
     cw, chh = _sup.cell_size(conn, page_id)
     every = _sliver.items_of(conn, page_id)

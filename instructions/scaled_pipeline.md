@@ -301,6 +301,14 @@ physical page edge instead of the type. Measured over 90 pages:
 After: column 0's left edge is within 1% of the content left on **100%**
 of pages (median 0.30%), none beyond 3%.
 
+**SUPERSEDED 2026-08-16 — the derivation described below is no longer
+what is stored. See §5s.** The line-based clustering is retained as one
+of the two inputs to the union, and as an IIIF reference layer, but it
+failed on ragged right edges (1994-01-05 p12 reported a right edge of
+49.93% on a page whose text runs to 94.08%) and it cannot see photos
+(1980-04-06 p3's top read 22.44% with two photos above it). The rest of
+this section describes that original derivation.
+
 **Lines, not blocks.** A block bbox can be inflated by an artefact swept
 into it; a line with ≥2 recognised words is a real run of type.
 
@@ -313,8 +321,21 @@ of lines actually start at. Taking the minimum is precisely what produced
 the 0.00% failures; a hanging indent or one overhanging headline must not
 be able to move the margin.
 
-Stage 3 no longer computes its own top/bottom — it delegates here, so two
-stages cannot disagree about where the page's content is.
+**CORRECTED 2026-08-16 — stage 3 did NOT delegate here.** This section
+used to claim it did. `detect_hlines.content_extent()` called
+`content_box` directly and `store()` wrote the result back over
+`pages.content_top_pct`/`content_bottom_pct`; since stage 3 runs after
+stage 1c, stage 3 won, and 84 of 90 pages carried a stored top stage 1c
+had never produced. Stage 3 now READS the stored value and writes nothing.
+
+**CORRECTED 2026-08-16 — stage 2 does NOT take its span from here.** This
+section implied it, and `detect_grid` contains no reference to
+`pages.content_*` at all. The only consumer is
+`separator_grid._within_content`, feeding zones. Verified by dry run: with
+a different content box written to a scratch copy, column counts are
+identical on all 90 pages and no column edge moves 0.01 cells. The
+"column 0 within 1% of the content left" figure above therefore measures
+an agreement between two independent derivations, not a dependency.
 
 ### 5f. Stage 2 — COLUMNS (one pass; pass 2 archived)
 
@@ -557,8 +578,8 @@ And it should stay off, on measurement across 90 pages:
 
 | | zones |
 |---|---|
-| raw separators (live) | **273** |
-| cleaned | 256 — worse on 15 pages, better on 10 |
+| raw separators (live) | **276** |
+| cleaned | 259 — worse on 15 pages, better on 10 |
 
 On p13 cleaning drops 8 → 7, losing the Sidewalk Sale, the very box
 `_merge_fragments` was written to rescue. The reason it reverses: that
@@ -594,7 +615,7 @@ carrying any text of its own can never trip it — and 13 geometric nestings
 do exist in the corpus. The flag proves nothing about the predicate. A
 real check would test the geometry directly.
 
-Schema v20 adds `page_zones`. 273 zones over 90 pages, 3.0/page.
+Schema v20 adds `page_zones`. 276 zones over 90 pages, 3.1/page.
 
 Archived: `archive/detect_boxes_pairing.py` (the pairing detector),
 `archive/corner_quadrilaterals.py` (the quadrilateral generator),
@@ -895,7 +916,9 @@ number. Corpus: 4,082 alignments over 90 pages, median 47/page.
 renderer, tiered layers in the manifest). Picking a cutoff at write time
 would destroy signal a later stage needs.
 
-**Content extent.** `content_top_pct` / `content_bottom_pct` come from
+**Content extent.** `content_top_pct` / `content_bottom_pct` are READ
+from stage 1c and no longer written here — see §5s. Originally they came
+from
 text LINES, not blocks, ignoring the outer 1.5% margins and requiring
 ≥2 words per line. That last rule was forced by a real case: 1997-07-16
 p4 reported a content top of 0.46% from a single one-word line reading
@@ -1403,7 +1426,7 @@ There are four, and they are independent for stated reasons:
 | check | why it is independent |
 |---|---|
 | Horizontal rule endpoints vs column edges | horizontal rules take NO part in the column fit; currently 52% land within 1% of an edge against a 21% control |
-| `items.item_type='display_ad'` | produced by the OCR+LLM route from the page IMAGE; separators and corners contribute nothing to it. Covers **83 of 90 pages, 256 of 273 zones, 359 ad labels** |
+| `items.item_type='display_ad'` | produced by the OCR+LLM route from the page IMAGE; separators and corners contribute nothing to it. Covers **83 of 90 pages, 259 of 276 zones, 359 ad labels** |
 | `experiments/confirm_boxes_ccl.py` | connected-component labelling of the rule raster — a different algorithm on the same ink |
 | Rendering the page | the only one that has ever caught a real regression here (§5z) |
 
@@ -1463,7 +1486,7 @@ for exactly this: detectors that discover structure from weak signals and
 then grade their own trustworthiness certify themselves every time. Emit
 the evidence per zone and let the decision be a stated rule.
 
-**Independent check.** `items.item_type='display_ad'`, on the 256 zones
+**Independent check.** `items.item_type='display_ad'`, on the 259 zones
 that have it. This is a real label from a different route reading the
 image. Report precision AND recall — §5c is the record of a metric that
 scored a visibly wrong page 0.853 by measuring only precision.

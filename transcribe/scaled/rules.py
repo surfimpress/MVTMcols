@@ -7,8 +7,8 @@ comparison.
 
 MEASURED, 90 pages, corner-derived zones:
 
-    raw separators (live)   273 zones
-    cleaned                 256 zones      worse on 15 pages, better on 10
+    raw separators (live)   276 zones
+    cleaned                 259 zones      worse on 15 pages, better on 10
 
 On 1980-04-06 p13 cleaning drops the count 8 -> 7, and the box it loses is
 the Sidewalk Sale -- the very box `_merge_fragments` was written to

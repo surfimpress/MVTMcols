@@ -838,30 +838,47 @@ and takes its verdicts from this module.
 ### 23. Page content area (stage 1c)
 
 **File:** `transcribe/scaled/detect_content_area.py`
-**DPI:** n/a — reads `page_hocr_lines`
+**DPI:** n/a — reads stage 1b's survivors, plus `page_hocr_lines`
 
 **What:** Owns `pages.content_left_pct` / `content_right_pct` /
 `content_top_pct` / `content_bottom_pct` — where the type actually starts
-and stops, as distinct from the sheet edge.
+and stops, as distinct from the sheet edge. **One owner, one writer:**
+`detect_hlines.store()` used to overwrite the top and bottom, and stage 3
+runs after stage 1c, so 84 of 90 pages carried a stored top stage 1c had
+never produced. That write is removed and stage 3 now reads.
 
-**Signal:** Text LINES with >=2 words. **Left and right are CLUSTERS,
-top and bottom are EXTREMES** — body text is flush left, so hundreds of
-lines share an x and the cluster is the margin; vertically there is no
-such repetition, so the outermost line is the bound. A rim guard requires
-a cluster bin to hold >=2 lines before it can define an edge.
+**Signal:** Four steps (rebuilt 2026-08-16, see `scaled_pipeline.md` §5s).
+Stage 1b removes the rim slivers; **left and right come from AGREEMENT**
+among the survivors while **top and bottom come from their EXTREME** —
+because left/right edges sit on the column grid and agree for 68-80% of
+items, while vertical position is not quantised and agrees for only
+39-47%; the **OUTER PERIMETER** of that box and the older line-derived box
+is taken, so an edge need only be found by one of them; and **every margin
+is floored at 4 cells**.
 
-**Effectiveness:** Column 0's left edge now lands within 1% of the content
-left on 100% of pages. Before this stage existed the fitter took its
-bounds from block-edge extremes, so one sheet-edge artefact anchored the
-lattice to the physical page and displaced every column — `text_left` read
-0.00% on many pages, up to 7.2% off.
+**Effectiveness:** Items of all types falling outside the box 14.5% ->
+5.7%. Content width minimum 47.55% -> 78.78%. Margins median L6.1 R6.6
+T5.6 B5.6 cells, minimum 4.0 on every edge. Four known failures fixed:
+1980-04-06 p3 top 22.44% -> 2.11% (photos above the text), p7 top 93.10%
+-> 1.77%, 1994-01-05 p12 right 49.93% -> 94.08% (ragged right edges),
+1990-10-10 p15 right 83.32% -> 96.99%.
 
-**What it lacks:** The vertical bounds remain extremes, so a single stray
-line still moves them; the >=2-word rule is what makes that tolerable
-rather than a real fix.
+**What it lacks:** The margin floor is doing real work rather than being a
+belt-and-braces guard — it fires on 42 pages at the bottom, 37 at the top,
+21 left, 17 right. Where it fires, the derived edge was wrong and the
+floor is masking that rather than fixing it. One known cause: a BLOCK
+bbox can have the binding shadow swept into it, and blocks are never
+sliver candidates (1990-10-10 p15's left was 0.4 cells, set by two
+full-width blocks that corroborate each other). The `sanity` field
+reports implausible margins but its band was calibrated on the older
+line derivation's statistics, which exclude photos, so it is not an
+independent check.
 
-**Production suitability:** Keep — canonical for the scaled track. Stage 2
-takes its span from here and stage 3 delegates its top/bottom here.
+**Production suitability:** Keep — canonical for the scaled track. **Only
+`separator_grid._within_content` consumes the rectangle**, feeding zones;
+`detect_grid` does NOT read it, contrary to what this document said until
+2026-08-16 (verified by grep and by dry run — column counts identical on
+all 90 pages).
 
 ---
 
@@ -1024,7 +1041,7 @@ alignments are stored and filtering is the caller's business.
 | 20 | hOCR layout-signal recovery (`transcribe/scaled/hocr_parse.py`) | **Keep — free signal** | Recovers `ocr_separator`/`ocr_photo` regions, per-line `x_size`, and Tesseract's own `ocr_header`/`ocr_caption`/`ocr_textfloat` classes that `ocr_llm.parse_hocr()` discards. Zero OCR, zero LLM — the .hocr files are already on disk |
 | 21 | hOCR column detection (`transcribe/scaled/detect_columns.py`) | **Experimental — negative on 1980+** | Three independent signals (vertical separators, left-edge clustering, coverage valleys) + a precision×recall confidence. Works where a printed grid exists; **97.8% escalation on 1980+ because that era is modular, not columnar**. See `instructions/scaled_pipeline.md` |
 | 22 | Rim slivers (`scaled/sliver_pass.py`) | **Keep — canonical** | Stage 1b, before everything. Three tiers: wholly inside the 4-cell rim; past it but nothing aligns; rim pulled in where content intrudes. 537 removed/90 pages, 5.6% false-positive proxy against 31.6% for the band test it replaces |
-| 23 | Page content area (`scaled/detect_content_area.py`) | **Keep — canonical** | Stage 1c, runs BEFORE columns. Left/right are clusters, top/bottom extremes. Col 0 within 1% of content left on 100% of pages |
+| 23 | Page content area (`scaled/detect_content_area.py`) | **Keep — canonical** | Stage 1c. Outer perimeter of the agreement and line derivations, every margin floored at 4 cells. Items outside the box 14.5% -> 5.7%. Only `separator_grid` consumes it — NOT `detect_grid` |
 | 24 | Column lattice fit (`scaled/detect_grid.py`) | **Keep — canonical** | Stage 2. Fits margin/width/gutter/count as parameters, so the gutter is constant down the page by construction. Median gutter 0.48%. Known contamination: 30% of blocks sit inside a display ad |
 | 25 | Boxed zones from rule corners (`scaled/detect_zones.py`) | **Keep — canonical** | Stage 2b. ONE predicate (no corner may interrupt a side) replaced six thresholds; membership not centroid distance; crossing rectangles forbidden. 273 zones/90 pages, judged by rendering not by metric |
 | 26 | Photo + caption pairing (`scaled/detect_captions.py`) | **Keep** | Stage 2c. Geometry decides, Tesseract's `ocr_caption` corroborates only. 45% of photos captioned |
@@ -1423,3 +1440,9 @@ auditable.
   renumbered the scaled track's remaining entries. It removes the binding
   gutter and sheet edge before any other stage reads Tesseract's regions,
   which previously each consumer solved locally and differently.
+
+- **2026-08-16** — #23 (page content area) rewritten: the derivation is now
+  the outer perimeter of the agreement and line boxes with a 4-cell margin
+  floor, not line clusters. Corrected two standing errors in this file —
+  `detect_grid` does not read the content rectangle, and stage 3 does not
+  delegate its top/bottom to stage 1c (it was overwriting them).
