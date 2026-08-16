@@ -125,7 +125,7 @@ VARIANTS = {
 # the pipeline: Tesseract (raw) -> Columns -> Items -> Refined. Items and
 # Refined are not built yet; the viewer shows them disabled rather than
 # pretending they exist.
-DERIVED = ("grid", "hlines", "boxes", "separators", "photos")
+DERIVED = ("grid", "hlines", "boxes", "captions", "separators", "photos")
 
 
 def _derived_layers(conn, page_id, cid, W, H, variant):
@@ -159,6 +159,56 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
         if res.get("low_evidence"):
             label += f" · LOW EVIDENCE ({res['n_lines']} text lines)"
         out.append((label, boxes))
+    if variant == "captions":
+        # Stage 2c: a photo and its caption are ONE editorial unit, so the
+        # combined rectangle is the headline layer here -- the photo and
+        # caption boxes are offered separately underneath for checking
+        # where the join landed.
+        res = _detect_captions.detect(conn, page_id)
+        units, photos, caps, orphans = [], [], [], []
+        for i, pr in enumerate(res["pairs"]):
+            p_, c = pr["photo"], pr["caption"]
+            px0, px1 = _sup.pct_to_px(p_["L"], W), _sup.pct_to_px(p_["R"], W)
+            py0, py1 = _sup.pct_to_px(p_["T"], H), _sup.pct_to_px(p_["B"], H)
+            if not c:
+                orphans.append(_anno(
+                    f"{cid}/anno/cap/orphan/{i}", cid, px0, py0,
+                    max(1, px1 - px0), max(1, py1 - py0), "",
+                    f"photo {i}", kind="photo, no caption found",
+                    detail=f"{p_['L']:.2f}%-{p_['R']:.2f}% x "
+                           f"{p_['T']:.2f}%-{p_['B']:.2f}%"))
+                continue
+            cx0, cx1 = _sup.pct_to_px(c["left_pct"], W), _sup.pct_to_px(c["right_pct"], W)
+            cy0, cy1 = _sup.pct_to_px(c["top_pct"], H), _sup.pct_to_px(c["bottom_pct"], H)
+            ux0, uy0 = min(px0, cx0), min(py0, cy0)
+            ux1, uy1 = max(px1, cx1), max(py1, cy1)
+            legs = (f", {c['n_runs']} legs" if c["n_runs"] > 1 else "")
+            units.append(_anno(
+                f"{cid}/anno/cap/unit/{i}", cid, ux0, uy0,
+                max(1, ux1 - ux0), max(1, uy1 - uy0), "",
+                f"photo + caption {i}", kind="photo + caption",
+                detail=f"{c['n_lines']} caption lines{legs}"
+                       + (" · Tesseract tagged ocr_caption"
+                          if c["tesseract_caption"] else "")
+                       + " — " + (c["text"][:180] or "")))
+            photos.append(_anno(
+                f"{cid}/anno/cap/photo/{i}", cid, px0, py0,
+                max(1, px1 - px0), max(1, py1 - py0), "",
+                f"photo {i}", kind="photo",
+                detail=f"{p_['L']:.2f}%-{p_['R']:.2f}% x "
+                       f"{p_['T']:.2f}%-{p_['B']:.2f}%"))
+            caps.append(_anno(
+                f"{cid}/anno/cap/text/{i}", cid, cx0, cy0,
+                max(1, cx1 - cx0), max(1, cy1 - cy0), "",
+                f"caption {i}", kind="caption",
+                detail=f"{c['n_lines']} lines{legs} — " + (c["text"][:180] or "")))
+        for label, boxes in (("Photo + caption units", units),
+                             ("Photos", photos),
+                             ("Captions", caps),
+                             ("Photos with NO caption found", orphans)):
+            if boxes:
+                out.append((f"{label} ({len(boxes)})", boxes))
+
     if variant == "photos":
         # Tesseract's ocr_photo regions on their own. Split into the ones
         # that survive the size/edge filter and the ones that don't:
@@ -434,6 +484,7 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
             "boxes": "stage 2b: boxed zones",
             "separators": "stage 1: raw ocr_separator rules",
             "photos": "stage 1: raw ocr_photo regions",
+            "captions": "stage 2c: photos with captions",
         }.get(variant, variant)]},
         "summary": {"en": [
             "Unmodified Tesseract hOCR rendered as IIIF annotation layers, "
