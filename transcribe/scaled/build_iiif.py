@@ -35,6 +35,7 @@ from . import detect_hlines as _detect_hlines
 from . import detect_content_area as _detect_content_area
 from . import detect_boxes as _detect_boxes
 from .experiments import separator_grid as _sepgrid
+from .experiments import ad_rectangles as _adrects
 from . import detect_captions as _detect_captions
 
 # The repo root is served here (behind Cloudflare Access -- a browser
@@ -210,12 +211,16 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
         cw = _sepgrid.CELL_PCT
         chh = cw / (H / W)
 
+        # ad_rectangles works in CELLS throughout -- one predicate, no
+        # corner-quadruple enumeration and none of the percent-threshold
+        # filters it used to need (archived: archive/percent_box_filters.py).
         pts = _sepgrid.corner_points(junction, crossing, n_cols, n_rows)
-        boxes = _sepgrid.drop_gutters(
-            _sepgrid.merge_double_rules(
-                _sepgrid.boxes_from_corners(pts, counts, n_cols, n_rows),
-                cw, chh),
-            cw, chh)
+        gut_c, edge_c = _sepgrid._gutter_centres(conn, page_id, cw, chh)
+        boxes = [(b["T"], b["L"], b["B"], b["R"]) for b in
+                 _adrects.ad_rectangles([(q[1], q[0]) for q in pts],
+                                        gut_c + edge_c,
+                                        _sepgrid._photo_units(conn, page_id,
+                                                              cw, chh))]
 
         if boxes:
             out.append((f"Boxes from corners ({len(boxes)})", [
