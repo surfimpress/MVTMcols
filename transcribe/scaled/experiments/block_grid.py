@@ -39,7 +39,8 @@ OUT_DIR = os.path.join(_sup.REPO_ROOT, "preview", "scaled", "grids")
 BLOCK = (10, 90, 200)        # ocr_carea perimeter
 PHOTO = (224, 120, 0)        # ocr_photo perimeter
 RULE = (0, 0, 0)             # separator kept
-SHADOW = (200, 30, 40)       # separator removed as a scan shadow
+SHADOW = (255, 25, 25)       # removed as a sliver -- drawn FILLED, see below
+SHADOW_MIN_PX = 3            # a sliver is thinner than a pixel at this scale
 STEP_DARK = 0.34             # each perimeter through a cell adds this much
 
 
@@ -236,13 +237,19 @@ def render(counts, owner, kept, shadows, n_cols, n_rows, cw, chh,
                      max(i["R"] / cw * cell, i["L"] / cw * cell + 1),
                      max(i["B"] / chh * cell, i["T"] / chh * cell + 1)],
                     fill=RULE)
-    # Every removed shadow, whatever its type, outlined so the FIRST PASS
-    # can be judged rather than trusted.
+    # Every removed sliver, whatever its type, drawn FILLED so the FIRST
+    # PASS can be judged rather than trusted. Outlining them was too faint:
+    # a sliver is by definition thin, so at this scale its outline collapsed
+    # to a 2px hairline that read as a smudge. Filled, and floored at
+    # SHADOW_MIN_PX across, each removal is unmissable.
     for i in shadows:
-        d.rectangle([i["L"] / cw * cell, i["T"] / chh * cell,
-                     max(i["R"] / cw * cell, i["L"] / cw * cell + 1),
-                     max(i["B"] / chh * cell, i["T"] / chh * cell + 1)],
-                    outline=SHADOW, width=2)
+        x0, y0 = i["L"] / cw * cell, i["T"] / chh * cell
+        x1, y1 = i["R"] / cw * cell, i["B"] / chh * cell
+        if x1 - x0 < SHADOW_MIN_PX:
+            x1 = x0 + SHADOW_MIN_PX
+        if y1 - y0 < SHADOW_MIN_PX:
+            y1 = y0 + SHADOW_MIN_PX
+        d.rectangle([x0, y0, x1, y1], fill=SHADOW)
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     img.save(out_path)
