@@ -273,10 +273,27 @@ def content_box_blocks(conn, page_id: str) -> dict:
         return {"left": None, "right": None, "top": None, "bottom": None,
                 "n_items": len(items), "note": "too few items"}
 
+    # LEFT and RIGHT by AGREEMENT; TOP and BOTTOM by EXTREME.
+    #
+    # This asymmetry is not taste, it is the measurement in the block
+    # above: left and right edges agree for 68-80% of items because
+    # everything sits on the column grid, while top and bottom agree for
+    # only 39-47% because vertical position is not quantised (ads are sold
+    # by the column inch, see 5h).
+    #
+    # An earlier version required agreement on all four, ignoring the
+    # table it was written directly beneath, and it failed exactly where
+    # the table predicts. 1980-04-06 p7's survivor tops are 1.77, 2.28,
+    # 32.00, 32.98, 51.58 -- no two within a cell of each other until
+    # 93.10, so the content top came back as 93.10%: four percent from the
+    # bottom of the page.
+    #
+    # The extreme is safe here in a way it was not before stage 1b,
+    # because the slivers that used to set it have already been removed.
     left, nl = _agreed_edge(items, "L", True, cw)
     right, nr = _agreed_edge(items, "R", False, cw)
-    top, nt = _agreed_edge(items, "T", True, chh)
-    bottom, nb = _agreed_edge(items, "B", False, chh)
+    top, nt = round(min(i["T"] for i in items), 2), len(items)
+    bottom, nb = round(max(i["B"] for i in items), 2), len(items)
     if None in (left, right, top, bottom):
         return {"left": left, "right": right, "top": top, "bottom": bottom,
                 "n_items": len(items), "note": "an edge had no agreement"}
