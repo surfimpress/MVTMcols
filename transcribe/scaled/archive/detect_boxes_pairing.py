@@ -1,5 +1,26 @@
 """Stage 2b — BOXED ZONES: ruled rectangles on the page.
 
+ARCHIVED — superseded by `detect_zones`. Nothing imports this.
+
+It asked "is this a valid rectangle?", and the union of two stacked ads
+answers YES -- four ruled edges, because the side rules run continuously
+past both. So it produced bridges, gutter slivers and double-rule pairs,
+and each needed its own filter: aspect ratio, thin dimension, gap
+tolerance, twin collapse, double-rule merge, gutter drop. Six tuned
+thresholds, all cleaning up after the generator rather than fixing it.
+`detect_zones` asks instead whether any other CORNER interrupts a
+rectangle's sides, which rejects all three by construction.
+
+CARRIED FORWARD: the rule preprocessing, which was the real discovery
+here and is now `transcribe/scaled/rules.py` -- Tesseract both MERGES
+collinear rules from adjacent boxes and SPLITS single rules into
+fragments, and both must be undone before the ruling can be read.
+
+NOT CARRIED FORWARD: `n_sides` and the three-sided closure, which
+inferred a foot where none was printed. The corner map already carries
+that evidence, and an atomic rectangle needs no inferred edge.
+
+
 A boxed-off area is a deliberate landmark. Most are display ads, but
 notices, standing panels, indexes and feature boxes use the same device.
 Knowing where they are matters for its own sake, and because a box's

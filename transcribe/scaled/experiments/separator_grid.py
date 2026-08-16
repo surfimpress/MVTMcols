@@ -33,7 +33,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from .. import _support as _sup
 from . import ad_rectangles as _ads
-from .. import detect_boxes as _boxes
+from .. import rules as _boxes
 from .. import detect_captions as _captions
 
 OUT_DIR = os.path.join(_sup.REPO_ROOT, "preview", "scaled", "grids")
@@ -242,7 +242,7 @@ def build(conn, page_id: str, clean: bool = False):
 
     if clean:
         regions = [dict(r) for o in ("horizontal", "vertical")
-                   for r in _boxes._rules(conn, page_id, o)]
+                   for r in _boxes.rules_of(conn, page_id, o)]
     else:
         regions = [dict(r) for r in conn.execute(
             "SELECT left_pct L, top_pct T, right_pct R, bottom_pct B, "

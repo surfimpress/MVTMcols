@@ -113,7 +113,7 @@ import numpy as np
 from scipy import ndimage
 
 from .. import _support as _sup
-from .. import detect_boxes as _boxes
+from .. import rules as _boxes
 from .. import detect_grid as _grid
 
 GRID = 1000          # raster resolution; a rule is >=1px at this size
@@ -126,7 +126,7 @@ def enclosed_regions(conn, page_id: str, grid: int = GRID,
     """Bounding boxes of every area the rules enclose."""
     g = np.zeros((grid, grid), bool)
     for orient in ("horizontal", "vertical"):
-        for r in _boxes._rules(conn, page_id, orient):
+        for r in _boxes.rules_of(conn, page_id, orient):
             x0 = int(r["L"] / 100 * (grid - 1))
             x1 = int(r["R"] / 100 * (grid - 1))
             y0 = int(r["T"] / 100 * (grid - 1))

@@ -536,6 +536,42 @@ grocery ad's five product columns. Over-columned has become
 under-columned there; the page's evidence is dominated by one full-page
 ad. Verified by rendering, not by the fit number.
 
+### 5n. Stage 2b CONSOLIDATED — `detect_zones` (2026-08-16)
+
+Boxed zones now run from the grid, in one path:
+
+    Tesseract separators
+      -> rules.py          conjoined regions dropped, fragments rejoined
+      -> separator_grid     quantised onto SQUARE cells; corners resolved
+      -> ad_rectangles      rectangles, from corners alone
+      -> content            what each contains, and what that says
+
+**Carried forward** from the retired pairing detector, because it is about
+the RULES rather than the boxes: conjoined-region removal, fragment
+rejoining, the page-edge margin, the content-area filter. That
+preprocessing was the real discovery in `detect_boxes` and now lives in
+`transcribe/scaled/rules.py`.
+
+**Left behind with it:** the six geometric thresholds, and `n_sides` with
+its three-sided closure — which inferred a foot where none was printed.
+The corner map already carries that evidence.
+
+**Newly implemented, never wired in before: the CONTENT check.** Each zone
+records its blocks, lines, photos and column span, and carries advisory
+flags — `empty`, `pictorial`, `duplicate`, `encloses`. Geometry decides;
+content is evidence. Nothing is dropped on a content test: 28.8% of boxes
+hold no text block and many are pictorial ads, so an emptiness rule
+counting only text would delete them. Corpus: 53 `empty`, 14 `pictorial`,
+no duplicates and no enclosures — the last two being exactly what the
+corner predicate already prevents, so their absence is a live check that
+it is working.
+
+Schema v20 adds `page_zones`. 266 zones over 90 pages, 3.0/page.
+
+Archived: `archive/detect_boxes_pairing.py` (the pairing detector),
+`archive/corner_quadrilaterals.py` (the quadrilateral generator),
+`archive/percent_box_filters.py` (its two percent-unit filters).
+
 ### 5m. Rectangles from CORNERS ALONE — the derivation that stuck
 
 `transcribe/scaled/experiments/ad_rectangles.py`. Standalone: corner

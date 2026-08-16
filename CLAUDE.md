@@ -90,7 +90,20 @@ that.
     the ordering bugs that plagued the earlier detectors cannot arise.
     p13: 8 rectangles, the complete set. Two earlier generations are in
     `archive/corner_quadrilaterals.py` and `archive/percent_box_filters.py`.
-  - **Stage 2b is BOXED ZONES** (`detect_boxes.py`, `page_boxes` schema
+  - **Stage 2b is `detect_zones`** — boxed zones FROM THE GRID:
+    Tesseract separators -> `rules.py` (conjoined dropped, fragments
+    rejoined) -> `separator_grid` (square cells, corners) ->
+    `ad_rectangles` (one predicate) -> content. Schema v20 `page_zones`,
+    266 zones over 90 pages. Each zone carries its blocks/lines/photos,
+    column span, score and advisory flags (`empty`, `pictorial`,
+    `duplicate`, `encloses`) — **geometry decides, content is evidence,
+    nothing is dropped on a content test** (28.8% of boxes hold no text
+    block and many are pictorial ads). Corpus flags: 53 empty, 14
+    pictorial, ZERO duplicates or enclosures, which is a live check that
+    the corner predicate is doing its job. Three earlier generations are
+    archived: `detect_boxes_pairing`, `corner_quadrilaterals`,
+    `percent_box_filters`.
+  - **Superseded — old stage 2b (rule pairing)** (`detect_boxes.py`, `page_boxes` schema
     v18). Ruled rectangles — ads, notices, tenders, panels. Built from
     FOUR sides, allowing for three real properties of the print:
     **rounded corners** — sides stop 0.5–3.9% short of the join, which is
