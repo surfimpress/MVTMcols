@@ -114,8 +114,42 @@ Two corollaries worth holding onto:
   small number of parameters**, not clustering freely and scoring its
   confidence in each independent guess.
 
+## What the RULES tell you, and why not to "fix" them
+
+The ruling on the page is physical, laid down by a compositor, and reads
+correctly only if you ask what was done rather than what an OCR engine
+got wrong.
+
+- **A column rule is ONE continuous strip.** It runs the length of the
+  gutter and ads butt against it; it does not restart at each ad
+  boundary. So a separator spanning several stacked boxes is an accurate
+  reading, not a merge error. Attempting to break such a rule into
+  per-box segments invents gaps that were never in the ink — tried on
+  1980-04-06 p13, and it only destroyed real boxes.
+- **A double-ruled border is two rules with a set gap**, measured at
+  0.71–2.15% of page width (one to two picas) across 1980-04-06. It
+  reports as two concentric rectangles; the item extends to the OUTER.
+- **Rounded corners mean the sides never meet.** Measured inset 0.5% on a
+  plain box and 2.5–3.9% on an ornate one. A corner is therefore where
+  the two rules' AXES cross, not where their ends land.
+- **A drop shadow prints the shadowed sides heavier.** One box measured
+  28px on top against 48px at the bottom. Side weight is therefore
+  evidence about the design, never a consistency test.
+- **A fragmented rule** is one where something was pasted over it, or the
+  scan lost a stretch. Those pieces belong back together.
+
+The general rule: a surprising feature of the ruling is far more likely
+to be a production fact than an error, and "correcting" it removes real
+structure.
+
 ## Update history
 
+- **2026-08-15** — Added "What the RULES tell you", recording the print
+  facts behind the ruling: continuous column rules, double borders,
+  rounded corners, drop shadows, fragmented rules. Written after an
+  attempt to break a continuous column rule into per-box segments
+  regressed box detection — it was undoing something the compositor
+  actually did.
 - **2026-08-15** — Created. Written after the observation that the
   detection methodology had become far too complex for something this
   regular.
