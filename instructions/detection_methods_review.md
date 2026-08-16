@@ -802,7 +802,40 @@ page. Same DB, additive tables only. These run in the order given: the
 content area is established first, the column lattice is fitted inside it,
 and everything else builds up from that.
 
-### 22. Page content area (stage 1c)
+### 22. Rim slivers (stage 1b)
+
+**File:** `transcribe/scaled/sliver_pass.py`
+**DPI:** n/a — reads `page_hocr_regions`, `page_ocr_blocks`
+
+**What:** Removes the binding gutter and sheet edge, which Tesseract
+reports as `ocr_separator` and `ocr_photo` regions. Runs before the
+content area and before anything else that reads regions.
+
+**Signal:** Three tiers. A sliver wholly inside the outer 4-cell rim goes
+outright; one reaching past the rim goes only if nothing aligns with it;
+and the rim itself is pulled in per side wherever content blocks intrude,
+because that means the margin really is narrow. Two rules make it work —
+a sliver may not be corroborated by another sliver, and the edge tested is
+the one the sliver runs PARALLEL to.
+
+**Effectiveness:** 537 removed over 90 pages (419 separators, 118 photos).
+The false-positive proxy — removals lying wholly inside the content area —
+is 30 of 537, 5.6%, against 31.6% for the thin-and-near-an-edge test it
+replaces. Only 25 items were rescued by alignment, so tier 2 is doing real
+work rather than second-guessing tier 1.
+
+**What it lacks:** Blocks are never candidates, so a BLOCK bbox with the
+shadow swept into it survives. 1990-10-10 p15's content left is 0.4 cells,
+set by two full-width `ocr_carea` blocks whose left edge is the binding
+shadow — and they corroborate each other, so agreement passes them.
+
+**Production suitability:** Keep — canonical for the scaled track. Judge
+by `experiments/block_grid.py`, which renders every removal filled in red
+and takes its verdicts from this module.
+
+---
+
+### 23. Page content area (stage 1c)
 
 **File:** `transcribe/scaled/detect_content_area.py`
 **DPI:** n/a — reads `page_hocr_lines`
@@ -832,7 +865,7 @@ takes its span from here and stage 3 delegates its top/bottom here.
 
 ---
 
-### 23. Column lattice fit (stage 2)
+### 24. Column lattice fit (stage 2)
 
 **File:** `transcribe/scaled/detect_grid.py`
 **DPI:** n/a — reads `page_ocr_blocks`, `page_hocr_regions`
@@ -868,7 +901,7 @@ parametric.
 
 ---
 
-### 24. Boxed zones from rule corners (stage 2b)
+### 25. Boxed zones from rule corners (stage 2b)
 
 **File:** `transcribe/scaled/detect_zones.py`, deriving via
 `experiments/separator_grid.py` and `experiments/ad_rectangles.py`
@@ -907,7 +940,7 @@ archived (`detect_boxes_pairing`, `corner_quadrilaterals`,
 
 ---
 
-### 25. Photo + caption pairing (stage 2c)
+### 26. Photo + caption pairing (stage 2c)
 
 **File:** `transcribe/scaled/detect_captions.py`
 **DPI:** n/a — reads `page_hocr_regions`, `page_hocr_lines`
@@ -935,7 +968,7 @@ of the photo+caption rectangle, shared by the grid and the IIIF layer.
 
 ---
 
-### 26. Horizontal alignments (stage 3)
+### 27. Horizontal alignments (stage 3)
 
 **File:** `transcribe/scaled/detect_hlines.py`
 **DPI:** n/a
@@ -990,11 +1023,12 @@ alignments are stored and filtering is the caller's business.
 | 19 | Shared CV pre-processing artefact (`page_cv`) | **Keep** | Cleaned binary + shadow regions + ink projections, cached per page; consumed by `detect_ads` (#6) for CV reinforcement; Stage 3 (`page_profile` text-area edges) still pending |
 | 20 | hOCR layout-signal recovery (`transcribe/scaled/hocr_parse.py`) | **Keep — free signal** | Recovers `ocr_separator`/`ocr_photo` regions, per-line `x_size`, and Tesseract's own `ocr_header`/`ocr_caption`/`ocr_textfloat` classes that `ocr_llm.parse_hocr()` discards. Zero OCR, zero LLM — the .hocr files are already on disk |
 | 21 | hOCR column detection (`transcribe/scaled/detect_columns.py`) | **Experimental — negative on 1980+** | Three independent signals (vertical separators, left-edge clustering, coverage valleys) + a precision×recall confidence. Works where a printed grid exists; **97.8% escalation on 1980+ because that era is modular, not columnar**. See `instructions/scaled_pipeline.md` |
-| 22 | Page content area (`scaled/detect_content_area.py`) | **Keep — canonical** | Stage 1c, runs BEFORE columns. Left/right are clusters, top/bottom extremes. Col 0 within 1% of content left on 100% of pages |
-| 23 | Column lattice fit (`scaled/detect_grid.py`) | **Keep — canonical** | Stage 2. Fits margin/width/gutter/count as parameters, so the gutter is constant down the page by construction. Median gutter 0.48%. Known contamination: 30% of blocks sit inside a display ad |
-| 24 | Boxed zones from rule corners (`scaled/detect_zones.py`) | **Keep — canonical** | Stage 2b. ONE predicate (no corner may interrupt a side) replaced six thresholds; membership not centroid distance; crossing rectangles forbidden. 273 zones/90 pages, judged by rendering not by metric |
-| 25 | Photo + caption pairing (`scaled/detect_captions.py`) | **Keep** | Stage 2c. Geometry decides, Tesseract's `ocr_caption` corroborates only. 45% of photos captioned |
-| 26 | Horizontal alignments (`scaled/detect_hlines.py`) | **Keep** | Stage 3. LOCAL alignments with a column span, not page-wide bands — only 20 of 2,226 horizontal rules span 8+ columns |
+| 22 | Rim slivers (`scaled/sliver_pass.py`) | **Keep — canonical** | Stage 1b, before everything. Three tiers: wholly inside the 4-cell rim; past it but nothing aligns; rim pulled in where content intrudes. 537 removed/90 pages, 5.6% false-positive proxy against 31.6% for the band test it replaces |
+| 23 | Page content area (`scaled/detect_content_area.py`) | **Keep — canonical** | Stage 1c, runs BEFORE columns. Left/right are clusters, top/bottom extremes. Col 0 within 1% of content left on 100% of pages |
+| 24 | Column lattice fit (`scaled/detect_grid.py`) | **Keep — canonical** | Stage 2. Fits margin/width/gutter/count as parameters, so the gutter is constant down the page by construction. Median gutter 0.48%. Known contamination: 30% of blocks sit inside a display ad |
+| 25 | Boxed zones from rule corners (`scaled/detect_zones.py`) | **Keep — canonical** | Stage 2b. ONE predicate (no corner may interrupt a side) replaced six thresholds; membership not centroid distance; crossing rectangles forbidden. 273 zones/90 pages, judged by rendering not by metric |
+| 26 | Photo + caption pairing (`scaled/detect_captions.py`) | **Keep** | Stage 2c. Geometry decides, Tesseract's `ocr_caption` corroborates only. 45% of photos captioned |
+| 27 | Horizontal alignments (`scaled/detect_hlines.py`) | **Keep** | Stage 3. LOCAL alignments with a column span, not page-wide bands — only 20 of 2,226 horizontal rules span 8+ columns |
 
 ---
 
@@ -1384,3 +1418,8 @@ auditable.
   now closed and the summary table carries rows for all five. #24
   supersedes the rule-pairing detector, archived as
   `scaled/archive/detect_boxes_pairing.py`.
+
+- **2026-08-16** — Added #22, stage 1b rim slivers (`sliver_pass.py`), and
+  renumbered the scaled track's remaining entries. It removes the binding
+  gutter and sheet edge before any other stage reads Tesseract's regions,
+  which previously each consumer solved locally and differently.

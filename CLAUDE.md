@@ -30,6 +30,26 @@ that.
     of the coordinate and db helpers. Same DB (additive schema-v15 tables
     only), so results are comparable in one query. Delete the package and
     production is unaffected.
+  - **Stage 1b is SLIVERS AT THE RIM** (`sliver_pass.py`), and it runs
+    before everything else that reads Tesseract's regions. The binding
+    gutter and sheet edge come back as `ocr_separator` AND `ocr_photo`
+    (1980-04-06 p4 has a photo at x 0.00-2.34 spanning y 0.75-81.56 — a
+    full-height strip down the binding). Three tiers: a sliver **wholly
+    inside the outer 4-cell rim** goes outright; one **reaching past the
+    rim** goes only if nothing aligns with it; and **the rim is pulled in
+    per side wherever content blocks intrude**, because that means the
+    margin really is narrow. Two rules make it work — **a sliver may not
+    be corroborated by another sliver** (two shadows along one edge agree
+    perfectly), and **the edge tested is the one the sliver runs PARALLEL
+    to** (a shadow lies along its edge, it does not cross the page; taking
+    the nearest edge in any direction killed a 122-cell full-width rule on
+    1990-10-10 p5). Blocks are NEVER candidates. Measured: 537 removed
+    over 90 pages, and the false-positive proxy — removals landing inside
+    the content area — is **5.6% against 31.6%** for the band test it
+    replaces. **Known residual:** a BLOCK bbox can have the shadow swept
+    into it and is untouchable here (1990-10-10 p15's content left is 0.4
+    cells, set by two full-width blocks that corroborate each other).
+    View it with `experiments/block_grid.py`.
   - **Stage 1c is the PAGE CONTENT AREA** (`detect_content_area.py`),
     and it runs BEFORE columns. It owns `pages.content_left_pct`/
     `content_right_pct`/`content_top_pct`/`content_bottom_pct`, and stage

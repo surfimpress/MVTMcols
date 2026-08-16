@@ -1130,6 +1130,99 @@ uses a flat ±0.5 page-percent for its enclosure containment. It is an
 experiment, not in the live path, and is left alone deliberately rather
 than changed as a side effect of an unrelated pass.
 
+## 5r. Stage 1b — SLIVERS AT THE RIM (built 2026-08-16)
+
+`transcribe/scaled/sliver_pass.py`. Runs BEFORE the content area, and
+before anything else that reads Tesseract's regions. The binding gutter
+and the sheet edge come back as `ocr_separator` and `ocr_photo` regions,
+and they are not printing.
+
+**Why a dedicated pass and not a filter inside each consumer.** Every
+stage that reads regions has to deal with the same artefacts, and each one
+that solved it locally solved it differently and wrongly. The content area
+had a page-percent band, `separator_grid` has its own `_within_content`,
+and both were tuned against different pages.
+
+### Three tiers
+
+**TIER 1, SAFE.** A sliver lying WHOLLY inside the outer 4-cell rim is
+removed outright, no alignment test. Nothing is printed in the margin.
+409 of 537 removals.
+
+**TIER 2, CANDIDATE.** A sliver reaching past the rim is removed only if
+NOTHING ALIGNS with it. A real rule belongs to the column structure and
+something shares its position — the blocks that stop against it, the rules
+above and below it in the same gutter. 128 removals; only 25 items were
+rescued by alignment corpus-wide.
+
+**TIER 3, THE RIM MOVES.** Where content blocks intrude into the rim, the
+margin on that page really is narrow — a quirk of how the page was
+photographed — so the rim is pulled in per side to stop short of the
+outermost intruding block. The safe tier can then never remove anything at
+or beyond where content demonstrably starts. 54 of 90 pages have at least
+one side pulled in. `n_intruders` travels with the decision rather than
+being folded into a threshold.
+
+### Two rules that make it work
+
+**A SLIVER CANNOT BE CORROBORATED BY ANOTHER SLIVER.** Two shadows along
+the same edge agree with each other perfectly. 1980-04-06 p4's left shadow
+separator (x 1.13-2.32) was kept on "2 items align", and both vouchers
+were edge regions — one the binding shadow photo at x 0.00-2.34 spanning
+y 0.75-81.56. Rim slivers of any type are excluded from the alignment
+count.
+
+**THE EDGE TESTED IS THE ONE THE SLIVER RUNS PARALLEL TO.** A shadow lies
+ALONG the edge it came from; it does not cross the page. Taking the
+nearest edge in any direction dropped a full-width horizontal rule on
+1990-10-10 p5 (x 35.15-96.18 at y 43.39-43.67, 122 cells long, mid-page)
+because its right END reached the margin. Three of that page's eight
+removals were this mistake.
+
+### What is a candidate
+
+Separators, and photos that SIZE as slivers — one `THIN_CELLS` test covers
+both, so a photo wide enough to be a picture never enters the pass (568
+are classified "not a sliver"). **Blocks are never candidates:** a block
+with words is real type, and the same test applied to blocks would drop
+664 of 8,969.
+
+### Measured, 90 pages
+
+    removed                537   (419 separators + 118 photos)
+    tier 1                  409
+    tier 2                  128
+    rescued by alignment     25
+
+    removals lying wholly INSIDE the content area -- the false-positive
+    proxy -- 30 of 537, 5.6%. The thin-and-near-an-edge test it replaces
+    scored 244 of 773, 31.6%.
+
+That 5.6% is an UPPER bound: the survivors sit at x 0.15-0.40 and
+y 99.45-100.00, hard against the sheet, and count as "inside" only because
+the content box itself over-reaches on those pages.
+
+### Consumed by stage 1c
+
+`content_box_blocks` now takes `sliver_pass.survivors()` instead of its
+own band. Effect on the content area: margins L6.1 R6.7 T11.4 B10.0 cells,
+items outside the box 5.8%.
+
+**Open, and it is the residual failure.** A BLOCK bbox can have the shadow
+swept into it, and blocks are never sliver candidates. 1990-10-10 p15's
+content left is 0.21% — 0.4 cells — set by two full-width `ocr_carea`
+blocks at x 0.21-94.40 and x 0.23-95.79 whose left edge is the binding
+shadow. They agree with each other, so the agreement rule passes them.
+This is exactly what stage 1c's original docstring warned about blocks,
+and it is not solved.
+
+### Viewing it
+
+`experiments/block_grid.py` draws block and photo PERIMETERS on the grid
+with every removed sliver filled in bright red, so the pass is judged by
+looking rather than by its own counts. It takes its verdicts from
+`sliver_pass` so the view cannot drift from the pass.
+
 ## 5q. RULE RECALL IS THE CEILING ON STAGE 2b (measured 2026-08-16)
 
 Found by acting on the second review's "render p8 and p2 before trusting
@@ -1492,3 +1585,9 @@ python3 -m transcribe.scaled.render_overlay YYYY-MM-DD [--page N]
   anyway. Rule recall is a real but smaller second limit. Blocks cover
   these pages far better than zones do (1986-01-08 p2: 55.7% against
   0.9%). Both limits are prerequisites for §5o step 1. See §5q.
+- **2026-08-16** — Stage 1b added (`sliver_pass.py`): rim slivers removed
+  before the content area, in three tiers (wholly-inside-the-rim; reaches
+  past but nothing aligns; rim pulled in where content intrudes). 537
+  removed over 90 pages with 5.6% landing inside the content area, against
+  31.6% for the thin-and-near-an-edge test it replaces. Stage 1c's
+  agreement derivation now consumes it. See §5r.

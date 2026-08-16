@@ -31,7 +31,7 @@ from PIL import Image, ImageDraw
 
 from .. import _support as _sup
 from . import separator_grid as _sg
-from . import sliver_pass as _sliver
+from .. import sliver_pass as _sliver
 
 OUT_DIR = os.path.join(_sup.REPO_ROOT, "preview", "scaled", "grids")
 

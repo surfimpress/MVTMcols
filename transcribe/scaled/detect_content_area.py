@@ -14,6 +14,14 @@ MEASURED, the failure this fixes (90 pages):
     left 7.22%. Every column on those pages was displaced.
     |error| > 1.5% on 31% of pages at the left edge and 53% at the right.
 
+TWO DERIVATIONS LIVE HERE, and the newer one is not yet the stored value.
+`content_box` is the original, from text LINES, and is what `store()`
+writes. `content_box_blocks` is the AGREEMENT derivation, from every item
+type that survives stage 1b, and both are drawn as IIIF layers under the
+`content` variant so they can be compared on the page. See §5r.
+
+The rest of this docstring describes the ORIGINAL derivation.
+
 WHY LINES, NOT BLOCKS
 ---------------------
 A block bbox can be inflated by a scan artefact swept into it -- a
@@ -59,6 +67,7 @@ import argparse
 import statistics
 
 from . import _support as _sup
+from . import sliver_pass as _sliver
 
 # A line must carry at least this many words to count as content. See the
 # 1997-07-16 p4 case in the module docstring.
@@ -164,33 +173,13 @@ def _edge_cluster(vals: list[float], leftmost: bool) -> float | None:
 
 # --- the block derivation ------------------------------------------------
 #
-# A separator lying entirely within this many cells of a page edge is a
-# SCAN SHADOW, not printing: the binding gutter and the sheet edge both
-# come back from Tesseract as long thin separators hard against the edge.
-# Measured, they sit at 0.0-0.1 cells from the edge and run most of the
-# page height -- 1994-01-05 p12 has one at x 99.64-100.00 spanning y
-# 0.12-99.98. 346 such separators across 82 of 90 pages.
-#
-# Four cells, and it sits on a plateau. At 2 the shadows pair up and agree
-# with each other, dragging an edge to within one cell of the sheet on
-# 45/90 pages; at 4 that falls to 16/90 and the answers on the known-good
-# pages stop moving:
-#
-#     band   margins L/R/T/B (cells)   edge <1 cell   p3 left   p12 right
-#      2       4.6 / 5.9 / 10.0 / 9.8      45/90        0.94%     94.08%
-#      4       6.5 / 6.8 / 10.4 / 10.0     16/90        4.03%     94.08%
-#      6       6.7 / 6.9 / 11.6 / 10.1     10/90        4.03%     94.08%
-#
-# Still well inside the measured 7-9 cell page margin, so real printing
-# cannot be caught by it.
-EDGE_SHADOW_CELLS = 4.0
-
 # AN EDGE MUST BE AGREED BY AT LEAST THIS MANY ITEMS.
 #
 # The content edge is a position that several items SHARE, not the
 # outermost thing on the page. Measured, an extreme is set by a single
 # item on 45-71 of 90 pages depending on the edge -- so extremes are
-# essentially unconfirmed, which is what let 1994-01-05 p12 sit at 49.93%.
+# essentially unconfirmed, which is what let 1994-01-05 p12 report a right
+# edge of 49.93% on a page whose text runs to 94.08%.
 #
 # TWO, and not more, because the required agreement must not exceed what
 # the page has to offer. 1980-04-06 p3 is a photo page whose top is set by
@@ -198,11 +187,6 @@ EDGE_SHADOW_CELLS = 4.0
 # other). At K=2 they confirm each other and the top is right at 2.11%; at
 # K=3 there is no third item up there, the walk continues inward, and the
 # top lands at 54.21% -- half way down the page.
-#
-#     K   margins L/R/T/B (cells)   items outside   p3 top    p12 right
-#     2      4.6 / 5.9 / 10.0 / 9.8       4.7%       2.11%      94.08%
-#     3      6.2 / 7.0 / 14.3 / 10.3      8.5%      54.21%      93.74%
-#     4      6.6 / 7.2 / 18.1 / 10.8     12.4%      54.21%      93.74%
 MIN_AGREE = 2
 
 # WHY AGREEMENT IS COUNTED ACROSS ALL TYPES, with no per-type rule.
@@ -219,54 +203,18 @@ MIN_AGREE = 2
 # vertical position is not quantised -- ads are sold by the column inch,
 # see 5h. No type earns exclusion, and none needs a whitelist: on a photo
 # page the top is set by photos because photos are what is there.
-#
-# This also removed a MIN_PHOTO_CELLS size rule. Agreement subsumes it --
-# a shadow sliver has nothing to agree with.
 
 # A margin outside this band is reported in `sanity`, never corrected.
 SANE_MARGIN_CELLS = (1.0, 30.0)
 
 
-def _items(conn, page_id: str) -> list[dict]:
-    """Every Tesseract item on the page, of EVERY type.
-
-    Text areas, photo regions and printed rules all bound the printed
-    content, and all three are already on disk. The line-based derivation
-    below uses only text lines, which is what made it fail on ragged right
-    edges: a block's bbox already spans its own ragged lines, so blocks do
-    not need the raggedness modelled at all.
-    """
-    out = [dict(r) for r in conn.execute(
-        "SELECT bbox_left_pct L, bbox_top_pct T, bbox_right_pct R, "
-        "bbox_bottom_pct B, COALESCE(block_class,'ocr_carea') kind "
-        "FROM page_ocr_blocks WHERE page_id=? AND n_words > 0", (page_id,))]
-    out += [dict(r) for r in conn.execute(
-        "SELECT left_pct L, top_pct T, right_pct R, bottom_pct B, "
-        "region_class kind FROM page_hocr_regions WHERE page_id=?",
-        (page_id,))]
-    return [r for r in out if r["R"] > r["L"] and r["B"] > r["T"]]
-
-
-def _is_edge_shadow(i: dict, cw: float, chh: float) -> bool:
-    """Any item lying hard against a page edge: binding gutter, sheet edge.
-
-    Every type, not just separators. The binding shadow comes back as an
-    `ocr_photo` at least as often (2001-01-03 p5: x 98.17-100.00 spanning
-    y 0.02-100.00), and occasionally as an `ocr_carea`.
-    """
-    return (i["R"] <= EDGE_SHADOW_CELLS * cw
-            or i["L"] >= 100 - EDGE_SHADOW_CELLS * cw
-            or i["B"] <= EDGE_SHADOW_CELLS * chh
-            or i["T"] >= 100 - EDGE_SHADOW_CELLS * chh)
-
-
 def _agreed_edge(items, key, outermost_low, tol):
     """The outermost position at least MIN_AGREE items share, and the count.
 
-    This is the whole derivation. Walk in from the page edge and stop at
-    the first position that more than one item agrees on. Returns
-    (position, how many agreed) so the frequency travels with the value
-    and a caller can see how well attested the edge is.
+    Walk in from the page edge and stop at the first position that more
+    than one item agrees on. Returns (position, how many agreed) so the
+    frequency travels with the value and a caller can see how well
+    attested the edge is.
     """
     vals = sorted((i[key] for i in items), reverse=not outermost_low)
     for x in vals:
@@ -319,8 +267,8 @@ def content_box_blocks(conn, page_id: str) -> dict:
     than wrong: a block's bbox is at least as wide as the lines inside it.
     """
     cw, chh = _sup.cell_size(conn, page_id)
-    every = _items(conn, page_id)
-    items = [i for i in every if not _is_edge_shadow(i, cw, chh)]
+    every = _sliver.items_of(conn, page_id)
+    items = _sliver.survivors(conn, page_id)
     if len(items) < MIN_AGREE:
         return {"left": None, "right": None, "top": None, "bottom": None,
                 "n_items": len(items), "note": "too few items"}

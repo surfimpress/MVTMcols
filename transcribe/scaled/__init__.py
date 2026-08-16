@@ -17,6 +17,7 @@ package and the production pipeline is unaffected.
 
 Stages, in the order they run:
   hocr_parse           -- recover the layout signal ocr_llm.parse_hocr() drops
+  sliver_pass          -- 1b: rim slivers out (binding shadow, sheet edge)
   detect_content_area  -- 1c: where the type starts and stops. BEFORE columns
   detect_grid          -- 2:  the column lattice, fitted as four numbers
   detect_zones         -- 2b: boxed zones, from rule corners

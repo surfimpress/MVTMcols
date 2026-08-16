@@ -366,8 +366,9 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
                        "items agreeing on each edge: "
                        + ", ".join(f"{k} {ag.get(k, 0)}"
                                    for k in ("left", "right", "top", "bottom"))
-                       + f" · of {blk['n_items']} items (all types, shadows "
-                         f"removed), {blk['n_outside']} fall outside"
+                       + f" · of {blk['n_items']} items surviving stage 1b "
+                         f"({blk['n_all'] - blk['n_items']} slivers removed), "
+                         f"{blk['n_outside']} fall outside"
                        + (f" · SENSE CHECK: {', '.join(sanity)} implausible"
                           if sanity else ""))]))
     return out

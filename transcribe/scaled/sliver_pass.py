@@ -1,4 +1,4 @@
-"""EXPERIMENT — first pass: eliminate SLIVERS at the page rim.
+"""Stage 1b — SLIVERS at the page rim. Runs before the content area.
 
 Separators, and photos that SIZE as slivers -- the binding shadow comes
 back as an `ocr_photo` at least as often as a separator (1980-04-06 p4:
@@ -40,15 +40,15 @@ something at or beyond where content demonstrably starts.
 
 Usage::
 
-    python3 -m transcribe.scaled.experiments.sliver_pass 1980-04-06 --page 4
-    python3 -m transcribe.scaled.experiments.sliver_pass --all
+    python3 -m transcribe.scaled.sliver_pass 1980-04-06 --page 4
+    python3 -m transcribe.scaled.sliver_pass --all
 """
 
 from __future__ import annotations
 
 import argparse
 
-from .. import _support as _sup
+from . import _support as _sup
 
 # The nominal rim, in cells. The corpus page margin measures 7-9 cells, so
 # 4 sits comfortably inside it -- printing does not begin this far out.
@@ -190,6 +190,32 @@ def classify(conn, page_id):
                 rec["verdict"], rec["why"] = "keep", f"tier 2: {rec['align']} items align"
         out.append(rec)
     return out, rim, counts
+
+
+def items_of(conn, page_id):
+    """Every item BEFORE the pass -- for callers reporting what it removed."""
+    return _items(conn, page_id)
+
+
+def survivors(conn, page_id):
+    """Every Tesseract item on the page with the rim slivers taken out.
+
+    THE ENTRY POINT for later stages. Blocks pass through untouched; the
+    separators and photos that this pass judged are filtered to those it
+    kept. Callers get one list and never have to know the rules.
+    """
+    recs, _rim, _counts = classify(conn, page_id)
+    gone = {(round(r["sep"]["L"], 4), round(r["sep"]["T"], 4),
+             round(r["sep"]["R"], 4), round(r["sep"]["B"], 4),
+             r["sep"]["kind"])
+            for r in recs if r["verdict"] == "remove"}
+    out = []
+    for i in _items(conn, page_id):
+        k = (round(i["L"], 4), round(i["T"], 4),
+             round(i["R"], 4), round(i["B"], 4), i["kind"])
+        if k not in gone:
+            out.append(i)
+    return out
 
 
 def _cmd_page(conn, date, page):
