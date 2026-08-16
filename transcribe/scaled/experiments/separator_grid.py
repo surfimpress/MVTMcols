@@ -36,12 +36,14 @@ from .. import detect_boxes as _boxes
 
 OUT_DIR = os.path.join(_sup.REPO_ROOT, "preview", "scaled", "grids")
 
-CELL_PCT = 1.0        # cell side, as a percentage of PAGE WIDTH
-CELL_PX = 14          # on-screen size of one cell
+CELL_PCT = 0.5        # cell side, as a percentage of PAGE WIDTH
+CELL_PX = 8           # on-screen size of one cell
 STEP_DARK = 0.25      # each separator in a cell adds this much darkness
 GRID_LINE = (215, 219, 226)
 LABEL = (90, 96, 108)
 JUNCTION = (200, 30, 40)   # a separator END meeting another separator
+GUTTER = (250, 214, 60)    # column gutter CENTRE line, blended in
+GUTTER_MIX = 0.30          # how strongly the gutter tint shows through
 
 # Padding around the content area. Rules that RUN ALONG the content edge
 # (a box's outer border, the rule under a masthead) must survive, so the
@@ -105,6 +107,21 @@ def _fold_contained(regions: list[dict]) -> tuple[list[dict], list[dict]]:
                 break
         (folded if inside else keep).append(a)
     return keep, folded
+
+
+def _gutter_centres(conn, page_id: str) -> list[float]:
+    """x of the CENTRE of each gutter between adjacent columns.
+
+    The centre line, not the column edges: the question this view is meant
+    to answer is whether the rules separate cleanly around the gutter, and
+    a pair of edge lines would pre-empt that by drawing where the answer is
+    supposed to be.
+    """
+    cols = [dict(r) for r in conn.execute(
+        "SELECT left_pct, right_pct FROM page_columns WHERE page_id=? "
+        "AND method='grid' ORDER BY col_idx", (page_id,))]
+    return [(cols[i]["right_pct"] + cols[i + 1]["left_pct"]) / 2
+            for i in range(len(cols) - 1)]
 
 
 def _ends(r: dict) -> list[tuple]:
@@ -173,10 +190,22 @@ def build(conn, page_id: str, clean: bool = False):
             others = occupied.get((cy, cx), set()) - {i}
             if others:
                 junction[cy][cx] = True
-    return counts, junction, n_cols, n_rows, len(regions), len(swallowed)
+    gutter = [False] * n_cols
+    for gx in _gutter_centres(conn, page_id):
+        cx = int(gx / CELL_PCT)
+        if 0 <= cx < n_cols:
+            gutter[cx] = True
+
+    return (counts, junction, gutter, n_cols, n_rows,
+            len(regions), len(swallowed))
 
 
-def render(counts, junction, n_cols, n_rows, title: str, out_path: str) -> str:
+def _blend(base: tuple, tint: tuple, amount: float) -> tuple:
+    return tuple(int(b * (1 - amount) + t * amount) for b, t in zip(base, tint))
+
+
+def render(counts, junction, gutter, n_cols, n_rows,
+           title: str, out_path: str) -> str:
     pad_l, pad_t, pad_b = 34, 26, 8
     W = pad_l + n_cols * CELL_PX
     H = pad_t + n_rows * CELL_PX + pad_b
@@ -188,18 +217,26 @@ def render(counts, junction, n_cols, n_rows, title: str, out_path: str) -> str:
             n = counts[y][x]
             x0, y0 = pad_l + x * CELL_PX, pad_t + y * CELL_PX
             if junction[y][x]:
-                d.rectangle([x0, y0, x0 + CELL_PX, y0 + CELL_PX],
-                            fill=JUNCTION)
+                fill = JUNCTION
             elif n:
                 v = int(255 * max(0.0, 1.0 - STEP_DARK * n))
-                d.rectangle([x0, y0, x0 + CELL_PX, y0 + CELL_PX],
-                            fill=(v, v, v))
+                fill = (v, v, v)
+            else:
+                fill = None
+            # The gutter tint is BLENDED rather than painted under, so a
+            # rule sitting on the gutter centre stays visible. Seeing that
+            # is the whole point of the overlay.
+            if gutter[x]:
+                fill = _blend(fill or (255, 255, 255), GUTTER, GUTTER_MIX)
+            if fill:
+                d.rectangle([x0, y0, x0 + CELL_PX, y0 + CELL_PX], fill=fill)
             d.rectangle([x0, y0, x0 + CELL_PX, y0 + CELL_PX],
                         outline=GRID_LINE)
 
-    for x in range(0, n_cols + 1, 10):
+    step = 20 if n_cols > 120 else 10
+    for x in range(0, n_cols + 1, step):
         d.text((pad_l + x * CELL_PX - 6, 8), str(x), fill=LABEL)
-    for y in range(0, n_rows + 1, 10):
+    for y in range(0, n_rows + 1, step):
         d.text((4, pad_t + y * CELL_PX - 4), str(y), fill=LABEL)
 
     d.text((pad_l, H - pad_b - 2), title, fill=(0, 0, 0))
@@ -218,18 +255,19 @@ def _cmd(args):
         if not row:
             print("no such page")
             return
-        counts, junc, nc, nr, n, folded = build(conn, row["id"], args.clean)
+        counts, junc, gut, nc, nr, n, folded = build(conn, row["id"], args.clean)
         busiest = max(max(r) for r in counts)
         cells = sum(1 for r in counts for v in r if v)
         njunc = sum(1 for r in junc for v in r if v)
         kind = "cleaned" if args.clean else "raw"
         title = (f"{args.date} p{args.page} — {n} {kind} separators "
                  f"(+{folded} folded) · {cells} cells · busiest {busiest} "
-                 f"· {njunc} junction cells (red) · grid {nc}x{nr}")
+                 f"· {njunc} junction (red) · {sum(gut)} gutter columns "
+                 f"(yellow) · grid {nc}x{nr} at {CELL_PCT}% of width")
         suffix = "_clean" if args.clean else ""
         out = os.path.join(OUT_DIR, args.date,
                            f"p{args.page}_sepgrid{suffix}.png")
-        print(" ", render(counts, junc, nc, nr, title, out))
+        print(" ", render(counts, junc, gut, nc, nr, title, out))
         print(f"  {n} regions kept, {folded} folded as contained, "
               f"{cells} cells touched, busiest {busiest}, {njunc} junctions")
     finally:
