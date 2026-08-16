@@ -385,13 +385,22 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
         # painting bodies on one canvas is the standard mechanism -- Mirador
         # surfaces them through its CanvasLayers panel, so they can also be
         # reordered and toggled.
+        #
+        # ORDER MATTERS AND IT IS COUNTER-INTUITIVE: position 0 is the TOP
+        # layer, not the bottom. Verified in the Mirador 3.4.2 bundle --
+        #     layerIndexOfImageResource: return t.total - t.index - 1
+        #     moveToTop(id): moves that id to position 0
+        # so a low list index becomes a HIGH OpenSeadragon index, which
+        # draws in front. Appending the overlay put it at index 1, i.e.
+        # BEHIND the opaque page image, where it could not be seen at all.
+        # It is therefore INSERTED AT 0.
         if variant == "overlay":
             ov = os.path.join(
                 _sup.REPO_ROOT, "preview", "scaled", "grids", date,
                 f"p{p['page']}_overlay.png")
             if os.path.isfile(ov):
-                canvas["items"][0]["items"].append({
-                    "id": f"{cid}/painting/2",
+                canvas["items"][0]["items"].insert(0, {
+                    "id": f"{cid}/painting/overlay",
                     "type": "Annotation",
                     "motivation": "painting",
                     "body": {"id": _rel_url(ov), "type": "Image",
