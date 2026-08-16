@@ -599,6 +599,26 @@ Smithson Motor Sales does remain genuinely incomplete in Tesseract's
 output. See §5k — pixel-level rule detection is the route there, and
 Tesseract config tuning is ruled out.
 
+**Tesseract both MERGES and SPLITS rules, and each needs undoing.**
+
+- *Conjoined* — it reports the individual rules AND a single region
+  covering them. On p13 the left edge appears three times: the real upper
+  rule (x 4.29–4.69, y 25.82–47.79, 17px), the real lower rule
+  (x 4.57–5.27, y 49.51–95.80, 29px), and both merged (x 3.76–4.96,
+  y 25.82–95.88, 50px ≈ the sum). The merged region spans the gap between
+  the real rules and manufactures boxes across a boundary that isn't
+  there. A region is conjoined when ≥2 others of the same orientation lie
+  within its RUN and overlap it on the thickness axis. **A bbox
+  containment test does NOT find these** — the merged region is typically
+  slightly wider than its own parts.
+- *Fragmented* — the opposite, and it was the actual cause of p13's low
+  detection rate. The Sidewalk Sale box occupies the whole lower half of
+  the page and has left, right and top rules, but its foot arrives in
+  pieces (x 4.43–75.05 and x 80.97–95.24 at y ≈ 95.5). Neither bridges
+  both verticals, so **the largest box on the page was missed entirely**.
+  Collinear pieces within `FRAGMENT_POS_PCT` across the rule and
+  `FRAGMENT_GAP_PCT` along it are merged back into one.
+
 **Boxes may NEST or be disjoint — never straddle.** Fraser's price rows
 were being drawn from the column gutter at x 49.13 while Fraser's own box
 starts at 61.89, so every row crossed both its container and the gutter.

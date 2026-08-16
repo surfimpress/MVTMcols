@@ -77,6 +77,16 @@ INSET_PCT = 2.5
 # A vertical this close to a page edge is a scan artefact, not a box side.
 EDGE_MARGIN_PCT = 2.0
 
+# Slack when deciding whether one rule's run sits inside another's.
+CONJOIN_TOL_PCT = 0.3
+
+# Two collinear pieces are the same printed rule when they sit this close
+# across the rule, and the gap along it is no wider than the second value.
+# The gap allowance is generous because what interrupts a rule (a page
+# number, scan damage) can be several percent wide.
+FRAGMENT_POS_PCT = 0.7
+FRAGMENT_GAP_PCT = 8.0
+
 # Two verticals are "the same pair of sides" -- and so can have their feet
 # joined to close an open box -- when both ends agree within this.
 PAIR_MATCH_PCT = 1.5
@@ -95,12 +105,102 @@ CROSS_TOL = 0.08
 DEDUPE_PCT = 1.5
 
 
+def _drop_conjoined(rows: list[dict], orientation: str) -> list[dict]:
+    """Remove separator regions that are several rules merged into one.
+
+    Tesseract sometimes reports BOTH the individual rules AND a single
+    region covering them. On 1980-04-06 p13 the left edge appears three
+    times:
+
+        V  x 4.29-4.69  y 25.82-47.79  (17px)   the real upper rule
+        V  x 4.57-5.27  y 49.51-95.80  (29px)   the real lower rule
+        V  x 3.76-4.96  y 25.82-95.88  (50px)   both, conjoined
+
+    The merged region is thicker (roughly the sum) and spans the gap
+    between the real rules, so it manufactures boxes across a boundary
+    that is not there and hides the true ones.
+
+    A region is conjoined when at least TWO others of the same
+    orientation lie within its RUN and overlap it on the thickness axis.
+    Containment of the full bbox is NOT the test -- the merged region is
+    typically slightly WIDER than its own parts (3.76-4.96 against a part
+    at 4.57-5.27), so a bbox test misses it.
+    """
+    keep = []
+    for i, a in enumerate(rows):
+        inner = 0
+        for j, b in enumerate(rows):
+            if i == j:
+                continue
+            if orientation == "vertical":
+                within = (b["T"] >= a["T"] - CONJOIN_TOL_PCT
+                          and b["B"] <= a["B"] + CONJOIN_TOL_PCT
+                          and (b["B"] - b["T"]) < (a["B"] - a["T"]) * 0.9)
+                overlaps = min(a["R"], b["R"]) - max(a["L"], b["L"]) > 0
+            else:
+                within = (b["L"] >= a["L"] - CONJOIN_TOL_PCT
+                          and b["R"] <= a["R"] + CONJOIN_TOL_PCT
+                          and (b["R"] - b["L"]) < (a["R"] - a["L"]) * 0.9)
+                overlaps = min(a["B"], b["B"]) - max(a["T"], b["T"]) > 0
+            if within and overlaps:
+                inner += 1
+        if inner < 2:
+            keep.append(a)
+    return keep
+
+
+def _merge_fragments(rows: list[dict], orientation: str) -> list[dict]:
+    """Join collinear pieces of one printed rule back together.
+
+    The mirror of `_drop_conjoined`: Tesseract also SPLITS a single rule
+    into segments, typically where something interrupts it. On
+    1980-04-06 p13 the Sidewalk Sale box -- which occupies the whole
+    lower half of the page -- has left, right and top rules but its foot
+    arrives in pieces:
+
+        H  x  4.43-75.05  y 95.12-96.02
+        H  x 80.97-95.24  y 95.75-96.27
+
+    Neither piece bridges both verticals, so the largest box on the page
+    was missed entirely.
+
+    Pieces are merged when they sit at the same position across the rule
+    (within FRAGMENT_POS_PCT) and the gap along it is no wider than
+    FRAGMENT_GAP_PCT. The merged rule spans the full extent and takes the
+    heaviest thickness of its parts.
+    """
+    pos = (lambda r: (r["L"] + r["R"]) / 2) if orientation == "vertical" \
+        else (lambda r: (r["T"] + r["B"]) / 2)
+    lo = (lambda r: r["T"]) if orientation == "vertical" else (lambda r: r["L"])
+    hi = (lambda r: r["B"]) if orientation == "vertical" else (lambda r: r["R"])
+
+    out: list[dict] = []
+    for r in sorted(rows, key=lambda r: (pos(r), lo(r))):
+        merged = False
+        for o in out:
+            if abs(pos(o) - pos(r)) > FRAGMENT_POS_PCT:
+                continue
+            gap = max(lo(r) - hi(o), lo(o) - hi(r))
+            if gap > FRAGMENT_GAP_PCT:
+                continue
+            o["L"], o["R"] = min(o["L"], r["L"]), max(o["R"], r["R"])
+            o["T"], o["B"] = min(o["T"], r["T"]), max(o["B"], r["B"])
+            for k in ("wd", "ht"):
+                if r.get(k) and (o.get(k) or 0) < r[k]:
+                    o[k] = r[k]
+            merged = True
+            break
+        if not merged:
+            out.append(dict(r))
+    return out
+
+
 def _rules(conn, page_id: str, orientation: str) -> list[dict]:
-    return [dict(r) for r in conn.execute(
+    return _merge_fragments(_drop_conjoined([dict(r) for r in conn.execute(
         "SELECT left_pct L, top_pct T, right_pct R, bottom_pct B, "
         "width_px wd, height_px ht "
         "FROM page_hocr_regions WHERE page_id=? AND region_class='ocr_separator' "
-        "AND orientation=?", (page_id, orientation))]
+        "AND orientation=?", (page_id, orientation))], orientation), orientation)
 
 
 def _crosses(a: tuple, b: tuple) -> bool:

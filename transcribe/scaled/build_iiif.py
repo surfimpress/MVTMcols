@@ -160,54 +160,41 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
             label += f" · LOW EVIDENCE ({res['n_lines']} text lines)"
         out.append((label, boxes))
     if variant == "captions":
-        # Stage 2c: a photo and its caption are ONE editorial unit, so the
-        # combined rectangle is the headline layer here -- the photo and
-        # caption boxes are offered separately underneath for checking
-        # where the join landed.
+        # ONE layer: the encompassing rectangle per photo -- photo plus
+        # its caption, or just the photo where no caption was found. A
+        # photo and its caption are one editorial unit, and drawing the
+        # halves separately only cluttered the page. Everything else
+        # (line count, legs, ocr_caption tagging, the caption text) is
+        # kept and surfaced in the annotation detail instead.
         res = _detect_captions.detect(conn, page_id)
-        units, photos, caps, orphans = [], [], [], []
+        boxes = []
         for i, pr in enumerate(res["pairs"]):
             p_, c = pr["photo"], pr["caption"]
-            px0, px1 = _sup.pct_to_px(p_["L"], W), _sup.pct_to_px(p_["R"], W)
-            py0, py1 = _sup.pct_to_px(p_["T"], H), _sup.pct_to_px(p_["B"], H)
-            if not c:
-                orphans.append(_anno(
-                    f"{cid}/anno/cap/orphan/{i}", cid, px0, py0,
-                    max(1, px1 - px0), max(1, py1 - py0), "",
-                    f"photo {i}", kind="photo, no caption found",
-                    detail=f"{p_['L']:.2f}%-{p_['R']:.2f}% x "
-                           f"{p_['T']:.2f}%-{p_['B']:.2f}%"))
-                continue
-            cx0, cx1 = _sup.pct_to_px(c["left_pct"], W), _sup.pct_to_px(c["right_pct"], W)
-            cy0, cy1 = _sup.pct_to_px(c["top_pct"], H), _sup.pct_to_px(c["bottom_pct"], H)
-            ux0, uy0 = min(px0, cx0), min(py0, cy0)
-            ux1, uy1 = max(px1, cx1), max(py1, cy1)
-            legs = (f", {c['n_runs']} legs" if c["n_runs"] > 1 else "")
-            units.append(_anno(
-                f"{cid}/anno/cap/unit/{i}", cid, ux0, uy0,
-                max(1, ux1 - ux0), max(1, uy1 - uy0), "",
-                f"photo + caption {i}", kind="photo + caption",
-                detail=f"{c['n_lines']} caption lines{legs}"
-                       + (" · Tesseract tagged ocr_caption"
-                          if c["tesseract_caption"] else "")
-                       + " — " + (c["text"][:180] or "")))
-            photos.append(_anno(
-                f"{cid}/anno/cap/photo/{i}", cid, px0, py0,
-                max(1, px1 - px0), max(1, py1 - py0), "",
-                f"photo {i}", kind="photo",
-                detail=f"{p_['L']:.2f}%-{p_['R']:.2f}% x "
-                       f"{p_['T']:.2f}%-{p_['B']:.2f}%"))
-            caps.append(_anno(
-                f"{cid}/anno/cap/text/{i}", cid, cx0, cy0,
-                max(1, cx1 - cx0), max(1, cy1 - cy0), "",
-                f"caption {i}", kind="caption",
-                detail=f"{c['n_lines']} lines{legs} — " + (c["text"][:180] or "")))
-        for label, boxes in (("Photo + caption units", units),
-                             ("Photos", photos),
-                             ("Captions", caps),
-                             ("Photos with NO caption found", orphans)):
-            if boxes:
-                out.append((f"{label} ({len(boxes)})", boxes))
+            L, T, R, B = p_["L"], p_["T"], p_["R"], p_["B"]
+            if c:
+                L, T = min(L, c["left_pct"]), min(T, c["top_pct"])
+                R, B = max(R, c["right_pct"]), max(B, c["bottom_pct"])
+                legs = f", {c['n_runs']} legs" if c["n_runs"] > 1 else ""
+                detail = (f"photo {p_['L']:.2f}%-{p_['R']:.2f}% x "
+                          f"{p_['T']:.2f}%-{p_['B']:.2f}% · caption "
+                          f"{c['n_lines']} lines{legs}"
+                          + (" · Tesseract tagged ocr_caption"
+                             if c["tesseract_caption"] else "")
+                          + " — " + (c["text"][:180] or ""))
+                kind = "photo + caption"
+            else:
+                detail = (f"photo {L:.2f}%-{R:.2f}% x {T:.2f}%-{B:.2f}%"
+                          " · no caption found")
+                kind = "photo, no caption"
+            x0, x1 = _sup.pct_to_px(L, W), _sup.pct_to_px(R, W)
+            y0, y1 = _sup.pct_to_px(T, H), _sup.pct_to_px(B, H)
+            boxes.append(_anno(
+                f"{cid}/anno/cap/{i}", cid, x0, y0,
+                max(1, x1 - x0), max(1, y1 - y0), "",
+                f"photo + caption {i}", kind=kind, detail=detail))
+        if boxes:
+            out.append((f"Photos with captions ({len(boxes)}, "
+                        f"{res['n_captioned']} captioned)", boxes))
 
     if variant == "photos":
         # Tesseract's ocr_photo regions on their own. Split into the ones

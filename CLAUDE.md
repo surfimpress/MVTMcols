@@ -99,7 +99,15 @@ that.
     Page-edge verticals excluded as scan artefacts. ~9.6 boxes/page.
     **Containment matching was tried and REVERTED** (20.8/page, overlapping
     rectangles cutting across text on p6) — do not reintroduce it.
-    **Boxes NEST or are disjoint, never straddle** — inner boxes crossing
+    **Tesseract both MERGES and SPLITS rules** — undo both before fitting.
+    *Conjoined*: it emits the parts AND a merged region covering them
+    (p13's left edge appears as 17px + 29px rules plus a 50px region
+    spanning both), which manufactures boxes across boundaries that don't
+    exist; detect via ">=2 others inside its RUN", NOT bbox containment,
+    since the merge is often wider than its parts. *Fragmented*: the
+    opposite — p13's Sidewalk Sale foot arrives as two pieces at y~95.5,
+    so the largest box on the page was missed; collinear pieces are
+    merged back. **Boxes NEST or are disjoint, never straddle** — inner boxes crossing
     their container and the column gutter was a real defect (p8: 70 -> 48
     boxes once crossings are dropped). A **three-sided box can be closed**
     when its verticals are a matched pair AND a barrier sits below, but it
