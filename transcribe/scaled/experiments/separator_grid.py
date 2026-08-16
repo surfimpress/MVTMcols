@@ -57,6 +57,7 @@ FONT_AXIS = 15
 FONT_TITLE = 17
 JUNCTION = (200, 30, 40)   # a separator END sharing a cell with another
 NEAR = (255, 45, 200)      # a separator END one cell away from another
+CROSSING = (0, 0, 0)       # resolved crossing point of two near-miss rules
 GUTTER = (250, 214, 60)    # column gutter CENTRE line, blended in
 GUTTER_MIX = 0.30          # how strongly the gutter tint shows through
 PHOTO = (120, 180, 235)    # photo + caption PERIMETER, blended in
@@ -233,6 +234,20 @@ def build(conn, page_id: str, clean: bool = False):
         cx = max(0, min(n_cols - 1, int(((r["L"] + r["R"]) / 2) / CELL_PCT)))
         return [(y, cx) for y in range(r0, r1 + 1)]
 
+    # Axis of each region in CELL coordinates: a horizontal's row, a
+    # vertical's column. This is what lets a near-miss be resolved to the
+    # point where the two rules would actually cross.
+    def axis_of(r):
+        horizontal = (r["R"] - r["L"]) >= (r["B"] - r["T"])
+        if horizontal:
+            return True, max(0, min(n_rows - 1,
+                                    int(((r["T"] + r["B"]) / 2) / cell_h_pct)))
+        return False, max(0, min(n_cols - 1,
+                                 int(((r["L"] + r["R"]) / 2) / CELL_PCT)))
+
+    all_regions = list(regions) + list(swallowed)
+    meta = [axis_of(r) for r in all_regions]
+
     occupied = {}                       # cell -> set of region indices
     for i, r in enumerate(regions):
         for cell in cells_of(r):
@@ -258,9 +273,10 @@ def build(conn, page_id: str, clean: bool = False):
     # here -- this asks only what the ruling itself does.
     junction = [[False] * n_cols for _ in range(n_rows)]
     near = [[False] * n_cols for _ in range(n_rows)]
+    crossing = [[False] * n_cols for _ in range(n_rows)]
     NEIGHBOURS = [(dy, dx) for dy in (-1, 0, 1) for dx in (-1, 0, 1)
                   if (dy, dx) != (0, 0)]
-    for i, r in enumerate(list(regions) + list(swallowed)):
+    for i, r in enumerate(all_regions):
         for (ex, ey) in _ends(r):
             cx = max(0, min(n_cols - 1, int(ex / CELL_PCT)))
             cy = max(0, min(n_rows - 1, int(ey / cell_h_pct)))
@@ -271,9 +287,32 @@ def build(conn, page_id: str, clean: bool = False):
                 ny, nx = cy + dy, cx + dx
                 if not (0 <= ny < n_rows and 0 <= nx < n_cols):
                     continue
-                if occupied.get((ny, nx), set()) - {i}:
-                    near[cy][cx] = True
-                    break
+                others = occupied.get((ny, nx), set()) - {i}
+                if not others:
+                    continue
+                near[cy][cx] = True
+                # BLACK: where the two rules would actually cross.
+                #
+                # A pink cell says "this end is one cell off another rule".
+                # It does not say WHERE the corner is -- the end is short of
+                # it. But each rule has an axis (a horizontal's row, a
+                # vertical's column), and if the two run in different
+                # directions those axes meet at exactly one cell. That cell
+                # is the corner, whether the near-miss came from a rule
+                # crossing and then ending (a T-junction) or from two rules
+                # both stopping short of each other (a rounded corner, which
+                # shows as two diagonally adjacent pinks). One rule, both
+                # cases, no special-casing.
+                i_h, i_axis = meta[i]
+                for j in others:
+                    j_h, j_axis = meta[j]
+                    if i_h == j_h:
+                        continue          # parallel: they never cross
+                    row = i_axis if i_h else j_axis
+                    col = j_axis if i_h else i_axis
+                    if 0 <= row < n_rows and 0 <= col < n_cols:
+                        crossing[row][col] = True
+                break
     # Both kinds of vertical reference get the same tint: the point is
     # "a rule here has a reason to be here", and the content edge is as
     # good a reason as a gutter.
@@ -300,7 +339,7 @@ def build(conn, page_id: str, clean: bool = False):
         for y in range(r0, r1 + 1):
             photo[y][c0] = photo[y][c1] = True
 
-    return (counts, junction, near, gutter, photo, n_cols, n_rows,
+    return (counts, junction, near, crossing, gutter, photo, n_cols, n_rows,
             len(regions), len(swallowed), len(units), n_gut, n_edge)
 
 
@@ -323,36 +362,35 @@ def _font(size: int):
 EDGE_SUPPORT = 0.80
 BOX_MIN_CELLS = 4          # a box smaller than this is furniture
 
+# Two stacked boxes are divided by TWO rules -- one's foot and the next
+# one's head, a pica or so apart. Each pairs validly with the shared side
+# rules, so a stack of two yields five rectangles: each real box, each
+# box using its NEIGHBOUR's rule, and the union. Where two boxes agree on
+# three edges and differ on the fourth by no more than this, the narrower
+# is kept: a box is bounded by its OWN rule, not its neighbour's.
+#
+# Deliberately small. A container and the rows inside it also share three
+# edges, but differ by far more than a pica, so this cannot collapse a
+# genuine nesting.
+TWIN_EDGE_CELLS = 4
 
-def corner_points(junction, near, n_cols, n_rows) -> list[tuple]:
+
+def corner_points(junction, crossing, n_cols, n_rows) -> list[tuple]:
     """Corner positions, from the two kinds of mark.
 
     RED is a corner outright -- an end sharing a cell with another rule.
 
-    PINK is only a corner when TWO pink cells sit DIAGONALLY adjacent.
-    That pairing is the signature of a rounded corner: the horizontal
-    stops short and the vertical stops short, so their two ends land on
-    opposite diagonal cells with the true corner between them. A lone pink
-    cell is a rule passing near another and means nothing on its own.
+    BLACK is the resolved crossing point: wherever a near-miss (pink) was
+    found between two rules running in different directions, their axes
+    meet at exactly one cell, and that is where the corner actually is.
+    Pink itself is NOT used here -- it marks the end, which by definition
+    stops short of the corner.
 
     Touching corner cells are then merged, so one physical corner yields
     one point however many cells it lit.
     """
-    cand = set()
-    for y in range(n_rows):
-        for x in range(n_cols):
-            if junction[y][x]:
-                cand.add((y, x))
-    for y in range(n_rows):
-        for x in range(n_cols):
-            if not near[y][x]:
-                continue
-            for dy, dx in ((-1, -1), (-1, 1), (1, -1), (1, 1)):
-                ny, nx = y + dy, x + dx
-                if 0 <= ny < n_rows and 0 <= nx < n_cols and near[ny][nx]:
-                    cand.add((y, x))
-                    cand.add((ny, nx))
-                    break
+    cand = {(y, x) for y in range(n_rows) for x in range(n_cols)
+            if junction[y][x] or crossing[y][x]}
 
     seen, points = set(), []
     for c in sorted(cand):
@@ -427,14 +465,30 @@ def boxes_from_corners(points, counts, n_cols, n_rows, tol=1.6):
                    and abs(b[2] - k[2]) <= tol and abs(b[3] - k[3]) <= tol
                    for k in keep):
             keep.append(b)
-    return keep
+
+    # Then collapse the twin-rule rectangles -- see TWIN_EDGE_CELLS.
+    # Smallest first, so the narrower survivor is already in `final` when
+    # its wider twin is tested.
+    final = []
+    for b in sorted(keep, key=lambda b: (b[2] - b[0]) * (b[3] - b[1])):
+        twin = False
+        for k in final:
+            diffs = [abs(b[0] - k[0]), abs(b[1] - k[1]),
+                     abs(b[2] - k[2]), abs(b[3] - k[3])]
+            same = sum(1 for d in diffs if d <= tol)
+            if same == 3 and max(diffs) <= TWIN_EDGE_CELLS:
+                twin = True
+                break
+        if not twin:
+            final.append(b)
+    return sorted(final, key=lambda b: (b[0], b[1]))
 
 
 def _blend(base: tuple, tint: tuple, amount: float) -> tuple:
     return tuple(int(b * (1 - amount) + t * amount) for b, t in zip(base, tint))
 
 
-def render(counts, junction, near, gutter, photo, n_cols, n_rows,
+def render(counts, junction, near, crossing, gutter, photo, n_cols, n_rows,
            title: str, out_path: str, boxes=None) -> str:
     pad_l, pad_t, pad_b = 46, 34, 30
     f_axis, f_title = _font(FONT_AXIS), _font(FONT_TITLE)
@@ -465,6 +519,8 @@ def render(counts, junction, near, gutter, photo, n_cols, n_rows,
             # stronger evidence than being next to one.
             if near[y][x]:
                 fill = NEAR
+            if crossing[y][x]:
+                fill = CROSSING
             if junction[y][x]:
                 fill = JUNCTION
             if fill:
@@ -527,8 +583,8 @@ OVERLAY_ALPHA = {"rule": 235, "gutter": 85, "photo": 150,
                  "near": 255, "junction": 255}
 
 
-def render_overlay(conn, page_id, counts, junction, near, gutter, photo,
-                   n_cols, n_rows, out_path: str) -> str:
+def render_overlay(conn, page_id, counts, junction, near, crossing, gutter,
+                   photo, n_cols, n_rows, out_path: str) -> str:
     """A page-sized RGBA overlay, for painting onto the IIIF canvas.
 
     Built at ONE PIXEL PER CELL and then scaled up with NEAREST to the
@@ -555,6 +611,8 @@ def render_overlay(conn, page_id, counts, junction, near, gutter, photo,
                 rgb, a = OVERLAY_RULE, OVERLAY_ALPHA["rule"]
             if near[y][x]:
                 rgb, a = OVERLAY_NEAR, OVERLAY_ALPHA["near"]
+            if crossing[y][x]:
+                rgb, a = OVERLAY_JUNCTION, OVERLAY_ALPHA["junction"]
             if junction[y][x]:
                 rgb, a = OVERLAY_JUNCTION, OVERLAY_ALPHA["junction"]
             if rgb:
@@ -576,34 +634,36 @@ def _cmd(args):
         if not row:
             print("no such page")
             return
-        (counts, junc, nr_, gut, photo, nc, nr,
+        (counts, junc, nr_, cross, gut, photo, nc, nr,
          n, folded, nphoto, n_gut, n_edge) = build(conn, row["id"], args.clean)
         busiest = max(max(r) for r in counts)
         cells = sum(1 for r in counts for v in r if v)
         njunc = sum(1 for r in junc for v in r if v)
         nnear = sum(1 for r in nr_ for v in r if v)
+        ncross = sum(1 for r in cross for v in r if v)
         kind = "cleaned" if args.clean else "raw"
         title = (f"{args.date} p{args.page} — {n} {kind} separators "
                  f"(+{folded} folded) · {cells} cells · busiest {busiest} "
-                 f"· {njunc} junction (red) + {nnear} near (pink) "
+                 f"· {njunc} junction (red) + {ncross} crossing (black) "
+                 f"+ {nnear} near (pink) "
                  f"· {n_gut} gutters + {n_edge} "
                  f"content edges (yellow) · {nphoto} photo+caption "
                  f"perimeters (blue) · grid {nc}x{nr} at {CELL_PCT}% of width")
         suffix = "_clean" if args.clean else ""
         out = os.path.join(OUT_DIR, args.date,
                            f"p{args.page}_sepgrid{suffix}.png")
-        pts = corner_points(junc, nr_, nc, nr)
+        pts = corner_points(junc, cross, nc, nr)
         derived = boxes_from_corners(pts, counts, nc, nr)
         title += f" · {len(pts)} corners -> {len(derived)} boxes"
-        print(" ", render(counts, junc, nr_, gut, photo, nc, nr, title, out,
-                          boxes=derived))
+        print(" ", render(counts, junc, nr_, cross, gut, photo, nc, nr,
+                          title, out, boxes=derived))
         ov = os.path.join(OUT_DIR, args.date,
                           f"p{args.page}_overlay{suffix}.png")
-        print(" ", render_overlay(conn, row["id"], counts, junc, nr_, gut,
-                                  photo, nc, nr, ov))
+        print(" ", render_overlay(conn, row["id"], counts, junc, nr_, cross,
+                                  gut, photo, nc, nr, ov))
         print(f"  {n} regions kept, {folded} folded as contained, "
               f"{cells} cells touched, busiest {busiest}, "
-              f"{njunc} junctions + {nnear} near, "
+              f"{njunc} junctions + {ncross} crossings + {nnear} near, "
               f"{len(pts)} corners -> {len(derived)} boxes")
     finally:
         conn.close()
