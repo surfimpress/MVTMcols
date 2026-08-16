@@ -903,6 +903,28 @@ Changes were verified in the region the question was about, and box
 counts reported without inspecting what the count was made of. The
 Sidewalk Sale disappeared two changes before anyone noticed.
 
+### 7. Page-percent is TWO units, and every shared threshold is skewed
+
+Audited after the Sidewalk Sale was lost to it. `x%` is a percentage of
+page WIDTH, `y%` of page HEIGHT. They are interchangeable only on a square
+page. Every threshold written as one `_PCT` constant and applied to both
+axes is therefore silently anisotropic — on 1980-04-06 p13 the vertical
+reading is 1.41x the horizontal for the same physical distance.
+
+Found in four places:
+
+| where | effect |
+|---|---|
+| `separator_grid.drop_gutters` | its "ratio" is **not** an aspect ratio — a SQUARE 20x20-cell region scores 1.406. Every threshold in it was tuned against a distorted number. |
+| `separator_grid.merge_double_rules` | `max()` over both axes against one threshold; 2 cells reads 1.00% across, 0.71% down |
+| `_within_content` / `_fold_contained` | `CONTENT_PAD_PCT` 2.0% = 4.0 cells across, 5.6 down |
+| `detect_boxes.INSET_PCT` | 2.5% = 35px across but 49px down — the rounded-corner allowance is 40% more generous vertically. `FRAGMENT_POS_PCT` likewise. |
+
+**The fix is to work in GRID CELLS, which are square by construction** (7x7
+px on p13). `ad_rectangles.py` does; the older helpers do not. Anything
+new that compares a distance on one axis with a distance on the other must
+convert to cells first.
+
 ### The through-line
 
 Every one of these is the same failure in a different coat: **substituting

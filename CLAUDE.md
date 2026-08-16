@@ -167,6 +167,15 @@ that.
     corroboration. Multi-leg captions stay ONE record with `n_runs`.
     Nested ocr_photo regions are dropped (a caption can't belong to two
     photos). 45% of photos captioned corpus-wide.
+  - **PAGE-PERCENT IS TWO UNITS.** `x%` is of page WIDTH, `y%` of page
+    HEIGHT; they are interchangeable only on a square page. On
+    1980-04-06 p13 the vertical reading is 1.41x the horizontal for the
+    same physical distance. Every threshold written as one `_PCT`
+    constant and applied to both axes is silently anisotropic — audited,
+    and found in `drop_gutters` (whose "ratio" is not an aspect ratio: a
+    SQUARE region scores 1.406), `merge_double_rules`, `_within_content`
+    and `detect_boxes.INSET_PCT` (35px across vs 49px down). **Work in
+    GRID CELLS, which are square by construction.** See §5z.7.
   - **READ `instructions/scaled_pipeline.md` §5z BEFORE CHANGING A
     DETECTOR.** Six documented process failures from this experiment,
     every one the same mistake in a different coat: substituting a number
