@@ -1149,17 +1149,66 @@ It is a full-page grocery ad — a lattice of roughly 40 ruled product
 cells — and `detect_zones` finds **ONE** zone. CCL's 5 is no better.
 Neither found the page's structure at all.
 
-**Root cause, measured, and it is not the geometry.** Tesseract reports
-only **22 separators on that page, 5 of them vertical**, for a lattice
-needing dozens. There are just **7 corners** to work with, giving 5
-x-lines x 4 y-lines. The corner predicate is not failing — the ink was
-never reported to it.
+**FIRST ANSWER, WRONG — recorded because the correction is the point.**
+I wrote that the cause was Tesseract's recall: only 22 separators, 5 of
+them vertical, so "the ink was never reported to it". The user then
+produced the separators layer for 1980-04-06 p2, which has 36, and asking
+why THAT page fails too exposed the real mechanism. Generalising a root
+cause from a single page is the §5z failure in another coat.
 
-    1986-01-08 p2   Tesseract 17H/5V    ->  7 corners  ->  1 rect
-    1980-04-06 p13  Tesseract 23H/18V   -> 36 corners  ->  8 rects
+**REAL ROOT CAUSE: the corner map is built from rule ENDS ONLY.**
+`_ends()` returns a separator's two endpoints and nothing else, so a rule
+CROSSING another mid-span contributes no corner there. Measured, true
+geometric intersections of a vertical with a horizontal against corners
+actually marked:
 
-**The pixel route can reach it, and the current prototype's threshold is
-what stops it.** `experiments/rule_detection_sources.py` filters for
+    page             V x H    intersections   mid-span of BOTH   corners
+    1980-04-06 p13   18 x 23       43                 0             36
+    1980-04-06 p2    13 x 23       31                 3             29
+    1986-01-08 p2     5 x 17       18                12              7
+
+p13 is the case the derivation was built on — boxes butted together,
+rules ENDING at corners, zero mid-span crossings, corner map near
+complete. A grocery price grid is the opposite: it is ruled with
+CONTINUOUS lines straight across the block, so two thirds of its
+intersections are mid-span and every one is invisible. That is why
+1986-01-08 p2 gives 7 corners and one zone, and why 1980-04-06 p2 finds
+nothing inside its Red & White lattice despite 36 separators being
+reported — the lattice's own intersections are not ends.
+
+**This is a limit of OUR derivation, not of Tesseract**, and it follows
+from `typesetting_practice.md`: a ruled TABLE and a stack of ruled ADS are
+different printing, and the corner predicate was derived from the second.
+
+**Not yet fixed, and not a quick patch.** Marking true crossings as
+corners adds corners on every page, and every added corner can VETO a
+rectangle through `_interrupted` as readily as complete one. It needs its
+own measurement and a render pass across the corpus.
+
+**BLOCKS describe these pages when ruling does not** — the user's
+observation, measured:
+
+    page             blocks  lines   block cover   zones   zone cover
+    1986-01-08 p2      49      90        55.7%       1        0.9%
+    1980-04-06 p2     145     343        32.6%       3        7.7%
+    1980-04-06 p8     106     277        64.0%       9       18.9%
+    1980-04-06 p13     49     156        38.6%       8       70.7%
+
+On 1986-01-08 p2 the single zone covers 0.9% of the page and contains no
+block at all, while Tesseract's own LAYOUT analysis covers 55.7% in 49
+blocks. Its layout pass found that page; only its separator output failed
+us. p13, the page the corner derivation was built on, is the one page here
+where zone cover exceeds block cover.
+
+Do NOT overread it as one-block-per-cell: median block height is 1.9% of
+page height — a line or two — so blocks are SUB-cell fragments, not the
+cells. What they do carry is the lattice's column structure, 12 distinct
+left edges across those 49 blocks. So blocks are a real complementary
+evidence source for zones on pages whose ruling is a table rather than a
+stack of ads, but they need aggregating first, and that is unbuilt.
+
+**Rule recall is a second, smaller limit, and the pixel prototype's
+threshold caps it.** `experiments/rule_detection_sources.py` filters for
 rules that are THIN and long, at `THIN_PX = 4`. The grocery ad's borders
 are heavier than that. Sweeping it on the same page:
 
@@ -1175,8 +1224,9 @@ made this page invisible.
 before re-fitting the columns. On a page where the boxes are not found,
 nothing is removed, and the ad-interior contamination the step exists to
 fix stays exactly where it was — on precisely the pages where it is
-worst, because a full-page ad is 100% ad interior. **Rule recall is a
-prerequisite for step 1, not an independent improvement to make later.**
+worst, because a full-page ad is 100% ad interior. **Both limits above are
+prerequisites for step 1, not independent improvements to make later** —
+and the mid-span crossing one is the larger.
 
 Not yet done: `THIN_PX` is one number swept on one page. It needs
 sweeping across the corpus and, more likely, making adaptive — a rule's
@@ -1432,10 +1482,13 @@ python3 -m transcribe.scaled.render_overlay YYYY-MM-DD [--page N]
   caption printed rather than discarded; `_gutter_centres` no longer takes
   an unused `chh` and can be given the caller's own lattice; stale
   266/251 measurement re-run as 273/256. See §5p.
-- **2026-08-16** — Rendered p8 and p2 as the review demanded, and found
-  the real ceiling: **Tesseract's separator recall**, not the corner
-  predicate. 1986-01-08 p2 is a ~40-cell grocery-ad lattice reported as 5
-  verticals, giving 7 corners and 1 zone. The pixel prototype's `THIN_PX`
-  filter is what hides it — at 8 instead of 4 the same page yields 26
-  verticals. This is a prerequisite for §5o step 1, not a later
-  improvement. See §5q.
+- **2026-08-16** — Rendered p8 and p2 as the review demanded and found a
+  structural limit: **the corner map is built from rule ENDS only**, so a
+  rule crossing another mid-span marks no corner. Harmless for butted ad
+  stacks (p13: 0 mid-span crossings of 43 intersections), fatal for a
+  ruled price grid (1986-01-08 p2: 12 of 18, giving 7 corners and 1 zone).
+  My first answer blamed Tesseract's recall and was WRONG — corrected
+  after the user produced 1980-04-06 p2, which has 36 separators and fails
+  anyway. Rule recall is a real but smaller second limit. Blocks cover
+  these pages far better than zones do (1986-01-08 p2: 55.7% against
+  0.9%). Both limits are prerequisites for §5o step 1. See §5q.
