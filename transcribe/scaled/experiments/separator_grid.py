@@ -327,6 +327,19 @@ def build(conn, page_id: str, clean: bool = False):
             if occupied.get((cy, cx), set()) - {i}:
                 junction[cy][cx] = True
                 continue
+            # NEAREST NEIGHBOUR WINS, and only the nearest.
+            #
+            # An end one cell short of another rule resolves to a corner,
+            # but if it is near SEVERAL rules only one of them is the one
+            # it was actually reaching for. Marking them all invents
+            # corners; marking whichever came first in NEIGHBOURS order
+            # picks arbitrarily -- the list starts at (-1,-1), so a
+            # top-left DIAGONAL used to beat an orthogonal neighbour that
+            # is plainly closer. Distance decides instead: orthogonal
+            # (1.0) before diagonal (1.41), ties kept together because a
+            # tie is genuinely ambiguous and both readings are equally
+            # supported.
+            found: dict[float, set] = {}
             for dy, dx in NEIGHBOURS:
                 ny, nx = cy + dy, cx + dx
                 if not (0 <= ny < n_rows and 0 <= nx < n_cols):
@@ -334,29 +347,31 @@ def build(conn, page_id: str, clean: bool = False):
                 others = occupied.get((ny, nx), set()) - {i}
                 if not others:
                     continue
-                near[cy][cx] = True
-                # BLACK: where the two rules would actually cross.
-                #
-                # A pink cell says "this end is one cell off another rule".
-                # It does not say WHERE the corner is -- the end is short of
-                # it. But each rule has an axis (a horizontal's row, a
-                # vertical's column), and if the two run in different
-                # directions those axes meet at exactly one cell. That cell
-                # is the corner, whether the near-miss came from a rule
-                # crossing and then ending (a T-junction) or from two rules
-                # both stopping short of each other (a rounded corner, which
-                # shows as two diagonally adjacent pinks). One rule, both
-                # cases, no special-casing.
-                i_h, i_axis = meta[i]
-                for j in others:
-                    j_h, j_axis = meta[j]
-                    if i_h == j_h:
-                        continue          # parallel: they never cross
-                    row = i_axis if i_h else j_axis
-                    col = j_axis if i_h else i_axis
-                    if 0 <= row < n_rows and 0 <= col < n_cols:
-                        crossing[row][col] = True
-                break
+                found.setdefault((dy * dy + dx * dx) ** 0.5, set()).update(others)
+            if not found:
+                continue
+            near[cy][cx] = True
+            # BLACK: where the two rules would actually cross.
+            #
+            # A pink cell says "this end is one cell off another rule".
+            # It does not say WHERE the corner is -- the end is short of
+            # it. But each rule has an axis (a horizontal's row, a
+            # vertical's column), and if the two run in different
+            # directions those axes meet at exactly one cell. That cell
+            # is the corner, whether the near-miss came from a rule
+            # crossing and then ending (a T-junction) or from two rules
+            # both stopping short of each other (a rounded corner, which
+            # shows as two diagonally adjacent pinks). One rule, both
+            # cases, no special-casing.
+            i_h, i_axis = meta[i]
+            for j in found[min(found)]:
+                j_h, j_axis = meta[j]
+                if i_h == j_h:
+                    continue          # parallel: they never cross
+                row = i_axis if i_h else j_axis
+                col = j_axis if i_h else i_axis
+                if 0 <= row < n_rows and 0 <= col < n_cols:
+                    crossing[row][col] = True
     # Both kinds of vertical reference get the same tint: the point is
     # "a rule here has a reason to be here", and the content edge is as
     # good a reason as a gutter.

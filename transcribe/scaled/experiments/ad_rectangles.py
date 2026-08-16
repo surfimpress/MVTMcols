@@ -95,17 +95,29 @@ def _lines(values, tol=LINE_TOL, want_index=False):
     return centres, index
 
 
-def _interrupted(x0, y0, x1, y1, corners):
-    """Does any corner sit in the OPEN interior of one of the four sides?"""
-    for (cx, cy) in corners:
-        # left / right sides: same x, y strictly between
-        for sx in (x0, x1):
-            if abs(cx - sx) <= ON_LINE_TOL and y0 + LINE_TOL < cy < y1 - LINE_TOL:
-                return True
-        # top / bottom sides: same y, x strictly between
-        for sy in (y0, y1):
-            if abs(cy - sy) <= ON_LINE_TOL and x0 + LINE_TOL < cx < x1 - LINE_TOL:
-                return True
+def _interrupted(xi, yi, xj, yj, indexed):
+    """Does any corner sit in the OPEN interior of one of the four sides?
+
+    Asked entirely in CLUSTER INDICES -- `indexed` is the corner list as
+    (x-line, y-line) index pairs. "Same line" is then identity, and
+    "strictly between" is an integer comparison, so no tolerance appears
+    here at all.
+
+    It used to compare distances to the line CENTROIDS, and that was the
+    same mistake `has_corner` made: a corner BELONGING to the right-hand
+    line sat 1.04 cells from that line's centroid, so it failed to count
+    as part of the side -- and simultaneously fell inside `x1 - LINE_TOL`,
+    so it counted as an interior point of the TOP edge and vetoed the
+    rectangle. Measured on 1980-04-06 p10: the Carleton Refrigeration /
+    TRUCKING / McKay stack survived or died on whether that line's
+    centroid landed at 122.83 or 123.04 -- a fifth of a cell. A corner of
+    a side is not an interruption of the edge that ends on it.
+    """
+    for (cx, cy) in indexed:
+        if cx in (xi, xj) and yi < cy < yj:      # on a side, between ends
+            return True
+        if cy in (yi, yj) and xi < cx < xj:      # on an edge, between ends
+            return True
     return False
 
 
@@ -139,7 +151,8 @@ def ad_rectangles(corners, column_lines=(), photos=(),
     # was clustered into.
     xs, x_of = _lines([c[0] for c in corners], want_index=True)
     ys, y_of = _lines([c[1] for c in corners], want_index=True)
-    have = {(x_of[c[0]], y_of[c[1]]) for c in corners}
+    indexed = [(x_of[c[0]], y_of[c[1]]) for c in corners]
+    have = set(indexed)
 
     def has_corner(xi, yi):
         return (xi, yi) in have
@@ -159,7 +172,7 @@ def ad_rectangles(corners, column_lines=(), photos=(),
                             and has_corner(i, yj) and has_corner(xj, yj)):
                         continue
                     # THE test.
-                    if _interrupted(x0, y0, x1, y1, corners):
+                    if _interrupted(i, j, xj, yj, indexed):
                         continue
 
                     reasons, score = [], 0.0

@@ -626,6 +626,44 @@ splitting on gaps; candidates are every pair of x-lines against every pair
 of y-lines; atomicity is a property of the whole corner set. The earlier
 detectors' worst bugs were all order artefacts and this cannot have them.
 
+**Both halves of the predicate ask MEMBERSHIP, not distance** (fixed
+2026-08-16, review findings 5 and 6). The clusters are built by splitting
+on gaps, so a cluster can be WIDER than the tolerance that built it —
+measured, 18 such clusters corpus-wide, worst 3.0 cells across 14 corners.
+Any test that then compares a corner to its own line's CENTROID is
+therefore incoherent, and both tests originally did:
+
+  * `has_corner` — 25 corners on 9 pages sat further than `LINE_TOL` from
+    the centroid of the line they had themselves defined, so they could
+    not certify it.
+  * `_interrupted` — worse, because it fails in the other direction. A
+    corner belonging to the right-hand line sat 1.04 cells from that
+    line's centroid: too far to count as part of the side, yet inside
+    `x1 - LINE_TOL`, so it counted as an interior point of the TOP edge
+    and vetoed the rectangle. On 1980-04-06 p10 the Carleton Refrigeration
+    / TRUCKING / McKay stack survived or died on whether that centroid
+    landed at 122.83 or 123.04 — a fifth of a cell.
+
+Both now index into the cluster map: "same line" is identity and
+"strictly between" is an integer comparison, so `_interrupted` carries no
+tolerance at all. **A corner of a side is not an interruption of the edge
+that ends on it.** Corpus zones 266 -> 273.
+
+**Nearest neighbour wins the corner scan, and only the nearest.** An end
+one cell short of another rule resolves to a crossing, but if it is near
+several rules only one is the one it was reaching for. `separator_grid`
+used to take whichever came first in `NEIGHBOURS` order — a list starting
+at `(-1,-1)`, so a top-left DIAGONAL beat an orthogonal neighbour that is
+plainly closer. Distance decides instead (orthogonal 1.0 before diagonal
+1.41), ties kept together because a tie is genuinely ambiguous.
+
+That was reported as an order-dependence bug and it was, but the corner
+map it produced was mostly a symptom: once `_interrupted` was fixed, p10
+gives 10 zones either way. The remaining difference is 4 pages, and
+rendering them the nearest-neighbour reading is better or equal
+everywhere — p13 gains the Township of West Carleton SNOW REMOVAL and
+ANNUITIES boxes, p11 gains one, nothing is lost.
+
 Column lines and photo containment SCORE the survivors, never reject one.
 
 1980-04-06 p13: 8 rectangles, the complete set, rendered and checked.
