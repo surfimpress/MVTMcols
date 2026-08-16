@@ -71,15 +71,22 @@ def _perimeter_cells(i, cw, chh, n_cols, n_rows):
 
 
 def _sliver_items(every, verdicts):
-    """`every` re-keyed to the objects sliver_pass judged, so identity
-    comparison works across the two module's separate queries."""
+    """`every` re-keyed to the objects sliver_pass judged.
+
+    Keyed on geometry, because the two modules run their own queries and
+    the dicts are not the same objects. EVERY kind is re-keyed: an earlier
+    version did separators only, so once photos became candidates their
+    verdicts never reached the render and the shadow strips stayed drawn.
+    """
     by_key = {(round(r["sep"]["L"], 4), round(r["sep"]["T"], 4),
-               round(r["sep"]["R"], 4), round(r["sep"]["B"], 4)): r["sep"]
+               round(r["sep"]["R"], 4), round(r["sep"]["B"], 4),
+               r["sep"]["kind"]): r["sep"]
               for r in verdicts}
     out = []
     for i in every:
-        k = (round(i["L"], 4), round(i["T"], 4), round(i["R"], 4), round(i["B"], 4))
-        out.append(by_key.get(k, i) if i["kind"] == "ocr_separator" else i)
+        k = (round(i["L"], 4), round(i["T"], 4),
+             round(i["R"], 4), round(i["B"], 4), i["kind"])
+        out.append(by_key.get(k, i))
     return out
 
 

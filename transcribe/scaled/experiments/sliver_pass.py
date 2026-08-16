@@ -1,8 +1,13 @@
-"""EXPERIMENT — first pass: eliminate SLIVER separators at the page rim.
+"""EXPERIMENT — first pass: eliminate SLIVERS at the page rim.
 
-Separators only. Photos and blocks are read as evidence but never removed
-here; a block with words is real type, and a photo needs a different
-argument.
+Separators, and photos that SIZE as slivers -- the binding shadow comes
+back as an `ocr_photo` at least as often as a separator (1980-04-06 p4:
+x 0.00-2.34 spanning y 0.75-81.56, a full-height strip down the binding).
+A photo big enough to be a picture is never a candidate: it fails the same
+THIN_CELLS test the separators use, so one size rule covers both.
+
+Blocks are read as evidence but never removed: a block with words is real
+type.
 
 THE PROBLEM THIS SOLVES
 -----------------------
@@ -146,7 +151,12 @@ def classify(conn, page_id):
 
     out = []
     for s in items:
-        if s["kind"] != "ocr_separator":
+        # Separators, and PHOTOS THAT SIZE AS SLIVERS. A photo wide enough
+        # to be a picture is never a candidate -- it falls out below as
+        # "not a sliver" on the same THIN_CELLS test the separators use, so
+        # there is one size rule, not two. Blocks are never candidates: a
+        # block with words is real type.
+        if s["kind"] not in ("ocr_separator", "ocr_photo"):
             continue
         w, h = (s["R"] - s["L"]) / cw, (s["B"] - s["T"]) / chh
         vertical = h >= w
