@@ -33,8 +33,19 @@ Left and right are not extremes -- they are CLUSTERS. Body text is set
 flush left in every column, so hundreds of lines start at the same x, and
 the content's left edge is the leftmost position that a meaningful number
 of lines actually start at. Taking the minimum instead is what produced
-the 0.00% failures. A hanging indent, a stray overhanging headline or one
-mis-segmented line must not be able to move the margin.
+the 0.00% failures.
+
+What the rim guard actually buys, stated precisely because an earlier
+version of this docstring overclaimed: `MIN_BIN_LINES` requires a
+histogram bin to hold >=2 lines before that bin can define an edge, then
+takes the extreme WITHIN that bin. So the returned margin is still one
+specific line's edge -- measured, it is held by a single line on 73/90
+pages at the left and 71/90 at the right. What the guard bounds is the
+EXCURSION: the margin can only sit within one bin width (0.25%) of a
+position where at least two lines genuinely align. Two spurious >=2-word
+lines landing in the same bin will still set it outright. This is a
+bounded error, not immunity, and the difference matters to anyone
+deciding how far to trust `content_left_pct` downstream.
 
 Usage::
 

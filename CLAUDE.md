@@ -96,19 +96,22 @@ that.
     `page_zones`, 273 zones over 90 pages. **`rules.py` is NOT in this
     path** — its conjoined-dropping and fragment-rejoining were built for
     the rule-PAIRING detector, and measured against the corner
-    derivation they give 251 zones against 266, worse on 14 pages and
-    better on 11, losing p13's Sidewalk Sale. `build()` defaults
+    derivation they give 256 zones against 273, worse on 15 pages and
+    better on 10, losing p13's Sidewalk Sale. `build()` defaults
     `clean=False`; `--clean` is a diagnostic. Three docs claimed
     otherwise and were wrong.
     Each zone carries its blocks/lines/photos, column span, score and
     advisory flags (`empty`, `pictorial`, `duplicate`, `encloses`) —
     **geometry decides, content is evidence, nothing is dropped on a
     content test** (28.8% of boxes hold no text block and many are
-    pictorial ads). Corpus flags: 54 empty, 14 pictorial, zero
-    duplicates or enclosures — but do NOT read that as evidence the
-    predicate works: `encloses` only fires when the inner zones' blocks
-    exactly cover the outer's, so it can barely fire at all, and 13
-    geometric nestings exist.
+    pictorial ads). Corpus flags: 54 empty, 14 pictorial, 2 encloses,
+    zero duplicates. **`encloses` was previously unable to fire** — it
+    demanded the inner zones' blocks exactly cover the outer's, which a
+    headline outside the inner panel breaks, so it read 0 against 12
+    real nestings and that zero was quoted as evidence the derivation
+    was clean. It now means plain geometric nesting: 2 outer zones
+    (p9 holds 11, p13 holds 1). A flag that cannot fire is worse than
+    no flag.
     **Both halves of the predicate ask cluster MEMBERSHIP, never
     distance to a cluster centroid** (fixed 2026-08-16). Clusters are
     built by splitting on gaps, so a cluster can be WIDER than the

@@ -178,7 +178,8 @@ def cell_size(conn, page_id: str) -> tuple[float, float]:
     return CELL_PCT, CELL_PCT / aspect
 
 
-def _gutter_centres(conn, page_id: str, cw: float, chh: float
+def _gutter_centres(conn, page_id: str, cw: float,
+                    cols: list | None = None
                     ) -> tuple[list[float], list[float]]:
     """Vertical reference lines: gutter centres, and the content edges.
 
@@ -194,9 +195,21 @@ def _gutter_centres(conn, page_id: str, cw: float, chh: float
     sit 10-12% from any gutter precisely because they belong to these
     instead.
     """
-    cols = [dict(r) for r in conn.execute(
-        "SELECT left_pct, right_pct FROM page_columns WHERE page_id=? "
-        "AND method='grid' ORDER BY col_idx", (page_id,))]
+    # `cols` may be supplied so a caller that has ALREADY fitted the
+    # lattice scores its rectangles against that same fit. Reading
+    # page_columns independently here let a caller mix a STORED lattice
+    # with a freshly re-fitted one; measured, they agree on all 90 pages
+    # today, but nothing forced them to and a detect_grid change without
+    # a re-run would have split them silently.
+    #
+    # `chh` is deliberately NOT a parameter: these are x positions, so
+    # only the width scale applies. It used to be required and unused,
+    # which meant a caller passing the two the wrong way round got no
+    # error and a silently wrong scale.
+    if cols is None:
+        cols = [dict(r) for r in conn.execute(
+            "SELECT left_pct, right_pct FROM page_columns WHERE page_id=? "
+            "AND method='grid' ORDER BY col_idx", (page_id,))]
     gutters = [(cols[i]["right_pct"] + cols[i + 1]["left_pct"]) / 2
                for i in range(len(cols) - 1)]
     r = conn.execute(
@@ -231,15 +244,13 @@ def _ends(r: dict) -> list[tuple]:
 
 def build(conn, page_id: str, clean: bool = False):
     """Per-cell counts of separator regions, and the grid's shape."""
-    row = conn.execute(
-        "SELECT display_width_px w, display_height_px h FROM pages WHERE id=?",
-        (page_id,)).fetchone()
-    aspect = (row["h"] / row["w"]) if row and row["w"] else 1.4
-
     n_cols = int(round(100 / CELL_PCT))
     # Square cells: one cell is CELL_PCT of the WIDTH, so its height in
-    # page-height percent is CELL_PCT / aspect.
-    cell_h_pct = CELL_PCT / aspect
+    # page-height percent is CELL_PCT / aspect. Taken from cell_size(),
+    # which is the single definition of that relation -- build() used to
+    # re-derive it, which made the "no caller should re-derive this"
+    # claim in cell_size's own docstring false in the same file.
+    _, cell_h_pct = cell_size(conn, page_id)
     n_rows = int(round(100 / cell_h_pct))
 
     counts = [[0] * n_cols for _ in range(n_rows)]
@@ -379,7 +390,7 @@ def build(conn, page_id: str, clean: bool = False):
     # Both kinds of vertical reference get the same tint: the point is
     # "a rule here has a reason to be here", and the content edge is as
     # good a reason as a gutter.
-    gutters, edges = _gutter_centres(conn, page_id, CELL_PCT, cell_h_pct)
+    gutters, edges = _gutter_centres(conn, page_id, CELL_PCT)
     gutter = [False] * n_cols
     for gx in gutters + edges:
         cx = int(gx)
@@ -453,7 +464,17 @@ def _blend(base: tuple, tint: tuple, amount: float) -> tuple:
 
 
 def render(counts, junction, near, crossing, gutter, photo, n_cols, n_rows,
-           title: str, out_path: str, boxes=None) -> str:
+           out_path: str, boxes=None) -> str:
+    """Draw the grid. The CAPTION IS NOT DRAWN -- see below.
+
+    This used to take a `title` and silently drop it, so the CLI built a
+    genuinely informative caption (separator counts, junctions, crossings,
+    corners, boxes) and threw it away, printing only a file path.
+
+    The caption is not drawn back on, because the no-margins rule below is
+    deliberate and worth keeping. The CLI PRINTS it instead, next to the
+    path, so the diagnostic survives without costing the chart any pixels.
+    """
     # No margins and no labels: every pixel goes to the data, so the whole
     # grid fits the preview at 1:1.
     cell = max(1, min(PREVIEW_MAX_W // n_cols, PREVIEW_MAX_H // n_rows))
@@ -623,14 +644,17 @@ def _cmd(args):
         # percent is two different units -- x of width, y of height. Their
         # replacement is a single predicate (no corner may interrupt a
         # side) that needs neither.
-        g_cells, e_cells = _gutter_centres(conn, row["id"], cw_, chh_)
+        g_cells, e_cells = _gutter_centres(conn, row["id"], cw_)
         derived = [(b["T"], b["L"], b["B"], b["R"]) for b in
                    _ads.ad_rectangles([(p[1], p[0]) for p in pts],
                                       g_cells + e_cells,
                                       _photo_units(conn, row["id"], cw_, chh_))]
         title += f" · {len(pts)} corners -> {len(derived)} boxes"
+        # The chart carries no legend by design, so the caption goes here.
+        # It used to be passed to render() and discarded.
+        print(" ", title)
         print(" ", render(counts, junc, nr_, cross, gut, photo, nc, nr,
-                          title, out, boxes=derived))
+                          out, boxes=derived))
         ov = os.path.join(OUT_DIR, args.date,
                           f"p{args.page}_overlay{suffix}.png")
         print(" ", render_overlay(conn, row["id"], counts, junc, nr_, cross,

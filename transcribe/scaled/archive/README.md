@@ -1,6 +1,13 @@
 # Archived work from the `scaled` experiment
 
-Two separate archives. **Neither is imported by anything.**
+Four separate archives, seven modules. **None is imported by anything
+in the live path.**
+
+NOTE: this directory has no `__init__.py`, so `detect_bands`,
+`detect_boxes_pairing` and `detect_columns` cannot be imported as modules
+(`cannot import name '_support'`). `refine_columns.py` does import, which
+is what CLAUDE.md's "kept runnable" refers to -- it does not generalise to
+the others. They are kept as readable source, not as runnable code.
 
 ---
 
@@ -102,3 +109,29 @@ If it is revisited, the lesson is that the correction must stay
 **parametric** — one global scale or skew term fitted across the whole
 page, keeping the gutter constant — rather than per-edge. Per-edge
 freedom is precisely what let ad interiors pull the answer around.
+
+
+---
+
+# Archived: three generations of box detection
+
+**Superseded by the corner derivation. Kept for the journey.**
+
+`detect_boxes_pairing.py` built rectangles by PAIRING rules -- top/bottom
+horizontals bridged between a matched pair of verticals. It needed six
+tuned thresholds (aspect ratio, thin dimension, gap tolerance, twin
+collapse, double-rule merge, gutter drop) because it asked "is this a
+valid rectangle?", and the union of two stacked ads answers yes.
+
+`corner_quadrilaterals.py` was the first corner-based generation: it
+enumerated quadruples of corners. Order-dependent, and it inherited the
+same union problem.
+
+`percent_box_filters.py` holds that generation's two page-percent
+filters, `drop_gutters` and `merge_double_rules`. Both applied one
+threshold to both axes, which is anisotropic -- `drop_gutters`'s "ratio"
+scores a SQUARE region at 1.406. See scaled_pipeline.md 5z.7.
+
+All three are replaced by ONE predicate in
+`experiments/ad_rectangles.py`: a rectangle is an item when no other
+corner interrupts its sides.

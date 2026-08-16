@@ -9,8 +9,8 @@ The pipeline, in the order it actually runs:
 
 The separators are used RAW. `rules.py` cleans them -- dropping conjoined
 regions, rejoining fragments -- and that cleaning is NOT applied here, on
-measurement: across 90 pages it gives 251 zones against 266, worse on 14
-pages and better on 11, and on p13 it loses the Sidewalk Sale. It was
+measurement: across 90 pages it gives 256 zones against 273, worse on 15
+pages and better on 10, and on p13 it loses the Sidewalk Sale. It was
 built for the rule-pairing detector, where a fragment broke the pair; the
 corner derivation wants rule ENDS, and merging fragments removes them.
 An earlier version of this docstring claimed the cleaning ran. It did not.
@@ -27,9 +27,13 @@ of them.
 WHAT WAS CARRIED FORWARD, and what was left behind
 ---------------------------------------------------
 Kept, because it is about the RULES rather than the boxes:
-  * conjoined-region removal and fragment rejoining (`rules.py`)
   * the page-edge margin that excludes scan artefacts
   * the content-area filter, so shadows outside the type are ignored
+
+NOT kept: conjoined-region removal and fragment rejoining. `rules.py`
+still holds them and they are still a useful diagnostic under `--clean`,
+but they are not applied -- see the measurement above. This list used to
+name them as carried forward, contradicting the paragraph above it.
 
 Left behind with the pairing detector:
   * the six geometric thresholds (aspect ratio, thin dimension, gap
@@ -49,7 +53,13 @@ Flags are advisory:
     empty        no block and no photo
     pictorial    no block but a photo -- an image ad
     duplicate    identical block set to another zone
-    encloses     its blocks are exactly the union of the zones inside it
+    encloses     it geometrically contains at least one other zone
+
+`encloses` USED to require that the inner zones' blocks exactly covered
+the outer's, which made it unable to fire on a real page -- 0 of the 12
+nestings in this corpus -- and the zero was then quoted as evidence the
+derivation was clean. It now means plain geometric nesting: 2 outer zones
+(1980-04-06 p9 holding 11, p13 holding 1).
 
 Usage::
 
@@ -97,21 +107,27 @@ def _content(conn, page_id: str, zones: list[dict],
         if a["blocks"] and any(a["blocks"] == b["blocks"]
                                for j, b in enumerate(zones) if i != j):
             flags.append("duplicate")
-        # One CELL of slack, which is one physical distance on both axes.
-        # This used to be a flat 0.5 page-percent either way -- 1.00 cell
-        # across but 1.41 down, so a zone had to be tucked half again as
-        # far inside vertically to count as contained. See §5z.7.
+        # `encloses` means GEOMETRIC nesting: this zone contains others.
+        #
+        # It used to additionally require that the inner zones' blocks
+        # EXACTLY covered the outer's, and that made it structurally
+        # unable to fire: an ad with a headline outside its inner panel
+        # breaks exact coverage, which is nearly every real case.
+        # Measured, it fired on 0 of the 12 genuine nestings in this
+        # corpus, and the zero was then read as evidence the derivation
+        # was clean. A flag that cannot fire is worse than no flag.
+        #
+        # Slack is one CELL, which is one physical distance on both axes;
+        # a flat 0.5 page-percent was 1.00 cell across but 1.41 down. That
+        # correction alone changed nothing -- it corrected the units of a
+        # test that never ran. See §5z.7.
         inner = [b for j, b in enumerate(zones) if i != j
                  and b["left_pct"] >= a["left_pct"] - cw
                  and b["right_pct"] <= a["right_pct"] + cw
                  and b["top_pct"] >= a["top_pct"] - chh
                  and b["bottom_pct"] <= a["bottom_pct"] + chh]
-        if inner and a["blocks"]:
-            covered = set()
-            for b in inner:
-                covered |= set(b["blocks"])
-            if covered == set(a["blocks"]):
-                flags.append("encloses")
+        if inner:
+            flags.append("encloses")
         a["flags"] = ",".join(sorted(set(flags)))
 
 
@@ -123,16 +139,22 @@ def detect(conn, page_id: str) -> dict:
 
     cw, chh = _sepgrid.cell_size(conn, page_id)
 
+    # ONE lattice, fitted once and used for both jobs: the gutter lines
+    # that SCORE the rectangles, and the col_lo/col_hi recorded against
+    # them. `_gutter_centres` would otherwise read the STORED page_columns
+    # while this function re-fits live, so a detect_grid change without a
+    # re-run would have silently mixed two lattices. They agree on all 90
+    # pages today; nothing forced them to.
+    cols = _grid.detect(conn, page_id).get("columns") or []
+
     # Corners, then rectangles -- both entirely in CELLS. Percent appears
     # only on the way out, because that is what the rest of the schema
     # speaks.
     pts = [(p[1], p[0]) for p in
            _sepgrid.corner_points(junction, crossing, n_cols, n_rows)]
-    gut, edges = _sepgrid._gutter_centres(conn, page_id, cw, chh)
+    gut, edges = _sepgrid._gutter_centres(conn, page_id, cw, cols)
     rects = _ads.ad_rectangles(pts, gut + edges,
                                _sepgrid._photo_units(conn, page_id, cw, chh))
-
-    cols = _grid.detect(conn, page_id).get("columns") or []
     zones = []
     for i, r in enumerate(rects):
         L, T = r["L"] * cw, r["T"] * chh

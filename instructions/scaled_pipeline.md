@@ -557,8 +557,8 @@ And it should stay off, on measurement across 90 pages:
 
 | | zones |
 |---|---|
-| raw separators (live) | **266** |
-| cleaned | 251 — worse on 14 pages, better on 11 |
+| raw separators (live) | **273** |
+| cleaned | 256 — worse on 15 pages, better on 10 |
 
 On p13 cleaning drops 8 → 7, losing the Sidewalk Sale, the very box
 `_merge_fragments` was written to rescue. The reason it reverses: that
@@ -594,7 +594,7 @@ carrying any text of its own can never trip it — and 13 geometric nestings
 do exist in the corpus. The flag proves nothing about the predicate. A
 real check would test the geometry directly.
 
-Schema v20 adds `page_zones`. 266 zones over 90 pages, 3.0/page.
+Schema v20 adds `page_zones`. 273 zones over 90 pages, 3.0/page.
 
 Archived: `archive/detect_boxes_pairing.py` (the pairing detector),
 `archive/corner_quadrilaterals.py` (the quadrilateral generator),
@@ -1130,6 +1130,59 @@ uses a flat ±0.5 page-percent for its enclosure containment. It is an
 experiment, not in the live path, and is left alone deliberately rather
 than changed as a side effect of an unrelated pass.
 
+## 5q. RULE RECALL IS THE CEILING ON STAGE 2b (measured 2026-08-16)
+
+Found by acting on the second review's "render p8 and p2 before trusting
+273". The CCL cross-check reported 4/38 agreement on 1980-04-06 p8 and
+0/5 on 1986-01-08 p2, and those two numbers mean opposite things.
+
+**p8: CCL over-counts, we are roughly right.** Its 38 "enclosed regions"
+include every typographic cell of the Sidewalk Sale product grid and each
+price row of Fraser's. The user's standing read is that those cells are
+typography, not ruling. So 4/38 is not evidence against `page_zones`, and
+CCL's raw count must never be treated as ground truth — it answers "what
+does the ink enclose", which on a dense ad page is not "what are the
+items".
+
+**p2 of 1986-01-08: we are badly wrong, and worse than the number said.**
+It is a full-page grocery ad — a lattice of roughly 40 ruled product
+cells — and `detect_zones` finds **ONE** zone. CCL's 5 is no better.
+Neither found the page's structure at all.
+
+**Root cause, measured, and it is not the geometry.** Tesseract reports
+only **22 separators on that page, 5 of them vertical**, for a lattice
+needing dozens. There are just **7 corners** to work with, giving 5
+x-lines x 4 y-lines. The corner predicate is not failing — the ink was
+never reported to it.
+
+    1986-01-08 p2   Tesseract 17H/5V    ->  7 corners  ->  1 rect
+    1980-04-06 p13  Tesseract 23H/18V   -> 36 corners  ->  8 rects
+
+**The pixel route can reach it, and the current prototype's threshold is
+what stops it.** `experiments/rule_detection_sources.py` filters for
+rules that are THIN and long, at `THIN_PX = 4`. The grocery ad's borders
+are heavier than that. Sweeping it on the same page:
+
+    thin_px   4 (current)  ->  25H /  7V
+    thin_px   8            ->  69H / 26V
+    thin_px  16            ->  70H / 19V
+
+26 verticals is the right order for a 5-column lattice of product cells.
+So the thinness filter, not the ink and not the corner predicate, is what
+made this page invisible.
+
+**What this means for the plan.** Step 1 of §5o removes boxed content
+before re-fitting the columns. On a page where the boxes are not found,
+nothing is removed, and the ad-interior contamination the step exists to
+fix stays exactly where it was — on precisely the pages where it is
+worst, because a full-page ad is 100% ad interior. **Rule recall is a
+prerequisite for step 1, not an independent improvement to make later.**
+
+Not yet done: `THIN_PX` is one number swept on one page. It needs
+sweeping across the corpus and, more likely, making adaptive — a rule's
+weight is a property of the printing, and §5j already records opposite
+sides of one box differing 28px vs 48px.
+
 ## 5o. NEXT — the agreed sequence (set 2026-08-16, planned 2026-08-16)
 
 Four steps, in order, each depending on the one before. Every step is
@@ -1372,3 +1425,17 @@ python3 -m transcribe.scaled.render_overlay YYYY-MM-DD [--page N]
   the nearest neighbour rather than the first in list order. 266 -> 273
   zones, crossing pairs 3 -> 0, duplicate IIIF AnnotationPage ids on 89/90
   canvases fixed. See §5p.
+- **2026-08-16** — Second Opus review acted on. `encloses` made to mean
+  geometric nesting (it was structurally unable to fire, 0 against 12 real
+  nestings, and that zero had been quoted as evidence); `cell_size()` now
+  the single definition (`build()` was a fifth site); the grid render's
+  caption printed rather than discarded; `_gutter_centres` no longer takes
+  an unused `chh` and can be given the caller's own lattice; stale
+  266/251 measurement re-run as 273/256. See §5p.
+- **2026-08-16** — Rendered p8 and p2 as the review demanded, and found
+  the real ceiling: **Tesseract's separator recall**, not the corner
+  predicate. 1986-01-08 p2 is a ~40-cell grocery-ad lattice reported as 5
+  verticals, giving 7 corners and 1 zone. The pixel prototype's `THIN_PX`
+  filter is what hides it — at 8 instead of 4 the same page yields 26
+  verticals. This is a prerequisite for §5o step 1, not a later
+  improvement. See §5q.
