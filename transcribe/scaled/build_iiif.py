@@ -35,6 +35,7 @@ from . import detect_hlines as _detect_hlines
 from . import detect_content_area as _detect_content_area
 from . import detect_zones as _detect_zones
 from . import detect_captions as _detect_captions
+from . import layout_blocks as _layout_blocks
 
 
 def _slug(label: str) -> str:
@@ -140,8 +141,8 @@ VARIANTS = {
 # the pipeline: Tesseract (raw) -> Columns -> Items -> Refined. Items and
 # Refined are not built yet; the viewer shows them disabled rather than
 # pretending they exist.
-DERIVED = ("content", "grid", "hlines", "boxes", "captions", "boxphotos",
-           "separators", "photos", "overlay")
+DERIVED = ("content", "layout", "grid", "hlines", "boxes", "captions",
+           "boxphotos", "separators", "photos", "overlay")
 
 
 def _derived_layers(conn, page_id, cid, W, H, variant):
@@ -332,6 +333,44 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
                            f"· {a['kinds']}"))
             if boxes:
                 out.append((f"Horizontal alignments — {label} ({len(boxes)})", boxes))
+
+    if variant == "layout":
+        # Stage 1a. One layer PER BLOCK TYPE, because the type is the
+        # point: FLOWING_TEXT means "lives inside a column",
+        # HEADING_TEXT means "spans more than one", PULLOUT_TEXT means
+        # "cross-column pull-out". None of that reaches hOCR.
+        #
+        # Targets are BOUNDING BOXES. The polygon is the thing this stage
+        # recovers and IIIF can carry it via an SvgSelector, but Mirador's
+        # handling of that is unverified here and this project has a rule
+        # about not guessing at Mirador. The point count is reported in
+        # the caption so a non-rectangular region is at least visible AS
+        # non-rectangular; drawing the outline properly is open work.
+        blocks = _layout_blocks.blocks_of(conn, page_id)
+        by_type: dict[str, list] = {}
+        for b in blocks:
+            by_type.setdefault(b["block_type"], []).append(b)
+        for kind, group in sorted(by_type.items(), key=lambda kv: -len(kv[1])):
+            items = []
+            for b in group:
+                x0 = _sup.pct_to_px(b["left_pct"], W)
+                y0 = _sup.pct_to_px(b["top_pct"], H)
+                x1 = _sup.pct_to_px(b["right_pct"], W)
+                y1 = _sup.pct_to_px(b["bottom_pct"], H)
+                shape = ("rectangle" if b["n_points"] <= 4
+                         else f"{b['n_points']}-point polygon")
+                items.append(_anno(
+                    f"{cid}/anno/layout/{b['idx']}", cid, x0, y0,
+                    max(1, x1 - x0), max(1, y1 - y0), "", kind,
+                    kind=kind.lower().replace("_", " "),
+                    detail=f"{b['left_pct']:.2f}%-{b['right_pct']:.2f}% x "
+                           f"{b['top_pct']:.2f}%-{b['bottom_pct']:.2f}% · "
+                           f"{shape}"))
+            n_poly = sum(1 for b in group if b["n_points"] > 4)
+            lab = f"{kind} — {len(group)}"
+            if n_poly:
+                lab += f" ({n_poly} non-rectangular)"
+            out.append((lab, items))
 
     if variant == "content":
         # Stage 1c's content rectangle, drawn whole. Every later stage is
@@ -548,6 +587,7 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
             "lines": "raw Tesseract hOCR (lines)",
             "grid": "stage 2: columns",
             "content": "stage 1c: the page content area",
+            "layout": "stage 1a: Tesseract's own layout blocks",
             "hlines": "stage 3: horizontal alignments",
             "boxes": "stage 2b: boxed zones",
             "separators": "stage 1: raw ocr_separator rules",
