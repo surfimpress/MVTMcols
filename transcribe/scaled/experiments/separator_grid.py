@@ -382,6 +382,28 @@ BOX_MIN_CELLS = 4          # a box smaller than this is furniture
 # genuine nesting.
 TWIN_EDGE_CELLS = 4
 
+# A GUTTER is not a box. The gap between two stacked boxes is bounded by
+# a rule top and bottom, so it forms a perfectly valid rectangle -- on p13
+# the strip at y 47.6-49.4 spans the full page width at 1.8% tall, a 51:1
+# sliver sitting between the calendar row and the Sidewalk Sale.
+#
+# Ratio alone will NOT do it, and the measurements say so plainly:
+#   p13 y 87.5-94.6  ratio 11.0, 7.1% tall  -- the "Owners or employees"
+#                                              panel, a real box
+#   p8  y 35.8-38.0  ratio 15.6, 2.1% tall  -- a real Fraser's price row
+# So the THIN DIMENSION carries the decision, and the ratio only qualifies
+# it. Two tiers, the second looser because the touching test adds evidence:
+#
+#   extreme      ratio >= 20 and thin <= 2.5%
+#   touching     ratio >= 12 and thin <= 2.0% AND both long edges sit on a
+#                parallel edge of a DIFFERENT box -- i.e. it is demonstrably
+#                the space between two things rather than a thing
+GUTTER_RATIO_EXTREME = 20.0
+GUTTER_THIN_EXTREME = 2.5
+GUTTER_RATIO_TOUCHING = 12.0
+GUTTER_THIN_TOUCHING = 2.0
+GUTTER_TOUCH_PCT = 0.8
+
 
 def corner_points(junction, crossing, n_cols, n_rows) -> list[tuple]:
     """Corner positions, from the two kinds of mark.
@@ -419,6 +441,48 @@ def corner_points(junction, crossing, n_cols, n_rows) -> list[tuple]:
         xs = [b[1] for b in blob]
         points.append((sum(ys) / len(ys), sum(xs) / len(xs)))
     return points
+
+
+def drop_gutters(boxes, cell_w, cell_h):
+    """Remove rectangles that can only be the space BETWEEN boxes.
+
+    `boxes` are in cell coordinates; cell_w/cell_h convert to page percent
+    so the thresholds mean the same thing on any page shape.
+    """
+    def dims(b):
+        return (b[3] - b[1]) * cell_w, (b[2] - b[0]) * cell_h
+
+    def touches(b, others):
+        """Do BOTH long edges sit on a parallel edge of a different box?"""
+        w, h = dims(b)
+        if w >= h:                                   # a horizontal sliver
+            top = any(abs((b[0] - o[2]) * cell_h) <= GUTTER_TOUCH_PCT
+                      or abs((b[0] - o[0]) * cell_h) <= GUTTER_TOUCH_PCT
+                      for o in others)
+            bot = any(abs((b[2] - o[0]) * cell_h) <= GUTTER_TOUCH_PCT
+                      or abs((b[2] - o[2]) * cell_h) <= GUTTER_TOUCH_PCT
+                      for o in others)
+            return top and bot
+        left = any(abs((b[1] - o[3]) * cell_w) <= GUTTER_TOUCH_PCT
+                   or abs((b[1] - o[1]) * cell_w) <= GUTTER_TOUCH_PCT
+                   for o in others)
+        right = any(abs((b[3] - o[1]) * cell_w) <= GUTTER_TOUCH_PCT
+                    or abs((b[3] - o[3]) * cell_w) <= GUTTER_TOUCH_PCT
+                    for o in others)
+        return left and right
+
+    keep = []
+    for b in boxes:
+        w, h = dims(b)
+        thin, ratio = min(w, h), max(w, h) / max(0.01, min(w, h))
+        others = [o for o in boxes if o is not b]
+        if ratio >= GUTTER_RATIO_EXTREME and thin <= GUTTER_THIN_EXTREME:
+            continue
+        if (ratio >= GUTTER_RATIO_TOUCHING and thin <= GUTTER_THIN_TOUCHING
+                and touches(b, others)):
+            continue
+        keep.append(b)
+    return keep
 
 
 def boxes_from_corners(points, counts, n_cols, n_rows, tol=1.6):
@@ -661,6 +725,12 @@ def _cmd(args):
                            f"p{args.page}_sepgrid{suffix}.png")
         pts = corner_points(junc, cross, nc, nr)
         derived = boxes_from_corners(pts, counts, nc, nr)
+        rw = conn.execute("SELECT display_width_px w, display_height_px h "
+                          "FROM pages WHERE id=?", (row["id"],)).fetchone()
+        n_gutters = len(derived)
+        derived = drop_gutters(derived, CELL_PCT,
+                               CELL_PCT / (rw["h"] / rw["w"]))
+        n_gutters -= len(derived)
         title += f" · {len(pts)} corners -> {len(derived)} boxes"
         print(" ", render(counts, junc, nr_, cross, gut, photo, nc, nr,
                           title, out, boxes=derived))
@@ -671,7 +741,8 @@ def _cmd(args):
         print(f"  {n} regions kept, {folded} folded as contained, "
               f"{cells} cells touched, busiest {busiest}, "
               f"{njunc} junctions + {ncross} crossings + {nnear} near, "
-              f"{len(pts)} corners -> {len(derived)} boxes")
+              f"{len(pts)} corners -> {len(derived)} boxes "
+              f"({n_gutters} gutter-slivers dropped)")
     finally:
         conn.close()
 
