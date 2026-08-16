@@ -1,4 +1,4 @@
-"""EXPERIMENT — confirm boxed zones by an INDEPENDENT method.
+"""EXPERIMENT — confirm boxed zones by CONNECTED-COMPONENT LABELING.
 
 Not wired into the pipeline. Kept runnable so the numbers below can be
 reproduced.
@@ -13,17 +13,25 @@ by a genuinely different route, usable as confirmation?
 
 THE ESTABLISHED OPTIONS
 -----------------------
+* **Connected-component labeling (CCL)** -- Rosenfeld & Pfaltz 1966;
+  standard implementations are two-pass with union-find, or
+  Hoshen-Kopelman. `scipy.ndimage.label` is exactly this. Applied to the
+  BACKGROUND of a rule raster, discarding components that touch the
+  border, it yields the enclosed areas directly. This is the textbook
+  hole-finding application -- `scipy.ndimage.binary_fill_holes` is the
+  same operation packaged. **This is what the module implements.**
 * **Planar arrangement face extraction** (computational geometry; CGAL's
   2D Arrangements is the reference implementation). Build the arrangement
   of all segments and enumerate its bounded faces. Equivalently: minimal
-  cycles in the graph whose nodes are rule intersections. This is the
-  rigorous answer to "what do these segments bound".
+  cycles in the graph whose nodes are rule intersections.
 * **Morphological line extraction + contour finding** -- the standard in
   table-structure recognition: isolate horizontal/vertical strokes with
-  directional kernels, then connected components / findContours.
+  directional kernels, then connected components / findContours. Same
+  family as CCL, contouring the ink rather than labelling the background.
 * **Classic page segmentation** -- recursive XY-cut (Nagy & Seth), RLSA
   (Wong/Casey/Wahl), Docstrum (O'Gorman), Voronoi (Kise). These segment
-  regions rather than ruled boxes, so they are less apt here.
+  text regions by whitespace and ink density, NOT ruled boxes. Listed for
+  completeness; least apt here.
 
 THE OBSTACLE, which we already measured
 ---------------------------------------
@@ -33,22 +41,24 @@ no faces at all. Every method above needs a snapping or dilation step
 first -- which is precisely what `INSET_PCT` does by hand in the
 detector.
 
-WHAT THIS IMPLEMENTS, AND HOW IT RELATES TO THOSE THREE
--------------------------------------------------------
-This is NOT a fourth algorithm. It is a **raster approximation of option
-1**, and the connection is exact: the bounded faces of a planar
-arrangement ARE the connected components of the complement of the
-segments that do not touch the outer boundary. Face extraction computes
-that exactly in continuous coordinates by walking the arrangement; this
-computes the same thing approximately by labelling pixels on a grid and
-discarding whatever the border flood reaches.
+CCL AND FACE EXTRACTION COMPUTE THE SAME THING
+-----------------------------------------------
+The bounded faces of a planar arrangement ARE the connected components of
+the segments' complement that do not touch the outer boundary. CCL and
+face extraction are therefore the SAME QUESTION in two representations,
+raster and vector, and each is exact within its own. Neither approximates
+the other -- **the approximation lives entirely in the rasterisation**
+(the GRID constant below), not in the algorithm.
 
-It borrows the MACHINERY of option 2 -- `ndimage.label` is raster
-connected-component labelling -- to compute the CONCEPT of option 1.
-(Table-recognition pipelines usually contour the ink or the cells; this
-labels the background instead, but it is the same family.) Option 3 is
-unrelated: those segment text regions by whitespace and ink density, not
-ruled boxes.
+Why CCL was chosen here:
+  * inherently robust to Tesseract's conjoined AND fragmented rules --
+    both are just ink in a raster, needing no special handling
+  * once dilated, the rounded-corner gaps close with no pairing logic
+  * one scipy call, versus a planar-arrangement library
+
+Its costs, both real:
+  * resolution-limited by GRID
+  * finds only LEAF regions -- see the result below
 
 HOW INDEPENDENT IS IT, HONESTLY
 --------------------------------
