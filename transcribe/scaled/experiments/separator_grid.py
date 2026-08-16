@@ -32,6 +32,7 @@ import os
 from PIL import Image, ImageDraw, ImageFont
 
 from .. import _support as _sup
+from . import ad_rectangles as _ads
 from .. import detect_boxes as _boxes
 from .. import detect_captions as _captions
 
@@ -71,15 +72,39 @@ GUTTER_MIX = 0.30          # how strongly the gutter tint shows through
 PHOTO = (120, 180, 235)    # photo + caption PERIMETER, blended in
 PHOTO_MIX = 0.45
 
-# Padding around the content area. Rules that RUN ALONG the content edge
-# (a box's outer border, the rule under a masthead) must survive, so the
-# box is grown before filtering; only separators entirely outside it are
-# dropped. Those are the digitisation shadows -- the sheet edge and the
-# binding gutter.
-CONTENT_PAD_PCT = 2.0
+# Padding around the content area, IN CELLS. Rules that RUN ALONG the
+# content edge (a box's outer border, the rule under a masthead) must
+# survive, so the box is grown before filtering; only separators entirely
+# outside it are dropped. Those are the digitisation shadows -- the sheet
+# edge and the binding gutter.
+#
+# In cells, not percent: 2% of width is 4 cells but 2% of height is 5.6,
+# so a percent pad silently reached further down the page than across it.
+CONTENT_PAD_CELLS = 4.0
+
+# Two regions are the same when their edges agree within this, in cells.
+FOLD_TOL_CELLS = 0.1
 
 
-def _within_content(conn, page_id: str, regions: list[dict]) -> list[dict]:
+def to_cells(regions, cw, chh):
+    """THE conversion point: page percent in, grid cells out.
+
+    Everything downstream works in cells and nothing converts back. Cells
+    are square by construction, so one tolerance means one distance on
+    both axes -- which page percent cannot express, being a percentage of
+    width on x and of height on y.
+    """
+    out = []
+    for r in regions:
+        d = dict(r)
+        d["L"], d["R"] = r["L"] / cw, r["R"] / cw
+        d["T"], d["B"] = r["T"] / chh, r["B"] / chh
+        out.append(d)
+    return out
+
+
+def _within_content(conn, page_id: str, regions: list[dict],
+                    cw=None, chh=None) -> list[dict]:
     """Drop separators lying entirely outside the padded content area.
 
     The content rectangle comes from stage 1c, which is the same
@@ -94,10 +119,12 @@ def _within_content(conn, page_id: str, regions: list[dict]) -> list[dict]:
         "content_bottom_pct b FROM pages WHERE id=?", (page_id,)).fetchone()
     if not r or r["l"] is None:
         return regions
-    L = r["l"] - CONTENT_PAD_PCT
-    R = r["r"] + CONTENT_PAD_PCT
-    T = r["t"] - CONTENT_PAD_PCT
-    B = r["b"] + CONTENT_PAD_PCT
+    # The content box arrives in percent from stage 1c; convert it once,
+    # then pad in cells.
+    L = r["l"] / cw - CONTENT_PAD_CELLS
+    R = r["r"] / cw + CONTENT_PAD_CELLS
+    T = r["t"] / chh - CONTENT_PAD_CELLS
+    B = r["b"] / chh + CONTENT_PAD_CELLS
     return [x for x in regions
             if x["R"] >= L and x["L"] <= R and x["B"] >= T and x["T"] <= B]
 
@@ -122,11 +149,15 @@ def _fold_contained(regions: list[dict]) -> tuple[list[dict], list[dict]]:
         for j, b in enumerate(regions):
             if i == j:
                 continue
-            if (a["L"] >= b["L"] - 0.05 and a["R"] <= b["R"] + 0.05
-                    and a["T"] >= b["T"] - 0.05 and a["B"] <= b["B"] + 0.05):
+            if (a["L"] >= b["L"] - FOLD_TOL_CELLS
+                    and a["R"] <= b["R"] + FOLD_TOL_CELLS
+                    and a["T"] >= b["T"] - FOLD_TOL_CELLS
+                    and a["B"] <= b["B"] + FOLD_TOL_CELLS):
                 # Identical pair: keep exactly one of them.
-                same = (abs(a["L"] - b["L"]) < 0.05 and abs(a["R"] - b["R"]) < 0.05
-                        and abs(a["T"] - b["T"]) < 0.05 and abs(a["B"] - b["B"]) < 0.05)
+                same = (abs(a["L"] - b["L"]) < FOLD_TOL_CELLS
+                        and abs(a["R"] - b["R"]) < FOLD_TOL_CELLS
+                        and abs(a["T"] - b["T"]) < FOLD_TOL_CELLS
+                        and abs(a["B"] - b["B"]) < FOLD_TOL_CELLS)
                 if same and j > i:
                     continue
                 inside = True
@@ -135,7 +166,8 @@ def _fold_contained(regions: list[dict]) -> tuple[list[dict], list[dict]]:
     return keep, folded
 
 
-def _gutter_centres(conn, page_id: str) -> tuple[list[float], list[float]]:
+def _gutter_centres(conn, page_id: str, cw=None, chh=None
+                    ) -> tuple[list[float], list[float]]:
     """Vertical reference lines: gutter centres, and the content edges.
 
     Gutter CENTRES, not the column edges: the question this view exists to
@@ -159,10 +191,15 @@ def _gutter_centres(conn, page_id: str) -> tuple[list[float], list[float]]:
         "SELECT content_left_pct l, content_right_pct r FROM pages WHERE id=?",
         (page_id,)).fetchone()
     edges = [r["l"], r["r"]] if r and r["l"] is not None else []
+    # Converted here, so callers never see percent. These are x positions,
+    # so only the width scale applies.
+    if cw:
+        gutters = [g / cw for g in gutters]
+        edges = [e / cw for e in edges]
     return gutters, edges
 
 
-def _photo_units(conn, page_id: str) -> list[tuple]:
+def _photo_units(conn, page_id: str, cw=None, chh=None) -> list[tuple]:
     """Encompassing rectangle per photo -- with its caption where found.
 
     The same unit stage 2c stores and the viewer draws, so the grid and
@@ -175,7 +212,7 @@ def _photo_units(conn, page_id: str) -> list[tuple]:
         if c:
             L, T = min(L, c["left_pct"]), min(T, c["top_pct"])
             R, B = max(R, c["right_pct"]), max(B, c["bottom_pct"])
-        out.append((L, T, R, B))
+        out.append((L / cw, T / chh, R / cw, B / chh) if cw else (L, T, R, B))
     return out
 
 
@@ -212,7 +249,9 @@ def build(conn, page_id: str, clean: bool = False):
             "orientation FROM page_hocr_regions WHERE page_id=? "
             "AND region_class='ocr_separator'", (page_id,))]
 
-    regions = _within_content(conn, page_id, regions)
+    # ---- THE conversion. Percent in, cells from here on. ----
+    regions = to_cells(regions, CELL_PCT, cell_h_pct)
+    regions = _within_content(conn, page_id, regions, CELL_PCT, cell_h_pct)
     regions, swallowed = _fold_contained(regions)
 
     def cells_of(r):
@@ -232,14 +271,13 @@ def build(conn, page_id: str, clean: bool = False):
         """
         horizontal = (r["R"] - r["L"]) >= (r["B"] - r["T"])
         if horizontal:
-            c0 = max(0, min(n_cols - 1, int(r["L"] / CELL_PCT)))
-            c1 = max(0, min(n_cols - 1, int(r["R"] / CELL_PCT)))
-            cy = max(0, min(n_rows - 1,
-                            int(((r["T"] + r["B"]) / 2) / cell_h_pct)))
+            c0 = max(0, min(n_cols - 1, int(r["L"])))
+            c1 = max(0, min(n_cols - 1, int(r["R"])))
+            cy = max(0, min(n_rows - 1, int((r["T"] + r["B"]) / 2)))
             return [(cy, x) for x in range(c0, c1 + 1)]
-        r0 = max(0, min(n_rows - 1, int(r["T"] / cell_h_pct)))
-        r1 = max(0, min(n_rows - 1, int(r["B"] / cell_h_pct)))
-        cx = max(0, min(n_cols - 1, int(((r["L"] + r["R"]) / 2) / CELL_PCT)))
+        r0 = max(0, min(n_rows - 1, int(r["T"])))
+        r1 = max(0, min(n_rows - 1, int(r["B"])))
+        cx = max(0, min(n_cols - 1, int((r["L"] + r["R"]) / 2)))
         return [(y, cx) for y in range(r0, r1 + 1)]
 
     # Axis of each region in CELL coordinates: a horizontal's row, a
@@ -248,10 +286,8 @@ def build(conn, page_id: str, clean: bool = False):
     def axis_of(r):
         horizontal = (r["R"] - r["L"]) >= (r["B"] - r["T"])
         if horizontal:
-            return True, max(0, min(n_rows - 1,
-                                    int(((r["T"] + r["B"]) / 2) / cell_h_pct)))
-        return False, max(0, min(n_cols - 1,
-                                 int(((r["L"] + r["R"]) / 2) / CELL_PCT)))
+            return True, max(0, min(n_rows - 1, int((r["T"] + r["B"]) / 2)))
+        return False, max(0, min(n_cols - 1, int((r["L"] + r["R"]) / 2)))
 
     all_regions = list(regions) + list(swallowed)
     meta = [axis_of(r) for r in all_regions]
@@ -286,8 +322,8 @@ def build(conn, page_id: str, clean: bool = False):
                   if (dy, dx) != (0, 0)]
     for i, r in enumerate(all_regions):
         for (ex, ey) in _ends(r):
-            cx = max(0, min(n_cols - 1, int(ex / CELL_PCT)))
-            cy = max(0, min(n_rows - 1, int(ey / cell_h_pct)))
+            cx = max(0, min(n_cols - 1, int(ex)))
+            cy = max(0, min(n_rows - 1, int(ey)))
             if occupied.get((cy, cx), set()) - {i}:
                 junction[cy][cx] = True
                 continue
@@ -324,10 +360,10 @@ def build(conn, page_id: str, clean: bool = False):
     # Both kinds of vertical reference get the same tint: the point is
     # "a rule here has a reason to be here", and the content edge is as
     # good a reason as a gutter.
-    gutters, edges = _gutter_centres(conn, page_id)
+    gutters, edges = _gutter_centres(conn, page_id, CELL_PCT, cell_h_pct)
     gutter = [False] * n_cols
     for gx in gutters + edges:
-        cx = int(gx / CELL_PCT)
+        cx = int(gx)
         if 0 <= cx < n_cols:
             gutter[cx] = True
     n_gut, n_edge = len(gutters), len(edges)
@@ -336,12 +372,12 @@ def build(conn, page_id: str, clean: bool = False):
     # boundaries, and flooding the interior would bury the rules and
     # junctions that the rest of it is about.
     photo = [[False] * n_cols for _ in range(n_rows)]
-    units = _photo_units(conn, page_id)
+    units = _photo_units(conn, page_id, CELL_PCT, cell_h_pct)
     for (L, T, R, B) in units:
-        c0 = max(0, min(n_cols - 1, int(L / CELL_PCT)))
-        c1 = max(0, min(n_cols - 1, int(R / CELL_PCT)))
-        r0 = max(0, min(n_rows - 1, int(T / cell_h_pct)))
-        r1 = max(0, min(n_rows - 1, int(B / cell_h_pct)))
+        c0 = max(0, min(n_cols - 1, int(L)))
+        c1 = max(0, min(n_cols - 1, int(R)))
+        r0 = max(0, min(n_rows - 1, int(T)))
+        r1 = max(0, min(n_rows - 1, int(B)))
         for x in range(c0, c1 + 1):
             photo[r0][x] = photo[r1][x] = True
         for y in range(r0, r1 + 1):
@@ -473,68 +509,6 @@ def corner_points(junction, crossing, n_cols, n_rows) -> list[tuple]:
     return points
 
 
-def merge_double_rules(boxes, cell_w, cell_h):
-    """Collapse the two rectangles of one double-ruled border into one."""
-    def area(b):
-        return (b[3] - b[1]) * (b[2] - b[0])
-
-    drop = set()
-    for i, a in enumerate(boxes):
-        for b in boxes[i + 1:]:
-            inner, outer = (a, b) if area(a) < area(b) else (b, a)
-            nested = (inner[1] >= outer[1] - 1 and inner[3] <= outer[3] + 1
-                      and inner[0] >= outer[0] - 1 and inner[2] <= outer[2] + 1)
-            if not nested:
-                continue
-            gap = max(abs(a[1] - b[1]) * cell_w, abs(a[3] - b[3]) * cell_w,
-                      abs(a[0] - b[0]) * cell_h, abs(a[2] - b[2]) * cell_h)
-            # A genuine box-inside-a-box (a panel within an ad) is nested
-            # too, but sits far further in than a border's own gap.
-            if 0.01 < gap <= DOUBLE_RULE_GAP_PCT:
-                drop.add(id(inner))
-    return [b for b in boxes if id(b) not in drop]
-
-
-def drop_gutters(boxes, cell_w, cell_h):
-    """Remove rectangles that can only be the space BETWEEN boxes.
-
-    `boxes` are in cell coordinates; cell_w/cell_h convert to page percent
-    so the thresholds mean the same thing on any page shape.
-    """
-    def dims(b):
-        return (b[3] - b[1]) * cell_w, (b[2] - b[0]) * cell_h
-
-    def touches(b, others):
-        """Do BOTH long edges sit on a parallel edge of a different box?"""
-        w, h = dims(b)
-        if w >= h:                                   # a horizontal sliver
-            top = any(abs((b[0] - o[2]) * cell_h) <= GUTTER_TOUCH_PCT
-                      or abs((b[0] - o[0]) * cell_h) <= GUTTER_TOUCH_PCT
-                      for o in others)
-            bot = any(abs((b[2] - o[0]) * cell_h) <= GUTTER_TOUCH_PCT
-                      or abs((b[2] - o[2]) * cell_h) <= GUTTER_TOUCH_PCT
-                      for o in others)
-            return top and bot
-        left = any(abs((b[1] - o[3]) * cell_w) <= GUTTER_TOUCH_PCT
-                   or abs((b[1] - o[1]) * cell_w) <= GUTTER_TOUCH_PCT
-                   for o in others)
-        right = any(abs((b[3] - o[1]) * cell_w) <= GUTTER_TOUCH_PCT
-                    or abs((b[3] - o[3]) * cell_w) <= GUTTER_TOUCH_PCT
-                    for o in others)
-        return left and right
-
-    keep = []
-    for b in boxes:
-        w, h = dims(b)
-        thin, ratio = min(w, h), max(w, h) / max(0.01, min(w, h))
-        others = [o for o in boxes if o is not b]
-        if ratio >= GUTTER_RATIO_EXTREME and thin <= GUTTER_THIN_EXTREME:
-            continue
-        if (ratio >= GUTTER_RATIO_TOUCHING and thin <= GUTTER_THIN_TOUCHING
-                and touches(b, others)):
-            continue
-        keep.append(b)
-    return keep
 
 
 def boxes_from_corners(points, counts, n_cols, n_rows, tol=1.6):
@@ -784,17 +758,23 @@ def _cmd(args):
         suffix = "_clean" if args.clean else ""
         out = os.path.join(OUT_DIR, args.date,
                            f"p{args.page}_sepgrid{suffix}.png")
-        pts = corner_points(junc, cross, nc, nr)
-        derived = boxes_from_corners(pts, counts, nc, nr)
         rw = conn.execute("SELECT display_width_px w, display_height_px h "
                           "FROM pages WHERE id=?", (row["id"],)).fetchone()
-        cell_h_pct = CELL_PCT / (rw["h"] / rw["w"])
-        n_double = len(derived)
-        derived = merge_double_rules(derived, CELL_PCT, cell_h_pct)
-        n_double -= len(derived)
-        n_gutters = len(derived)
-        derived = drop_gutters(derived, CELL_PCT, cell_h_pct)
-        n_gutters -= len(derived)
+        rw_w, rw_h = rw["w"], rw["h"]
+        pts = corner_points(junc, cross, nc, nr)
+        # Boxes come from ad_rectangles, which works purely in CELLS.
+        # merge_double_rules and drop_gutters are gone: both converted
+        # cells back to page percent to apply percent thresholds, and
+        # percent is two different units -- x of width, y of height. Their
+        # replacement is a single predicate (no corner may interrupt a
+        # side) that needs neither.
+        g_cells, e_cells = _gutter_centres(conn, row["id"], CELL_PCT,
+                                          CELL_PCT / (rw_h / rw_w))
+        derived = [(b["T"], b["L"], b["B"], b["R"]) for b in
+                   _ads.ad_rectangles([(p[1], p[0]) for p in pts],
+                                      g_cells + e_cells,
+                                      _photo_units(conn, row["id"], CELL_PCT,
+                                                   CELL_PCT / (rw_h / rw_w)))]
         title += f" · {len(pts)} corners -> {len(derived)} boxes"
         print(" ", render(counts, junc, nr_, cross, gut, photo, nc, nr,
                           title, out, boxes=derived))
@@ -805,9 +785,7 @@ def _cmd(args):
         print(f"  {n} regions kept, {folded} folded as contained, "
               f"{cells} cells touched, busiest {busiest}, "
               f"{njunc} junctions + {ncross} crossings + {nnear} near, "
-              f"{len(pts)} corners -> {len(derived)} boxes "
-              f"({n_double} double-rule pairs merged, "
-              f"{n_gutters} gutter-slivers dropped)")
+              f"{len(pts)} corners -> {len(derived)} boxes")
     finally:
         conn.close()
 
