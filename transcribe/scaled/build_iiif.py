@@ -86,8 +86,25 @@ def _rel_url(abs_path: str) -> str:
     return f"{PUBLIC_BASE}/{rel}"
 
 
+def _svg_path(points_px) -> str:
+    """An isothetic polygon as an SVG <path>, in canvas pixel coordinates.
+
+    A PATH, not a <polygon>. Mirador 3.4.2's CanvasAnnotationDisplay does
+    query for `polygon` -- `xmlDoc.querySelectorAll('circle, ellipse, rect,
+    line, polygon, polyline, path')` -- but the open issue
+    ProjectMirador/mirador#3875 reports that only rectangles and paths
+    actually render an outline, and that circles, ellipses and polygons do
+    not. Our region outlines are isothetic, so a path costs nothing and
+    sidesteps the question entirely.
+    """
+    d = " ".join(("M" if i == 0 else "L") + f" {int(px)} {int(py)}"
+                 for i, (px, py) in enumerate(points_px)) + " Z"
+    return ('<svg xmlns="http://www.w3.org/2000/svg">'
+            f'<path d="{d}"/></svg>')
+
+
 def _anno(anno_id, canvas_id, x, y, w, h, text, label, granularity=None,
-          kind=None, detail=None):
+          kind=None, detail=None, polygon_px=None):
     """One supplementing annotation over a canvas region.
 
     `granularity` emits the IIIF Text Granularity extension's
@@ -113,12 +130,32 @@ def _anno(anno_id, canvas_id, x, y, w, h, text, label, granularity=None,
     else:
         body = {"type": "TextualBody", "format": "text/plain",
                 "language": "en", "value": text}
+    # A bare string target is the simple case. When a real outline is
+    # available the target becomes a SpecificResource carrying BOTH an
+    # SvgSelector and the xywh fragment: Mirador 3.4.2's AnnotationItem
+    # takes `target.selector`, wraps it with
+    # `flatten(compact(new Array(target.selector)))` and picks the first
+    # entry whose `type === 'SvgSelector'`, while a client that does not
+    # understand SVG still finds the fragment and draws the box.
+    if polygon_px:
+        target = {
+            "type": "SpecificResource",
+            "source": canvas_id,
+            "selector": [
+                {"type": "SvgSelector", "value": _svg_path(polygon_px)},
+                {"type": "FragmentSelector",
+                 "conformsTo": "http://www.w3.org/TR/media-frags/",
+                 "value": f"xywh={x},{y},{w},{h}"},
+            ],
+        }
+    else:
+        target = f"{canvas_id}#xywh={x},{y},{w},{h}"
     a = {
         "id": anno_id,
         "type": "Annotation",
         "motivation": "supplementing",
         "body": body,
-        "target": f"{canvas_id}#xywh={x},{y},{w},{h}",
+        "target": target,
         "label": {"en": [label]},
     }
     if granularity:
@@ -359,13 +396,17 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
                 y1 = _sup.pct_to_px(b["bottom_pct"], H)
                 shape = ("rectangle" if b["n_points"] <= 4
                          else f"{b['n_points']}-point polygon")
+                poly_px = ([(_sup.pct_to_px(px, W), _sup.pct_to_px(py, H))
+                            for px, py in b["polygon"]]
+                           if b["polygon"] and b["n_points"] > 4 else None)
                 items.append(_anno(
                     f"{cid}/anno/layout/{b['idx']}", cid, x0, y0,
                     max(1, x1 - x0), max(1, y1 - y0), "", kind,
                     kind=kind.lower().replace("_", " "),
                     detail=f"{b['left_pct']:.2f}%-{b['right_pct']:.2f}% x "
                            f"{b['top_pct']:.2f}%-{b['bottom_pct']:.2f}% · "
-                           f"{shape}"))
+                           f"{shape}",
+                    polygon_px=poly_px))
             n_poly = sum(1 for b in group if b["n_points"] > 4)
             lab = f"{kind} — {len(group)}"
             if n_poly:
