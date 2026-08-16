@@ -46,23 +46,27 @@ evidence -- but a small notice set inside a column is still an ad.
 
 from __future__ import annotations
 
-# Two corners are on the same line if they are within this, in page
-# percent. Rules are ~0.4% thick and corner marks resolve to about a
-# cell, so this has to absorb both.
-LINE_TOL = 0.9
-
-# A corner counts as interrupting a side if it sits within this of the
-# side's line, and is not one of the rectangle's OWN corners. The
-# exclusion is exactly LINE_TOL -- the same distance that decides whether
-# two corners are the same corner -- and nothing wider. A separate,
-# larger margin was tried and it swallowed real dividers: the two rules
-# between ELECTRICAL INSTALLATION and NOTICE sit 1.06% apart, so a 1.2%
-# end margin treated each as the other's own corner and both ads came out
-# in four overlapping variants.
-ON_LINE_TOL = 0.9
-
-# A side of a saleable ad. Below this it is furniture or a rule artefact.
-MIN_SIDE_PCT = 2.0
+# EVERYTHING HERE IS IN GRID CELLS, not page percent.
+#
+# THE CELLS ARE SQUARE -- 7 x 7 px on 1980-04-06 p13. They are quoted as
+# 0.5% wide and 0.3555% tall only because those percentages are taken
+# against different dimensions, width and height. The cell itself is not
+# stretched.
+#
+# That distinction cost a real box. An earlier version worked in page
+# percent with a single 0.9% tolerance on both axes: 1.80 cells across but
+# 2.53 cells down, because the vertical percent is measured against the
+# taller dimension. The vertical figure swallowed genuine 2-cell
+# separations and lost the Sidewalk Sale box, whose foot sits exactly 2
+# cells from the panel inside it -- the corner rows at the page foot are
+# 266, 268 and 270, each 2 cells apart.
+#
+# In cells the tolerance is one number meaning one physical distance in
+# both directions, and it can be checked against the grid by eye. The
+# caller converts to percent on the way out.
+LINE_TOL = 1.0        # cells: two corners this close are the same line
+ON_LINE_TOL = 1.0     # cells: a corner this close to a side lies on it
+MIN_SIDE_CELLS = 4    # a side shorter than this is furniture
 
 
 def _lines(values, tol=LINE_TOL):
@@ -96,12 +100,14 @@ def _interrupted(x0, y0, x1, y1, corners):
 
 
 def ad_rectangles(corners, column_lines=(), photos=(),
-                  min_side=MIN_SIDE_PCT):
+                  min_side=MIN_SIDE_CELLS):
     """Most likely ad rectangles, from corner points alone.
 
-    corners       [(x, y)]        page percent
-    column_lines  [x]             gutter centres and content edges
-    photos        [(L, T, R, B)]  page percent
+    ALL COORDINATES ARE GRID CELLS -- see the note at the top.
+
+    corners       [(x, y)]        cell units
+    column_lines  [x]             cell units
+    photos        [(L, T, R, B)]  cell units
 
     Returns dicts sorted by score, each with the rectangle, the score and
     the reasons behind it, so a caller can see WHY a rectangle ranked
@@ -148,6 +154,7 @@ def ad_rectangles(corners, column_lines=(), photos=(),
                             break
                     out.append({"L": round(x0, 2), "T": round(y0, 2),
                                 "R": round(x1, 2), "B": round(y1, 2),
+                                "w": round(x1 - x0, 2), "h": round(y1 - y0, 2),
                                 "score": round(score, 2), "reasons": reasons})
     return sorted(out, key=lambda r: (-r["score"],
                                       -(r["R"] - r["L"]) * (r["B"] - r["T"])))
