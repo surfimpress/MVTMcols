@@ -307,22 +307,26 @@ def render(counts, junction, near, gutter, photo, n_cols, n_rows,
         for x in range(n_cols):
             n = counts[y][x]
             x0, y0 = pad_l + x * CELL_PX, pad_t + y * CELL_PX
-            if junction[y][x]:
-                fill = JUNCTION
-            elif near[y][x]:
-                fill = NEAR
-            elif n:
+            # Base layer: how much ruling is in this cell.
+            fill = None
+            if n:
                 v = int(255 * max(0.0, 1.0 - STEP_DARK * n))
                 fill = (v, v, v)
-            else:
-                fill = None
-            # The gutter tint is BLENDED rather than painted under, so a
-            # rule sitting on the gutter centre stays visible. Seeing that
-            # is the whole point of the overlay.
+            # Reference tints are BLENDED, so a rule sitting on a gutter
+            # centre or a photo perimeter stays visible underneath them.
             if gutter[x]:
                 fill = _blend(fill or (255, 255, 255), GUTTER, GUTTER_MIX)
             if photo[y][x]:
                 fill = _blend(fill or (255, 255, 255), PHOTO, PHOTO_MIX)
+            # Corners go on TOP and SOLID -- never blended. They are the
+            # finding this whole view exists to show, and tinting them
+            # with whatever happened to be underneath made them read as
+            # just another shade. Red wins over pink: sharing a cell is
+            # stronger evidence than being next to one.
+            if near[y][x]:
+                fill = NEAR
+            if junction[y][x]:
+                fill = JUNCTION
             if fill:
                 d.rectangle([x0, y0, x0 + CELL_PX, y0 + CELL_PX], fill=fill)
             d.rectangle([x0, y0, x0 + CELL_PX, y0 + CELL_PX],
