@@ -536,6 +536,44 @@ grocery ad's five product columns. Over-columned has become
 under-columned there; the page's evidence is dominated by one full-page
 ad. Verified by rendering, not by the fit number.
 
+### 5m. Rectangles from CORNERS ALONE — the derivation that stuck
+
+`transcribe/scaled/experiments/ad_rectangles.py`. Standalone: corner
+points in, rectangles out. No database, no separators, no Tesseract. Once
+the corners are established the ruling has done its job.
+
+**One predicate: a rectangle is an item when no other corner interrupts
+its sides.** A bridge spanning two stacked ads has its left and right
+sides running straight THROUGH the divider's corners. A gutter sliver has
+the corners of everything above it sitting on its top edge. Unions of any
+depth, same argument, no special case.
+
+That single test replaced SIX tuned thresholds — aspect ratio, thin
+dimension, gap tolerance, twin collapse, double-rule merge, gutter drop.
+
+**It works in CELLS**, which are square by construction. Page percent is
+two units (x of width, y of height) and mixing them lost a real box: a
+0.9% tolerance meant 1.80 cells across but 2.53 down, and the vertical
+figure swallowed a genuine 2-cell gap, dropping the Sidewalk Sale. See
+§5z.7.
+
+**Order-independent by construction.** Corners cluster by sorting and
+splitting on gaps; candidates are every pair of x-lines against every pair
+of y-lines; atomicity is a property of the whole corner set. The earlier
+detectors' worst bugs were all order artefacts and this cannot have them.
+
+Column lines and photo containment SCORE the survivors, never reject one.
+
+1980-04-06 p13: 8 rectangles, the complete set, rendered and checked.
+
+**Two generations are archived**, both superseded by this:
+`archive/corner_quadrilaterals.py` (enumerating corner quadrilaterals —
+asks "is this a valid rectangle?", to which a union answers yes) and
+`archive/percent_box_filters.py` (the two filters it needed, which
+conflated percent units). The `cornerboxes` IIIF layer that showed the
+quadrilateral output has been removed; the grid chart already draws the
+derived boxes.
+
 ### 5j. Stage 2b — BOXED ZONES (built 2026-08-15)
 
 `transcribe/scaled/detect_boxes.py`, `page_boxes` (schema v18). A boxed

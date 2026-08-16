@@ -80,6 +80,16 @@ that.
     `x_size` does not separate them cleanly (44 vs 36, overlapping).
     Excluding interiors was inconclusive and the test was confounded; see
     `instructions/scaled_pipeline.md` §5f before retrying.
+  - **Boxes from CORNERS ALONE** (`experiments/ad_rectangles.py`) is the
+    derivation that stuck. Standalone: corners in, rectangles out, no DB
+    and no Tesseract. **One predicate — a rectangle is an item when no
+    other corner interrupts its sides** — which rejects bridges, gutter
+    slivers and unions of any depth by construction, and replaced SIX
+    tuned thresholds. Works in CELLS (square by construction; page percent
+    is two units and mixing them lost a real box). Order-independent, so
+    the ordering bugs that plagued the earlier detectors cannot arise.
+    p13: 8 rectangles, the complete set. Two earlier generations are in
+    `archive/corner_quadrilaterals.py` and `archive/percent_box_filters.py`.
   - **Stage 2b is BOXED ZONES** (`detect_boxes.py`, `page_boxes` schema
     v18). Ruled rectangles — ads, notices, tenders, panels. Built from
     FOUR sides, allowing for three real properties of the print:

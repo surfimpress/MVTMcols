@@ -35,7 +35,6 @@ from . import detect_hlines as _detect_hlines
 from . import detect_content_area as _detect_content_area
 from . import detect_boxes as _detect_boxes
 from .experiments import separator_grid as _sepgrid
-from .experiments import ad_rectangles as _adrects
 from . import detect_captions as _detect_captions
 
 # The repo root is served here (behind Cloudflare Access -- a browser
@@ -128,7 +127,7 @@ VARIANTS = {
 # Refined are not built yet; the viewer shows them disabled rather than
 # pretending they exist.
 DERIVED = ("grid", "hlines", "boxes", "captions", "boxphotos",
-           "cornerboxes", "separators", "photos", "overlay")
+           "separators", "photos", "overlay")
 
 
 def _derived_layers(conn, page_id, cid, W, H, variant):
@@ -198,62 +197,6 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
         if boxes:
             out.append((f"Photos with captions ({len(boxes)}, "
                         f"{res['n_captioned']} captioned)", boxes))
-
-    if variant == "cornerboxes":
-        # Boxes derived from the CORNER MAP rather than by pairing rules.
-        # An order-independent derivation: a corner exists or it does not,
-        # and a rectangle either has four of them with ruled edges or it
-        # does not. No pair loop, no sort order, no tie-breaks -- so the
-        # class of bug that lost CENTENNIAL DOLLARS cannot arise here.
-        g = _sepgrid.build(conn, page_id)
-        counts, junction, near, crossing = g[0], g[1], g[2], g[3]
-        n_cols, n_rows = g[6], g[7]
-        cw = _sepgrid.CELL_PCT
-        chh = cw / (H / W)
-
-        # ad_rectangles works in CELLS throughout -- one predicate, no
-        # corner-quadruple enumeration and none of the percent-threshold
-        # filters it used to need (archived: archive/percent_box_filters.py).
-        pts = _sepgrid.corner_points(junction, crossing, n_cols, n_rows)
-        gut_c, edge_c = _sepgrid._gutter_centres(conn, page_id, cw, chh)
-        boxes = [(b["T"], b["L"], b["B"], b["R"]) for b in
-                 _adrects.ad_rectangles([(q[1], q[0]) for q in pts],
-                                        gut_c + edge_c,
-                                        _sepgrid._photo_units(conn, page_id,
-                                                              cw, chh))]
-
-        if boxes:
-            out.append((f"Boxes from corners ({len(boxes)})", [
-                _anno(f"{cid}/anno/cbox/{i}", cid,
-                      _sup.pct_to_px(x0 * cw, W), _sup.pct_to_px(y0 * chh, H),
-                      max(1, _sup.pct_to_px(x1 * cw, W)
-                          - _sup.pct_to_px(x0 * cw, W)),
-                      max(1, _sup.pct_to_px(y1 * chh, H)
-                          - _sup.pct_to_px(y0 * chh, H)),
-                      "", f"box {i}", kind="box from corners",
-                      detail=f"{x0 * cw:.2f}%-{x1 * cw:.2f}% x "
-                             f"{y0 * chh:.2f}%-{y1 * chh:.2f}%")
-                for i, (y0, x0, y1, x1) in enumerate(boxes)]))
-
-        # The corner points themselves, split by how each was established.
-        # Marked at a fixed pixel size: a corner is a POINT, and drawing it
-        # at cell size would imply an extent it does not have.
-        for label, grid_ in (("end meets a rule", junction),
-                             ("resolved crossing", crossing)):
-            marks = []
-            for y in range(n_rows):
-                for x in range(n_cols):
-                    if not grid_[y][x]:
-                        continue
-                    px = _sup.pct_to_px((x + 0.5) * cw, W)
-                    py = _sup.pct_to_px((y + 0.5) * chh, H)
-                    marks.append(_anno(
-                        f"{cid}/anno/corner/{label[:3]}/{y}/{x}", cid,
-                        max(0, px - 5), max(0, py - 5), 10, 10, "",
-                        "corner", kind=f"corner — {label}",
-                        detail=f"{(x + 0.5) * cw:.2f}%, {(y + 0.5) * chh:.2f}%"))
-            if marks:
-                out.append((f"Corners — {label} ({len(marks)})", marks))
 
     if variant == "photos":
         # Tesseract's ocr_photo regions on their own. Split into the ones
@@ -565,7 +508,6 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
             "captions": "stage 2c: photos with captions",
             "boxphotos": "stage 2b+2c: boxed zones and photos with captions",
             "overlay": "separator grid painted over the page",
-            "cornerboxes": "boxes derived from the corner map",
         }.get(variant, variant)]},
         "summary": {"en": [
             "Unmodified Tesseract hOCR rendered as IIIF annotation layers, "
