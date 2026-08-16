@@ -214,14 +214,23 @@ def cluster(cands: list[dict], tol: float) -> list[dict]:
 
 
 def content_extent(conn, page_id: str) -> tuple[float | None, float | None]:
-    """The page's content top and bottom lines.
+    """The page's content top and bottom, READ from stage 1c's stored value.
 
-    Delegates to stage 1c (`detect_content_area`), which owns the whole
-    content rectangle. This used to compute its own top/bottom, which
-    meant two stages could disagree about where the page's content is.
+    Stage 1c owns the content rectangle. This used to call
+    `detect_content_area.content_box` -- the LINE derivation, not the
+    stage's own output -- and `store()` then wrote the result back over
+    `pages.content_top_pct`/`content_bottom_pct`. Since stage 3 runs after
+    stage 1c, stage 3 won, and stage 1c's top and bottom were silently
+    discarded on every run. Measured when it was found: 84 of 90 pages had
+    a stored top that stage 1c had not produced.
+
+    Now it reads. The write has been removed from `store()` -- one owner,
+    one writer.
     """
-    box = _ca.content_box(conn, page_id)
-    return box.get("top"), box.get("bottom")
+    r = conn.execute(
+        "SELECT content_top_pct t, content_bottom_pct b FROM pages WHERE id=?",
+        (page_id,)).fetchone()
+    return (r["t"], r["b"]) if r else (None, None)
 
 
 def detect(conn, page_id: str) -> dict:
@@ -253,9 +262,7 @@ def store(conn, page_id: str, res: dict) -> None:
             (_sup.new_uuid(), page_id, a["y_pct"], a["col_lo"], a["col_hi"],
              a["n_columns"], a["n_edges"], a["weight"], a["kinds"],
              1 if a["has_rule"] else 0, now))
-    conn.execute(
-        "UPDATE pages SET content_top_pct=?, content_bottom_pct=? WHERE id=?",
-        (res.get("content_top"), res.get("content_bottom"), page_id))
+    # NO write to pages.content_* here: stage 1c owns that rectangle.
     conn.commit()
 
 

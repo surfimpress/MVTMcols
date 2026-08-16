@@ -14,13 +14,28 @@ MEASURED, the failure this fixes (90 pages):
     left 7.22%. Every column on those pages was displaced.
     |error| > 1.5% on 31% of pages at the left edge and 53% at the right.
 
-TWO DERIVATIONS LIVE HERE, and the newer one is not yet the stored value.
-`content_box` is the original, from text LINES, and is what `store()`
-writes. `content_box_blocks` is the AGREEMENT derivation, from every item
-type that survives stage 1b, and both are drawn as IIIF layers under the
-`content` variant so they can be compared on the page. See §5r.
+TWO DERIVATIONS LIVE HERE. `content_box_blocks` is what `store()` writes;
+`content_box` is the older LINE-based one, still used as one of its two
+inputs and still drawn as a reference layer in IIIF.
 
-The rest of this docstring describes the ORIGINAL derivation.
+WHAT content_box_blocks DOES, in order:
+  1. stage 1b removes the rim slivers;
+  2. LEFT and RIGHT come from AGREEMENT among the survivors, TOP and
+     BOTTOM from their EXTREME -- because left/right edges sit on the
+     column grid and agree (68-80% of items), while vertical position is
+     not quantised and does not (39-47%);
+  3. the OUTER PERIMETER of that box and the line box is taken, so an
+     edge only has to be found by one of them;
+  4. every margin is floored at MIN_MARGIN_CELLS.
+
+The floor is what makes step 3 safe: the union is right on x, where the
+wider box is generally correct and columns need the full span, but on y
+the outer box often ran to the very foot of the sheet. It also fixes a
+residual nothing else could -- 1990-10-10 p15's left edge was 0.4 cells,
+set by two full-width blocks whose bbox had the binding shadow swept in,
+and blocks are never sliver candidates. Clamped, it is 4.0.
+
+The rest of this docstring describes the ORIGINAL line derivation.
 
 WHY LINES, NOT BLOCKS
 ---------------------
@@ -204,6 +219,20 @@ MIN_AGREE = 2
 # see 5h. No type earns exclusion, and none needs a whitelist: on a photo
 # page the top is set by photos because photos are what is there.
 
+# THE MARGIN FLOOR. No content edge may sit closer than this to the page
+# edge, whatever the evidence says.
+#
+# It is what makes taking the OUTER perimeter safe. The union of the two
+# derivations is the right answer on x -- the wider box is generally
+# correct there, and columns need the full span -- but on y the outer box
+# frequently ran to the very foot of the sheet, because whatever set it
+# was scan edge rather than print. Rather than trying to tell those apart
+# case by case, the union is taken and then clamped.
+#
+# Four cells, matching stage 1b's rim: nothing printed lies in the outer
+# four cells, so a bound that lands there is an artefact by construction.
+MIN_MARGIN_CELLS = 4.0
+
 # A margin outside this band is reported in `sanity`, never corrected.
 SANE_MARGIN_CELLS = (1.0, 30.0)
 
@@ -298,6 +327,34 @@ def content_box_blocks(conn, page_id: str) -> dict:
         return {"left": left, "right": right, "top": top, "bottom": bottom,
                 "n_items": len(items), "note": "an edge had no agreement"}
 
+    # THE OUTER PERIMETER of the two derivations, then the floor.
+    #
+    # The line derivation and the agreement derivation each miss things the
+    # other catches -- lines miss photos above the text (1980-04-06 p3's
+    # top), agreement misses nothing on x but can be dragged to the sheet
+    # foot on y. Taking the union means an edge only has to be found by ONE
+    # of them, and the floor below removes the failure mode the union
+    # introduces.
+    ln = content_box(conn, page_id)
+    if ln.get("left") is not None:
+        left = min(left, ln["left"])
+        right = max(right, ln["right"])
+        top = min(top, ln["top"])
+        bottom = max(bottom, ln["bottom"])
+
+    lo_x, lo_y = MIN_MARGIN_CELLS * cw, MIN_MARGIN_CELLS * chh
+    clamped = []
+    if left < lo_x:
+        left, _ = lo_x, clamped.append("left")
+    if right > 100 - lo_x:
+        right, _ = 100 - lo_x, clamped.append("right")
+    if top < lo_y:
+        top, _ = lo_y, clamped.append("top")
+    if bottom > 100 - lo_y:
+        bottom, _ = 100 - lo_y, clamped.append("bottom")
+    left, right = round(left, 2), round(right, 2)
+    top, bottom = round(top, 2), round(bottom, 2)
+
     outside = sum(1 for i in every if i["L"] < left - 0.01 or i["R"] > right + 0.01
                   or i["T"] < top - 0.01 or i["B"] > bottom + 0.01)
     lo, hi = SANE_MARGIN_CELLS
@@ -308,7 +365,7 @@ def content_box_blocks(conn, page_id: str) -> dict:
             "width": round(right - left, 2), "height": round(bottom - top, 2),
             "agree": {"left": nl, "right": nr, "top": nt, "bottom": nb},
             "n_items": len(items), "n_all": len(every), "n_outside": outside,
-            "sanity": sanity, "fell_back": []}
+            "clamped": clamped, "sanity": sanity, "fell_back": []}
 
 def content_box(conn, page_id: str) -> dict:
     """The page's content rectangle, plus what it was derived from."""
@@ -359,7 +416,7 @@ def _cmd_show(args):
         if not row:
             print("no such page")
             return
-        b = content_box(conn, row["id"])
+        b = content_box_blocks(conn, row["id"])
         if b.get("note"):
             print("  ", b["note"])
             return
@@ -388,7 +445,7 @@ def _cmd_run(args):
         n = 0
         widths = []
         for r in conn.execute(sql + " ORDER BY year, month, day, page", params):
-            b = content_box(conn, r["id"])
+            b = content_box_blocks(conn, r["id"])
             if b.get("left") is None:
                 print(f"  {r['year']}-{r['month']:02d}-{r['day']:02d} "
                       f"p{r['page']}: {b.get('note')}")

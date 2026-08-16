@@ -1130,6 +1130,67 @@ uses a flat ±0.5 page-percent for its enclosure containment. It is an
 experiment, not in the live path, and is left alone deliberately rather
 than changed as a side effect of an unrelated pass.
 
+## 5s. Stage 1c REBUILT — the content area is the OUTER PERIMETER, floored
+
+Set by the user 2026-08-16 after comparing the two derivations on the
+page: **"in the x direction it is generally correct — use the outer
+perimeter. On the y axis it often goes all the way to the bottom, or does
+not reach the lower limit of the print. So go for the larger perimeter,
+but impose a minimum margin of 4 grid squares."**
+
+`content_box_blocks` is now what `store()` writes. In order:
+
+1. **stage 1b** removes the rim slivers;
+2. **left and right by AGREEMENT** among the survivors, **top and bottom
+   by EXTREME** — because left/right edges sit on the column grid and
+   agree (68-80% of items) while vertical position is not quantised and
+   does not (39-47%);
+3. the **OUTER PERIMETER** of that box and the line box, so an edge only
+   has to be found by ONE of them;
+4. every margin **floored at 4 cells**.
+
+**The floor is what makes the union safe**, and it also fixes a residual
+nothing else could: 1990-10-10 p15's left edge was 0.4 cells, set by two
+full-width blocks whose bbox had the binding shadow swept in, and blocks
+are never sliver candidates. Clamped, it is 4.0. Clamping fires on bottom
+42 pages, top 37, left 21, right 17 — the bottom most often, exactly as
+the user predicted.
+
+**Measured, 90 pages:** margins median L6.1 R6.6 T5.6 B5.6 cells, minimum
+4.0 on every edge; items of all types outside the box 14.5% -> 5.7%;
+content width min 47.55% -> 78.78%. All four known-bad pages fixed —
+1980-04-06 p3 top 22.44% -> 2.11%, p7 top 93.10% -> 1.77%, 1994-01-05 p12
+right 49.93% -> 94.08%, 1990-10-10 p15 right 83.32% -> 96.99%.
+
+### A double-write, found by chasing a two-zone discrepancy
+
+A scratch-copy dry run predicted 276 zones; the live run produced 274. The
+gap was real: **`detect_hlines.store()` was writing
+`pages.content_top_pct`/`content_bottom_pct`**, and stage 3 runs after
+stage 1c, so stage 3 won. Its `content_extent()` called
+`detect_content_area.content_box` — the LINE derivation, not the stage's
+own output — so stage 1c's top and bottom were silently discarded on every
+run. **84 of 90 pages had a stored top that stage 1c had not produced.**
+
+Its docstring claimed it "delegates to stage 1c, which owns the whole
+content rectangle". It did not delegate: it re-derived with a different
+function and overwrote. Now `content_extent()` READS the stored value and
+the write is gone from `store()`. One owner, one writer. Zones then match
+the prediction exactly at 276.
+
+**The lesson is the discrepancy, not the bug.** Two numbers that should
+have agreed disagreed by 2, and the temptation was to accept the live
+figure because it was self-consistent. Self-consistency is what the
+double-write produced.
+
+### What consumes the content rectangle — corrected
+
+Only `separator_grid._within_content`, which feeds zones. **`detect_grid`
+does NOT read it**, contrary to what §5i and my own summary claimed;
+verified by grep and by dry run — with the new box written to a scratch
+copy, column counts are identical on all 90 pages and no column edge moves
+by 0.01 cells. The blast radius of a content-area change is zones only.
+
 ## 5r. Stage 1b — SLIVERS AT THE RIM (built 2026-08-16)
 
 `transcribe/scaled/sliver_pass.py`. Runs BEFORE the content area, and
@@ -1591,3 +1652,10 @@ python3 -m transcribe.scaled.render_overlay YYYY-MM-DD [--page N]
   removed over 90 pages with 5.6% landing inside the content area, against
   31.6% for the thin-and-near-an-edge test it replaces. Stage 1c's
   agreement derivation now consumes it. See §5r.
+- **2026-08-16** — Stage 1c rebuilt and now STORED: outer perimeter of the
+  line and agreement derivations, every margin floored at 4 cells (§5s).
+  Found and fixed a double-write — `detect_hlines.store()` was overwriting
+  `pages.content_top_pct`/`content_bottom_pct`, discarding stage 1c's
+  top/bottom on 84 of 90 pages. Also corrected a standing error in these
+  notes: `detect_grid` does NOT read the content rectangle; only
+  `separator_grid` does. Zones 273 -> 276.
