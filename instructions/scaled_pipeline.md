@@ -1006,6 +1006,43 @@ a number, or a local check, for looking at the artefact.** The remedy is
 not more care in the abstract — it is: render the whole page, before
 reporting anything, every time.
 
+## 5o. NEXT — the agreed sequence (set 2026-08-16)
+
+To run after the current rework. Each step is stated with the measurement
+that motivates it, so a future session can tell whether it is still
+warranted.
+
+**1. Columns, pass 2 — with boxed content and photos REMOVED.**
+Re-fit the column grid on what is left once `page_zones` and the photo
+regions are taken out, so the columns describe the ARTICLES rather than
+the ads. This is the fix for a problem already measured and recorded in
+§5f: **30% of all text blocks sit inside a display ad** (100% on a
+full-page-ad page), and an ad's interior is set to its own grid, not the
+page's. That contamination is what halved the grid on 1980-04-06 p2,
+fitting 14 columns at 6.45% pitch where the real measure is ~10.5%. An
+earlier attempt to exclude ad interiors was inconclusive *because the ad
+boxes were LLM-labelled and the test was confounded* — now that
+`detect_zones` supplies them classically, the experiment can be run
+properly.
+
+**2. Which boxed areas are ARTICLES, not ads.** `detect_zones` finds
+ruled rectangles; it does not say what they are. Note the corpus already
+carries evidence for this: zone content (blocks/lines/photos), `x_size`
+per line, Tesseract's own `ocr_header`, and — for the two issues that went
+through the production route — `items.item_type`, which is a non-circular
+label to test against.
+
+**3. Horizontals, re-tracked at that point.** Stage 3 currently draws on
+rules, photo edges and heading tops (§5h). With the boxes known, the
+horizontals that merely bound an ad can be separated from those that
+divide editorial content, which is the distinction that view is for.
+
+**4. Join non-boxed content into single items.** Assemble the remaining
+blocks into stories, respecting newspaper layout rules — modular layout
+means a story is a rectangle spanning an integer number of columns
+(`typesetting_practice.md`). This is the step that attacks the real prize:
+`items` segmentation is **72%** of the OCR+LLM route's token cost.
+
 ## 6. What this implies for the plan
 
 1. **Recovering hOCR signal is worth doing regardless** — free photos,

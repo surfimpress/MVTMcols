@@ -207,6 +207,14 @@ that.
     (547→812 boxes, 80% agreement, under-finding pages 31→18) and the
     render was far worse; it was shipped on the numbers and reverted on
     sight. **Render the whole page before reporting anything.**
+  - **NEXT, agreed 2026-08-16 — see `scaled_pipeline.md` §5o:** (1) columns
+    pass 2 with boxed content and photos REMOVED, so the grid describes
+    articles not ads — this is the fix for the measured 30%-of-blocks-
+    inside-a-display-ad contamination that halved 1980-04-06 p2;
+    (2) decide which boxed zones are articles rather than ads;
+    (3) re-track horizontals now that boxes are known, separating ad
+    boundaries from editorial ones; (4) join non-boxed content into single
+    items, respecting modular layout — this is the 72%-of-token-cost prize.
   - **Confidence scoring is an ARCHIVED DEAD END**
     (`transcribe/scaled/archive/`). Earlier detectors discovered layout
     from weak signals then scored their own trustworthiness; every
