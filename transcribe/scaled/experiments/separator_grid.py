@@ -38,7 +38,15 @@ from .. import detect_captions as _captions
 OUT_DIR = os.path.join(_sup.REPO_ROOT, "preview", "scaled", "grids")
 
 CELL_PCT = 0.5        # cell side, as a percentage of PAGE WIDTH
-CELL_PX = 10          # on-screen size of one cell
+
+# The chart is pure pixels, so it is sized to land INSIDE the preview
+# unscaled. Any resampling on the way to the screen turns 1px grid lines
+# and single-cell corner marks into grey mush, which is what made earlier
+# versions look anti-aliased -- the file was always crisp, the viewer was
+# scaling it. Cell size is the largest INTEGER that fits, because a
+# fractional cell size reintroduces exactly the resampling being avoided.
+PREVIEW_MAX_W = 1400
+PREVIEW_MAX_H = 2000
 STEP_DARK = 0.25      # each separator in a cell adds this much darkness
 
 # Graph-paper ruling: a very faint minor line, a slightly stronger one
@@ -490,10 +498,13 @@ def _blend(base: tuple, tint: tuple, amount: float) -> tuple:
 
 def render(counts, junction, near, crossing, gutter, photo, n_cols, n_rows,
            title: str, out_path: str, boxes=None) -> str:
-    pad_l, pad_t, pad_b = 46, 34, 30
-    f_axis, f_title = _font(FONT_AXIS), _font(FONT_TITLE)
-    W = pad_l + n_cols * CELL_PX
-    H = pad_t + n_rows * CELL_PX + pad_b
+    # No margins and no labels: every pixel goes to the data, so the whole
+    # grid fits the preview at 1:1.
+    cell = max(1, min(PREVIEW_MAX_W // n_cols, PREVIEW_MAX_H // n_rows))
+    pad_l = pad_t = pad_b = 0
+    CELL_PX = cell
+    W = n_cols * CELL_PX
+    H = n_rows * CELL_PX
     img = Image.new("RGB", (W, H), (255, 255, 255))
     d = ImageDraw.Draw(img)
 
@@ -539,14 +550,6 @@ def render(counts, junction, near, crossing, gutter, photo, n_cols, n_rows,
         d.line([(pad_l, gy), (pad_l + n_cols * CELL_PX, gy)],
                fill=GRID_MAJOR if major else GRID_LINE)
 
-    step = 20 if n_cols > 120 else 10
-    for x in range(0, n_cols + 1, step):
-        d.text((pad_l + x * CELL_PX, pad_t - 20), str(x),
-               fill=LABEL, font=f_axis, anchor="mm")
-    for y in range(0, n_rows + 1, step):
-        d.text((pad_l - 22, pad_t + y * CELL_PX), str(y),
-               fill=LABEL, font=f_axis, anchor="mm")
-
     # Derived boxes LAST, drawn 1px down the CENTRE LINE of the corner
     # cells -- the corner is inside that cell, not at its edge, so a
     # cell-boundary rectangle would sit half a cell out on every side.
@@ -557,7 +560,6 @@ def render(counts, junction, near, crossing, gutter, photo, n_cols, n_rows,
         gy1 = pad_t + y1 * CELL_PX + CELL_PX // 2
         d.rectangle([gx0, gy0, gx1, gy1], outline=(0, 0, 0), width=1)
 
-    d.text((pad_l, H - pad_b + 6), title, fill=(0, 0, 0), font=f_title)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     img.save(out_path)
     return out_path
