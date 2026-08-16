@@ -45,7 +45,7 @@ CELL_PCT = 0.5        # cell side, as a percentage of PAGE WIDTH
 # versions look anti-aliased -- the file was always crisp, the viewer was
 # scaling it. Cell size is the largest INTEGER that fits, because a
 # fractional cell size reintroduces exactly the resampling being avoided.
-PREVIEW_MAX_W = 1400
+PREVIEW_MAX_W = 800
 PREVIEW_MAX_H = 2000
 STEP_DARK = 0.25      # each separator in a cell adds this much darkness
 
