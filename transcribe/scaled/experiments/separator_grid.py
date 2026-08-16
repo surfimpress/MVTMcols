@@ -112,19 +112,31 @@ def _fold_contained(regions: list[dict]) -> tuple[list[dict], list[dict]]:
     return keep, folded
 
 
-def _gutter_centres(conn, page_id: str) -> list[float]:
-    """x of the CENTRE of each gutter between adjacent columns.
+def _gutter_centres(conn, page_id: str) -> tuple[list[float], list[float]]:
+    """Vertical reference lines: gutter centres, and the content edges.
 
-    The centre line, not the column edges: the question this view is meant
-    to answer is whether the rules separate cleanly around the gutter, and
-    a pair of edge lines would pre-empt that by drawing where the answer is
+    Gutter CENTRES, not the column edges: the question this view exists to
+    answer is whether the rules separate cleanly around a gutter, and a
+    pair of edge lines would pre-empt that by drawing where the answer is
     supposed to be.
+
+    The content area's own left and right edges are returned alongside.
+    They are not gutters -- they are where the type starts and stops -- but
+    they are the other place a vertical rule has a principled reason to
+    sit, and the outer verticals on 1980-04-06 p13 (x 4.78, 94.42, 95.92)
+    sit 10-12% from any gutter precisely because they belong to these
+    instead.
     """
     cols = [dict(r) for r in conn.execute(
         "SELECT left_pct, right_pct FROM page_columns WHERE page_id=? "
         "AND method='grid' ORDER BY col_idx", (page_id,))]
-    return [(cols[i]["right_pct"] + cols[i + 1]["left_pct"]) / 2
-            for i in range(len(cols) - 1)]
+    gutters = [(cols[i]["right_pct"] + cols[i + 1]["left_pct"]) / 2
+               for i in range(len(cols) - 1)]
+    r = conn.execute(
+        "SELECT content_left_pct l, content_right_pct r FROM pages WHERE id=?",
+        (page_id,)).fetchone()
+    edges = [r["l"], r["r"]] if r and r["l"] is not None else []
+    return gutters, edges
 
 
 def _photo_units(conn, page_id: str) -> list[tuple]:
@@ -210,11 +222,16 @@ def build(conn, page_id: str, clean: bool = False):
             others = occupied.get((cy, cx), set()) - {i}
             if others:
                 junction[cy][cx] = True
+    # Both kinds of vertical reference get the same tint: the point is
+    # "a rule here has a reason to be here", and the content edge is as
+    # good a reason as a gutter.
+    gutters, edges = _gutter_centres(conn, page_id)
     gutter = [False] * n_cols
-    for gx in _gutter_centres(conn, page_id):
+    for gx in gutters + edges:
         cx = int(gx / CELL_PCT)
         if 0 <= cx < n_cols:
             gutter[cx] = True
+    n_gut, n_edge = len(gutters), len(edges)
 
     # PERIMETER only, not the filled rectangle: this grid is a view of
     # boundaries, and flooding the interior would bury the rules and
@@ -232,7 +249,7 @@ def build(conn, page_id: str, clean: bool = False):
             photo[y][c0] = photo[y][c1] = True
 
     return (counts, junction, gutter, photo, n_cols, n_rows,
-            len(regions), len(swallowed), len(units))
+            len(regions), len(swallowed), len(units), n_gut, n_edge)
 
 
 def _blend(base: tuple, tint: tuple, amount: float) -> tuple:
@@ -293,16 +310,16 @@ def _cmd(args):
             print("no such page")
             return
         (counts, junc, gut, photo, nc, nr,
-         n, folded, nphoto) = build(conn, row["id"], args.clean)
+         n, folded, nphoto, n_gut, n_edge) = build(conn, row["id"], args.clean)
         busiest = max(max(r) for r in counts)
         cells = sum(1 for r in counts for v in r if v)
         njunc = sum(1 for r in junc for v in r if v)
         kind = "cleaned" if args.clean else "raw"
         title = (f"{args.date} p{args.page} — {n} {kind} separators "
                  f"(+{folded} folded) · {cells} cells · busiest {busiest} "
-                 f"· {njunc} junction (red) · {sum(gut)} gutters (yellow) "
-                 f"· {nphoto} photo+caption perimeters (blue) "
-                 f"· grid {nc}x{nr} at {CELL_PCT}% of width")
+                 f"· {njunc} junction (red) · {n_gut} gutters + {n_edge} "
+                 f"content edges (yellow) · {nphoto} photo+caption "
+                 f"perimeters (blue) · grid {nc}x{nr} at {CELL_PCT}% of width")
         suffix = "_clean" if args.clean else ""
         out = os.path.join(OUT_DIR, args.date,
                            f"p{args.page}_sepgrid{suffix}.png")
