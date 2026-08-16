@@ -22,7 +22,6 @@ Stages, in the order they run:
   detect_grid          -- 2:  the column lattice, fitted as four numbers
   detect_zones         -- 2b: boxed zones, from rule corners
   detect_captions      -- 2c: photos paired with their captions
-  detect_hlines        -- 3:  horizontal alignments, with a column span
   build_iiif           -- IIIF 3.0 manifests + per-stage annotation layers
 
 `detect_columns` is ARCHIVED (archive/detect_columns.py) -- it was the

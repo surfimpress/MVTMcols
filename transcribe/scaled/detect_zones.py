@@ -74,7 +74,6 @@ import argparse
 from . import _support as _sup
 from . import detect_grid as _grid
 from . import detect_photo_ads as _photo_ads
-from . import detect_hlines as _hl
 from .experiments import ad_rectangles as _ads
 from .experiments import separator_grid as _sepgrid
 
@@ -220,7 +219,7 @@ def detect(conn, page_id: str) -> dict:
     for i, r in enumerate(rects):
         L, T = r["L"] * cw, r["T"] * chh
         R, B = r["R"] * cw, r["B"] * chh
-        span = _hl.column_span(L, R, cols) if cols else None
+        span = _grid.column_span(L, R, cols) if cols else None
         zones.append({
             "idx": i,
             "left_pct": round(L, 2), "top_pct": round(T, 2),

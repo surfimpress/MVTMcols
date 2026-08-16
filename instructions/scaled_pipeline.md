@@ -850,7 +850,29 @@ escalation is not yet justified for this.** If resumed: build the pixel
 rule detector properly, measure it against Tesseract's separators
 corpus-wide, and escalate only boxes neither source supports.
 
-### 5h. Stage 3 — HORIZONTAL alignments (built 2026-08-15)
+### 5h. Stage 3 — HORIZONTAL alignments — WITHDRAWN 2026-08-16
+
+**Taken out of the pipeline. `detect_hlines.py` and `render_hlines.py`
+are in `archive/`, the IIIF `hlines` variant and its viewer option are
+gone, and nothing runs it.** The user's assessment: it was not helping
+anything. Its `column_span()` helper moved to `detect_grid`, which is
+where a column function belongs, and `detect_zones` was its only other
+consumer.
+
+**Nothing was deleted.** The 2,113 `page_hlines` rows are still stored,
+the modules are archived rather than removed, and the design record below
+stands as written.
+
+**What would justify bringing it back:** the two untested signals in §5x.
+Stage 3 currently infers heading tops from `x_size`, whereas stage 1a
+supplies 493 `HEADING_TEXT` blocks of which 80% span more than one
+column — Tesseract's own statement that a block is a cross-column
+heading, which is precisely the structural break stage 3 was trying to
+find. A rebuilt stage 3 on that evidence is a different proposition from
+the one withdrawn here. The section below describes the WITHDRAWN
+version.
+
+### The withdrawn design (kept for the record)
 
 `transcribe/scaled/detect_hlines.py`, rendered by `render_hlines.py`,
 stored in `page_hlines` (schema v17) plus `pages.content_top_pct` /
@@ -2032,3 +2054,10 @@ python3 -m transcribe.scaled.render_overlay YYYY-MM-DD [--page N]
   One positive: 191 of 524 layout rules coincide with no `ocr_separator`.
   The polygons and HEADING_TEXT remain untested and are the most
   promising. See §5x.
+- **2026-08-16** — Stage 3 (horizontal alignments) WITHDRAWN at the
+  user's direction: not helping. Modules archived, IIIF variant and
+  viewer option removed, `column_span()` rehomed to `detect_grid`,
+  `page_hlines` rows retained. §5h records what would justify rebuilding
+  it — stage 1a's 493 `HEADING_TEXT` blocks, which are Tesseract's own
+  cross-column heading verdict, against the `x_size` inference the
+  withdrawn version used.

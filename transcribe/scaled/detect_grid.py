@@ -684,6 +684,32 @@ def store(conn, page_id: str, res: dict) -> None:
     conn.commit()
 
 
+def column_span(lo_pct: float, hi_pct: float,
+                cols: list[dict]) -> tuple[int, int] | None:
+    """Which contiguous run of columns an x-range covers.
+
+    A column counts as covered when the range overlaps the majority of
+    it, so a rule that overshoots slightly into the gutter does not claim
+    a neighbour it never reached.
+    """
+    hit = []
+    for c in cols:
+        w = c["right_pct"] - c["left_pct"]
+        if w <= 0:
+            continue
+        ov = min(hi_pct, c["right_pct"]) - max(lo_pct, c["left_pct"])
+        if ov > w * 0.5:
+            hit.append(c["col_idx"])
+    if not hit:
+        return None
+    return min(hit), max(hit)
+
+
+# Moved here from detect_hlines 2026-08-16 when stage 3 was withdrawn
+# (scaled_pipeline.md 5h). It is about COLUMNS, so this is where it
+# belongs; detect_zones was the only other consumer.
+
+
 def pages_to_run(conn, date: str | None) -> list[dict]:
     sql = "SELECT id, year, month, day, page FROM pages WHERE hocr_parsed_at IS NOT NULL"
     params: list = []

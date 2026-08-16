@@ -31,7 +31,6 @@ import os
 
 from . import _support as _sup
 from . import detect_grid as _detect_grid
-from . import detect_hlines as _detect_hlines
 from . import detect_content_area as _detect_content_area
 from . import detect_zones as _detect_zones
 from . import detect_captions as _detect_captions
@@ -178,7 +177,7 @@ VARIANTS = {
 # the pipeline: Tesseract (raw) -> Columns -> Items -> Refined. Items and
 # Refined are not built yet; the viewer shows them disabled rather than
 # pretending they exist.
-DERIVED = ("content", "layout", "grid", "hlines", "boxes", "captions",
+DERIVED = ("content", "layout", "grid", "boxes", "captions",
            "boxphotos", "separators", "photos", "overlay")
 
 
@@ -336,82 +335,6 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
                              + (f" · {z['reasons']}" if z["reasons"] else "")
                              + (f" · FLAGS {z['flags']}" if z["flags"] else ""))
                 for z in zones]))
-
-    if variant == "hlines":
-        # Stage 3: horizontal alignments. Each is drawn only across the
-        # columns it spans -- that span IS the claim, and a page-wide box
-        # would hide the thing worth checking.
-        res = _detect_hlines.detect(conn, page_id)
-        cols = _detect_grid.detect(conn, page_id).get("columns") or []
-        if not res.get("alignments") or not cols:
-            return out
-
-        # Grouped by how many columns agree, so a reviewer can turn the
-        # weaker evidence off in the viewer rather than having it filtered
-        # away here. Storing everything and letting the client choose is
-        # the project rule (don't destroy data downstream needs).
-        tiers = [("4+ columns", 4, 99), ("3 columns", 3, 3), ("2 columns", 2, 2)]
-        for label, lo_n, hi_n in tiers:
-            boxes = []
-            for i, a in enumerate(res["alignments"]):
-                if not (lo_n <= a["n_columns"] <= hi_n):
-                    continue
-                x0 = _sup.pct_to_px(cols[a["col_lo"]]["left_pct"], W)
-                x1 = _sup.pct_to_px(
-                    cols[min(a["col_hi"], len(cols) - 1)]["right_pct"], W)
-                y = _sup.pct_to_px(a["y_pct"], H)
-                th = max(2, H // 400)
-                boxes.append(_anno(
-                    f"{cid}/anno/hl/{lo_n}/{i}", cid, x0, max(0, y - th // 2),
-                    max(1, x1 - x0), th, "",
-                    f"y {a['y_pct']}%", kind="horizontal alignment",
-                    detail=f"y {a['y_pct']}% · columns {a['col_lo']}-{a['col_hi']} "
-                           f"· {a['n_columns']} agreeing · {a['n_edges']} edges "
-                           f"· {a['kinds']}"))
-            if boxes:
-                out.append((f"Horizontal alignments — {label} ({len(boxes)})", boxes))
-
-    if variant == "layout":
-        # Stage 1a. One layer PER BLOCK TYPE, because the type is the
-        # point: FLOWING_TEXT means "lives inside a column",
-        # HEADING_TEXT means "spans more than one", PULLOUT_TEXT means
-        # "cross-column pull-out". None of that reaches hOCR.
-        #
-        # Targets are BOUNDING BOXES. The polygon is the thing this stage
-        # recovers and IIIF can carry it via an SvgSelector, but Mirador's
-        # handling of that is unverified here and this project has a rule
-        # about not guessing at Mirador. The point count is reported in
-        # the caption so a non-rectangular region is at least visible AS
-        # non-rectangular; drawing the outline properly is open work.
-        blocks = _layout_blocks.blocks_of(conn, page_id)
-        by_type: dict[str, list] = {}
-        for b in blocks:
-            by_type.setdefault(b["block_type"], []).append(b)
-        for kind, group in sorted(by_type.items(), key=lambda kv: -len(kv[1])):
-            items = []
-            for b in group:
-                x0 = _sup.pct_to_px(b["left_pct"], W)
-                y0 = _sup.pct_to_px(b["top_pct"], H)
-                x1 = _sup.pct_to_px(b["right_pct"], W)
-                y1 = _sup.pct_to_px(b["bottom_pct"], H)
-                shape = ("rectangle" if b["n_points"] <= 4
-                         else f"{b['n_points']}-point polygon")
-                poly_px = ([(_sup.pct_to_px(px, W), _sup.pct_to_px(py, H))
-                            for px, py in b["polygon"]]
-                           if b["polygon"] and b["n_points"] > 4 else None)
-                items.append(_anno(
-                    f"{cid}/anno/layout/{b['idx']}", cid, x0, y0,
-                    max(1, x1 - x0), max(1, y1 - y0), "", kind,
-                    kind=kind.lower().replace("_", " "),
-                    detail=f"{b['left_pct']:.2f}%-{b['right_pct']:.2f}% x "
-                           f"{b['top_pct']:.2f}%-{b['bottom_pct']:.2f}% · "
-                           f"{shape}",
-                    polygon_px=poly_px))
-            n_poly = sum(1 for b in group if b["n_points"] > 4)
-            lab = f"{kind} — {len(group)}"
-            if n_poly:
-                lab += f" ({n_poly} non-rectangular)"
-            out.append((lab, items))
 
     if variant == "content":
         # Stage 1c's content rectangle, drawn whole. Every later stage is
@@ -629,7 +552,6 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
             "grid": "stage 2: columns",
             "content": "stage 1c: the page content area",
             "layout": "stage 1a: Tesseract's own layout blocks",
-            "hlines": "stage 3: horizontal alignments",
             "boxes": "stage 2b: boxed zones",
             "separators": "stage 1: raw ocr_separator rules",
             "photos": "stage 1: raw ocr_photo regions",
