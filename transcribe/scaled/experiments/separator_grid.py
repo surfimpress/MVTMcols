@@ -29,7 +29,7 @@ from __future__ import annotations
 import argparse
 import os
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 from .. import _support as _sup
 from . import ad_rectangles as _ads
@@ -58,12 +58,6 @@ STEP_DARK = 0.25      # each separator in a cell adds this much darkness
 GRID_LINE = (238, 240, 244)
 GRID_MAJOR = (206, 211, 220)
 MAJOR_EVERY = 10
-LABEL = (60, 66, 78)
-FONT_PATHS = ("/System/Library/Fonts/Supplemental/Arial.ttf",
-              "/Library/Fonts/Arial.ttf",
-              "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
-FONT_AXIS = 15
-FONT_TITLE = 17
 JUNCTION = (200, 30, 40)   # a separator END sharing a cell with another
 NEAR = (255, 45, 200)      # a separator END one cell away from another
 CROSSING = (0, 0, 0)       # resolved crossing point of two near-miss rules
@@ -104,7 +98,7 @@ def to_cells(regions, cw, chh):
 
 
 def _within_content(conn, page_id: str, regions: list[dict],
-                    cw=None, chh=None) -> list[dict]:
+                    cw: float, chh: float) -> list[dict]:
     """Drop separators lying entirely outside the padded content area.
 
     The content rectangle comes from stage 1c, which is the same
@@ -166,7 +160,25 @@ def _fold_contained(regions: list[dict]) -> tuple[list[dict], list[dict]]:
     return keep, folded
 
 
-def _gutter_centres(conn, page_id: str, cw=None, chh=None
+def cell_size(conn, page_id: str) -> tuple[float, float]:
+    """One cell, as (width%, height%) -- THE conversion between the two units.
+
+    The cell is SQUARE. It reads as two different percentages only because
+    x% is of page width and y% of page height, and those are different
+    dimensions; on 1980-04-06 p13 the same physical distance reads 1.41x
+    larger vertically. Every caller needs both numbers and none of them
+    should re-derive `CELL_PCT / aspect` by hand -- that expression was
+    written out at four separate sites, which is four chances to use the
+    wrong one. See §5z.7.
+    """
+    row = conn.execute(
+        "SELECT display_width_px w, display_height_px h FROM pages WHERE id=?",
+        (page_id,)).fetchone()
+    aspect = (row["h"] / row["w"]) if row and row["w"] else 1.4
+    return CELL_PCT, CELL_PCT / aspect
+
+
+def _gutter_centres(conn, page_id: str, cw: float, chh: float
                     ) -> tuple[list[float], list[float]]:
     """Vertical reference lines: gutter centres, and the content edges.
 
@@ -193,27 +205,19 @@ def _gutter_centres(conn, page_id: str, cw=None, chh=None
     edges = [r["l"], r["r"]] if r and r["l"] is not None else []
     # Converted here, so callers never see percent. These are x positions,
     # so only the width scale applies.
-    if cw:
-        gutters = [g / cw for g in gutters]
-        edges = [e / cw for e in edges]
-    return gutters, edges
+    return [g / cw for g in gutters], [e / cw for e in edges]
 
 
-def _photo_units(conn, page_id: str, cw=None, chh=None) -> list[tuple]:
+def _photo_units(conn, page_id: str, cw: float, chh: float) -> list[tuple]:
     """Encompassing rectangle per photo -- with its caption where found.
 
     The same unit stage 2c stores and the viewer draws, so the grid and
     the IIIF layer are describing the same thing.
     """
-    out = []
-    for pr in _captions.detect(conn, page_id)["pairs"]:
-        p_, c = pr["photo"], pr["caption"]
-        L, T, R, B = p_["L"], p_["T"], p_["R"], p_["B"]
-        if c:
-            L, T = min(L, c["left_pct"]), min(T, c["top_pct"])
-            R, B = max(R, c["right_pct"]), max(B, c["bottom_pct"])
-        out.append((L / cw, T / chh, R / cw, B / chh) if cw else (L, T, R, B))
-    return out
+    return [(L / cw, T / chh, R / cw, B / chh)
+            for L, T, R, B in
+            (_captions.photo_unit(pr)
+             for pr in _captions.detect(conn, page_id)["pairs"])]
 
 
 def _ends(r: dict) -> list[tuple]:
@@ -400,17 +404,6 @@ def build(conn, page_id: str, clean: bool = False):
 
     return (counts, junction, near, crossing, gutter, photo, n_cols, n_rows,
             len(regions), len(swallowed), len(units), n_gut, n_edge)
-
-
-def _font(size: int):
-    """A real TrueType face. PIL's default is a tiny bitmap font, which is
-    what made the axis labels unreadable once the image was scaled."""
-    for path in FONT_PATHS:
-        try:
-            return ImageFont.truetype(path, size)
-        except Exception:
-            continue
-    return ImageFont.load_default()
 
 
 
@@ -622,9 +615,7 @@ def _cmd(args):
         suffix = "_clean" if args.clean else ""
         out = os.path.join(OUT_DIR, args.date,
                            f"p{args.page}_sepgrid{suffix}.png")
-        rw = conn.execute("SELECT display_width_px w, display_height_px h "
-                          "FROM pages WHERE id=?", (row["id"],)).fetchone()
-        rw_w, rw_h = rw["w"], rw["h"]
+        cw_, chh_ = cell_size(conn, row["id"])
         pts = corner_points(junc, cross, nc, nr)
         # Boxes come from ad_rectangles, which works purely in CELLS.
         # merge_double_rules and drop_gutters are gone: both converted
@@ -632,13 +623,11 @@ def _cmd(args):
         # percent is two different units -- x of width, y of height. Their
         # replacement is a single predicate (no corner may interrupt a
         # side) that needs neither.
-        g_cells, e_cells = _gutter_centres(conn, row["id"], CELL_PCT,
-                                          CELL_PCT / (rw_h / rw_w))
+        g_cells, e_cells = _gutter_centres(conn, row["id"], cw_, chh_)
         derived = [(b["T"], b["L"], b["B"], b["R"]) for b in
                    _ads.ad_rectangles([(p[1], p[0]) for p in pts],
                                       g_cells + e_cells,
-                                      _photo_units(conn, row["id"], CELL_PCT,
-                                                   CELL_PCT / (rw_h / rw_w)))]
+                                      _photo_units(conn, row["id"], cw_, chh_))]
         title += f" · {len(pts)} corners -> {len(derived)} boxes"
         print(" ", render(counts, junc, nr_, cross, gut, photo, nc, nr,
                           title, out, boxes=derived))

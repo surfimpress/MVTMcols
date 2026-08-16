@@ -5,8 +5,8 @@ reproduced.
 
 THE QUESTION
 ------------
-`detect_boxes` builds rectangles by pairing rules. Its own output cannot
-tell us whether that pairing is right -- the recurring failure in this
+`detect_zones` builds rectangles from rule CORNERS. Its own output cannot
+tell us whether that derivation is right -- the recurring failure in this
 project is a stage grading itself (see archive/README.md). So: is there
 an established algorithm that derives bounded areas from the same rules
 by a genuinely different route, usable as confirmation?
@@ -104,7 +104,7 @@ Not as a replacement. As a confirmation channel:
 
 Usage::
 
-    python3 -m transcribe.scaled.experiments.confirm_boxes_flood
+    python3 -m transcribe.scaled.experiments.confirm_boxes_ccl
 """
 
 from __future__ import annotations
@@ -113,8 +113,8 @@ import numpy as np
 from scipy import ndimage
 
 from .. import _support as _sup
-from .. import rules as _boxes
-from .. import detect_grid as _grid
+from .. import rules as _rules
+from .. import detect_zones as _zones
 
 GRID = 1000          # raster resolution; a rule is >=1px at this size
 CLOSE_PCT = 1.2      # dilation to bridge rounded-corner gaps
@@ -126,7 +126,7 @@ def enclosed_regions(conn, page_id: str, grid: int = GRID,
     """Bounding boxes of every area the rules enclose."""
     g = np.zeros((grid, grid), bool)
     for orient in ("horizontal", "vertical"):
-        for r in _boxes.rules_of(conn, page_id, orient):
+        for r in _rules.rules_of(conn, page_id, orient):
             x0 = int(r["L"] / 100 * (grid - 1))
             x1 = int(r["R"] / 100 * (grid - 1))
             y0 = int(r["T"] / 100 * (grid - 1))
@@ -169,10 +169,13 @@ def main():
                 "SELECT id, year, month, day, page FROM pages "
                 "WHERE hocr_parsed_at IS NOT NULL "
                 "ORDER BY year, month, day, page LIMIT 20"):
-            cols = _grid.detect(conn, r["id"]).get("columns") or []
+            # Repointed from the archived rule-PAIRING detector, whose
+            # find_boxes() no longer exists, to the live corner-derived
+            # stage 2b. The comparison is the same one: an independent
+            # algorithm against whatever the pipeline currently believes.
             ours = [(b["left_pct"], b["top_pct"], b["right_pct"],
-                     b["bottom_pct"]) for b in _boxes.find_boxes(
-                        conn, r["id"], cols)]
+                     b["bottom_pct"])
+                    for b in _zones.detect(conn, r["id"])["zones"]]
             theirs = enclosed_regions(conn, r["id"])
             hit = sum(1 for t in theirs
                       if ours and max(iou(t, o) for o in ours) >= 0.5)

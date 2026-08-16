@@ -793,6 +793,177 @@ Consumers light up in Stages 2 and 3.
 
 ---
 
+## Stage 6 — Classic-first layout derivation (the `scaled` track)
+
+An isolated parallel track (`transcribe/scaled/`, see
+`instructions/scaled_pipeline.md`) deriving structure from Tesseract's own
+hOCR layout output plus geometry, instead of paying an LLM to look at the
+page. Same DB, additive tables only. These run in the order given: the
+content area is established first, the column lattice is fitted inside it,
+and everything else builds up from that.
+
+### 22. Page content area (stage 1c)
+
+**File:** `transcribe/scaled/detect_content_area.py`
+**DPI:** n/a — reads `page_hocr_lines`
+
+**What:** Owns `pages.content_left_pct` / `content_right_pct` /
+`content_top_pct` / `content_bottom_pct` — where the type actually starts
+and stops, as distinct from the sheet edge.
+
+**Signal:** Text LINES with >=2 words. **Left and right are CLUSTERS,
+top and bottom are EXTREMES** — body text is flush left, so hundreds of
+lines share an x and the cluster is the margin; vertically there is no
+such repetition, so the outermost line is the bound. A rim guard requires
+a cluster bin to hold >=2 lines before it can define an edge.
+
+**Effectiveness:** Column 0's left edge now lands within 1% of the content
+left on 100% of pages. Before this stage existed the fitter took its
+bounds from block-edge extremes, so one sheet-edge artefact anchored the
+lattice to the physical page and displaced every column — `text_left` read
+0.00% on many pages, up to 7.2% off.
+
+**What it lacks:** The vertical bounds remain extremes, so a single stray
+line still moves them; the >=2-word rule is what makes that tolerable
+rather than a real fix.
+
+**Production suitability:** Keep — canonical for the scaled track. Stage 2
+takes its span from here and stage 3 delegates its top/bottom here.
+
+---
+
+### 23. Column lattice fit (stage 2)
+
+**File:** `transcribe/scaled/detect_grid.py`
+**DPI:** n/a — reads `page_ocr_blocks`, `page_hocr_regions`
+
+**What:** Fits the column grid as FOUR NUMBERS — margin, column width,
+gutter, count — rather than discovering boundaries independently. Two
+global parameters (pitch, offset) are fitted across the page and the
+column width derived, so **the gutter is constant down the page by
+construction**, which is what a gutter physically is.
+
+**Signal:** Measured on BLOCKS, weighted by item HEIGHT and by kind: text
+blocks at full value, `ocr_separator` vertical rules and `ocr_photo`
+regions at half. Rule edges are CROSSED OVER (a rule sits in the gutter,
+so its left edge bounds the previous column's right); photo edges map
+straight through (a photo sits ON the columns). One line-derived
+constraint: the last column's right edge may not sit left of the rightmost
+hOCR line in the rightmost block.
+
+**Effectiveness:** Corpus median gutter 0.48%. Horizontal rules take no
+part in the fit, so they independently corroborate it — rule endpoints
+land within 1% of a column edge 52% of the time against a 21% control.
+
+**What it lacks:** Display ads carry their own interior sub-columns and
+30% of all text blocks sit inside one (100% on a full-page-ad page), which
+measurably halved 1980-04-06 p2. `x_size` does not separate them cleanly.
+Sense checks are crude: a measure floor (`MIN_PITCH_PCT` 8.0) and a
+`low_evidence` flag below 60 text lines.
+
+**Production suitability:** Keep — canonical. A per-edge refinement pass
+was built, measured to make the gutter vary within the page on 61% of
+pages, and archived (`archive/refine_columns.py`); any retry must stay
+parametric.
+
+---
+
+### 24. Boxed zones from rule corners (stage 2b)
+
+**File:** `transcribe/scaled/detect_zones.py`, deriving via
+`experiments/separator_grid.py` and `experiments/ad_rectangles.py`
+**DPI:** n/a — reads raw `ocr_separator` regions
+
+**What:** The ruled rectangles on a page — display ads, notices, tenders,
+panels. Schema v20 `page_zones`, ~3.0/page over 90 pages.
+
+**Signal:** Separators are quantised onto SQUARE grid cells; rule ends
+that share or nearly share a cell resolve to corners; then **one
+predicate — a rectangle is an item when no other corner interrupts its
+sides.** That rejects bridges, gutter slivers and unions of any depth by
+construction, and replaced six tuned thresholds from the previous
+generation. Both halves of the predicate ask cluster MEMBERSHIP, never
+distance to a cluster centroid. A separate pass forbids crossing
+rectangles (they may nest or be disjoint, never straddle).
+
+**Effectiveness:** 273 zones over 90 pages, zero crossing pairs,
+order-independent under shuffling. Judged by RENDERING the page, not by
+the `display_ad` metric, which counts notices and tenders as false
+positives.
+
+**What it lacks:** A few boxes genuinely have no bottom border in
+Tesseract's output and geometry cannot recover those — pixel-level rule
+detection can, and is prototyped only
+(`experiments/rule_detection_sources.py`). `MIN_SIDE_CELLS = 4` is taste,
+not derived: a sweep shows no plateau. Content is attached and flagged
+(`empty` / `pictorial` / `duplicate` / `encloses`) but **nothing is
+dropped on a content test** — 28.8% of boxes hold no text block and many
+of those are pictorial ads.
+
+**Production suitability:** Keep — canonical. Three earlier generations
+archived (`detect_boxes_pairing`, `corner_quadrilaterals`,
+`percent_box_filters`); an independent connected-component check exists as
+`experiments/confirm_boxes_ccl.py`.
+
+---
+
+### 25. Photo + caption pairing (stage 2c)
+
+**File:** `transcribe/scaled/detect_captions.py`
+**DPI:** n/a — reads `page_hocr_regions`, `page_hocr_lines`
+
+**What:** Attaches each photo to its caption, as one editorial unit.
+Schema v19 `page_photo_captions`.
+
+**Signal:** A caption is the strip directly beneath a photo, within the
+photo's x-extent, terminated by a horizontal rule matching the photo's
+width, by the next photo, or by a gap. That one model covers both observed
+shapes — a caption in two legs not following the page grid, and captions
+running between stacked photos.
+
+**Effectiveness:** 45% of photos captioned corpus-wide (623 photos, 279
+captioned).
+
+**What it lacks:** Tesseract's own `ocr_caption` class is NOT the test —
+only 5-7 lines/page, one caption block gets split across
+`ocr_caption`/`ocr_textfloat`/`ocr_header`, and it tags a page headline as
+a caption. Geometry decides; `ocr_caption` is recorded as corroboration
+only.
+
+**Production suitability:** Keep. `photo_unit()` is the single definition
+of the photo+caption rectangle, shared by the grid and the IIIF layer.
+
+---
+
+### 26. Horizontal alignments (stage 3)
+
+**File:** `transcribe/scaled/detect_hlines.py`
+**DPI:** n/a
+
+**What:** Horizontal structure as LOCAL alignments carrying a column span,
+not page-wide bands. Schema v17 `page_hlines`, ~20/page.
+
+**Signal:** Printed rules, photo edges and heading tops ONLY. Strength is
+`n_columns` — how many distinct columns agreed — an evidence count, never
+a confidence score. Not a lattice fit: ads are sold by the column INCH, so
+vertical rhythm is not quantised.
+
+**Effectiveness:** On a post-1980 mosaic an alignment is local (columns
+3-5 break while 1-2 run on). That is precisely why the archived band-first
+attempt failed: it required page-wide extent, and only **20 of 2,226**
+horizontal separators span 8+ columns, so it discarded ~99% of the
+evidence.
+
+**What it lacks:** Block edges were removed as evidence — they doubled the
+count to ~44/page with inferred boundaries that had no printed counterpart
+and obscured the real structure on render. Re-tracking horizontals now
+that boxes are known is an agreed next step.
+
+**Production suitability:** Keep. No threshold is baked in — all
+alignments are stored and filtering is the caller's business.
+
+---
+
 ## Summary table — strategies in production
 
 | # | Strategy | Verdict | Role |
@@ -819,6 +990,11 @@ Consumers light up in Stages 2 and 3.
 | 19 | Shared CV pre-processing artefact (`page_cv`) | **Keep** | Cleaned binary + shadow regions + ink projections, cached per page; consumed by `detect_ads` (#6) for CV reinforcement; Stage 3 (`page_profile` text-area edges) still pending |
 | 20 | hOCR layout-signal recovery (`transcribe/scaled/hocr_parse.py`) | **Keep — free signal** | Recovers `ocr_separator`/`ocr_photo` regions, per-line `x_size`, and Tesseract's own `ocr_header`/`ocr_caption`/`ocr_textfloat` classes that `ocr_llm.parse_hocr()` discards. Zero OCR, zero LLM — the .hocr files are already on disk |
 | 21 | hOCR column detection (`transcribe/scaled/detect_columns.py`) | **Experimental — negative on 1980+** | Three independent signals (vertical separators, left-edge clustering, coverage valleys) + a precision×recall confidence. Works where a printed grid exists; **97.8% escalation on 1980+ because that era is modular, not columnar**. See `instructions/scaled_pipeline.md` |
+| 22 | Page content area (`scaled/detect_content_area.py`) | **Keep — canonical** | Stage 1c, runs BEFORE columns. Left/right are clusters, top/bottom extremes. Col 0 within 1% of content left on 100% of pages |
+| 23 | Column lattice fit (`scaled/detect_grid.py`) | **Keep — canonical** | Stage 2. Fits margin/width/gutter/count as parameters, so the gutter is constant down the page by construction. Median gutter 0.48%. Known contamination: 30% of blocks sit inside a display ad |
+| 24 | Boxed zones from rule corners (`scaled/detect_zones.py`) | **Keep — canonical** | Stage 2b. ONE predicate (no corner may interrupt a side) replaced six thresholds; membership not centroid distance; crossing rectangles forbidden. 273 zones/90 pages, judged by rendering not by metric |
+| 25 | Photo + caption pairing (`scaled/detect_captions.py`) | **Keep** | Stage 2c. Geometry decides, Tesseract's `ocr_caption` corroborates only. 45% of photos captioned |
+| 26 | Horizontal alignments (`scaled/detect_hlines.py`) | **Keep** | Stage 3. LOCAL alignments with a column span, not page-wide bands — only 20 of 2,226 horizontal rules span 8+ columns |
 
 ---
 
@@ -1199,3 +1375,12 @@ auditable.
   Old strategies retained where still accurate, re-numbered into stages.
 - **(earlier)** — Original catalogue, April 2026 R&D session. Archived
   reference in `instructions/archive/newspaper_column_analysis_pipeline.md`.
+
+- **2026-08-16** — Added Stage 6, the classic-first `scaled` track's five
+  detectors (#22 content area, #23 column lattice, #24 boxed zones from
+  rule corners, #25 photo+caption pairing, #26 horizontal alignments).
+  These had been built across 2026-08-15/16 and documented in
+  `instructions/scaled_pipeline.md`, but never entered here — the gap is
+  now closed and the summary table carries rows for all five. #24
+  supersedes the rule-pairing detector, archived as
+  `scaled/archive/detect_boxes_pairing.py`.

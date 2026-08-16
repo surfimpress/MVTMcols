@@ -1072,6 +1072,64 @@ a number, or a local check, for looking at the artefact.** The remedy is
 not more care in the abstract — it is: render the whole page, before
 reporting anything, every time.
 
+## 5p. CODE REVIEW pass (Opus subagent, 2026-08-16)
+
+An independent Opus subagent reviewed everything built that day. Its
+findings and what each turned out to be, because several were symptoms of
+one another and the pattern is worth keeping.
+
+**Two real defects, both the same mistake.** The clusters that define the
+grid lines are built by splitting on gaps, so a cluster can be WIDER than
+the tolerance that built it — 18 such clusters corpus-wide, worst 3.0
+cells across 14 corners. Any test comparing a corner to its own line's
+CENTROID is therefore incoherent, and both halves of the corner predicate
+did it. `has_corner` failed one way (25 corners on 9 pages could not
+certify the line they had themselves defined); `_interrupted` failed the
+other (a corner belonging to the right-hand line was too far from that
+line to count as part of the side, yet close enough to count as an
+interior point of the TOP edge, vetoing the rectangle). Both now ask
+cluster MEMBERSHIP. Detail in §5m. 266 -> 273 zones.
+
+**One real defect the predicate structurally cannot see.** Rectangles may
+NEST or be DISJOINT, never cross; the corner predicate judges each
+rectangle against the corner set alone, so it is local by construction.
+The archived pairing detector had a `_crosses` check and it was not
+carried forward. Three crossing pairs existed on p8. Now zero.
+
+**One finding that dissolved on measurement.** The undocumented `break`
+in the neighbour scan was reported as order-dependence, and it was — but
+rendering the two variants showed each losing real ads the other kept,
+with totals a wash. Chasing which arbitrary variant to keep would have
+been the wrong move; measuring which test actually rejected the p10 ads
+found the `_interrupted` bug above, after which p10 gives the same answer
+either way. **A finding that trades wins for losses is usually pointing
+at something upstream of itself.**
+
+**One false claim of my own, withdrawn.** §5n had said the zero
+`duplicate`/`encloses` flags were "a live check that the corner predicate
+works". They are not: `encloses` only fires when the inner zones' blocks
+exactly cover the outer's, so it can barely fire at all, and 13 geometric
+nestings exist.
+
+**Mechanical, fixed without incident:** duplicate `AnnotationPage` ids on
+89/90 canvases (the id came from the label's first word, and the hlines
+variant emits three tiers all starting "Horizontal") — now the whole
+label, slugged, with a per-canvas collision counter; `confirm_boxes_ccl`
+calling a `find_boxes` that no longer existed — repointed at the live
+`detect_zones`; `cell_size()` added because `CELL_PCT / aspect` was
+written out at four sites; `_gutter_centres`/`_photo_units` scale
+arguments made required rather than defaulting to None and silently
+returning percent; the photo+caption union defined once in
+`detect_captions.photo_unit()` instead of twice; `detect_zones`'s
+`encloses` containment moved off flat page-percent onto cells (see
+§5z.7); dead font machinery, an unused import and an unused unpack
+removed.
+
+**Known remaining instance of §5z.7:** `experiments/faces.py:143` still
+uses a flat ±0.5 page-percent for its enclosure containment. It is an
+experiment, not in the live path, and is left alone deliberately rather
+than changed as a side effect of an unrelated pass.
+
 ## 5o. NEXT — the agreed sequence (set 2026-08-16)
 
 To run after the current rework. Each step is stated with the measurement
@@ -1216,3 +1274,12 @@ python3 -m transcribe.scaled.render_overlay YYYY-MM-DD [--page N]
   missing box rules (identical separator output across 5 configs, with a
   control proving the variants applied); pixel-level rule detection can.
   See §5k and `transcribe/scaled/experiments/rule_detection_sources.py`.
+- **2026-08-16** — Stage 2b consolidated onto the corner derivation
+  (`detect_zones.py`, schema v20 `page_zones`); the rule-pairing detector
+  and two earlier corner generations archived. See §5n, §5m.
+- **2026-08-16** — Opus code review acted on. Both halves of the corner
+  predicate now ask cluster MEMBERSHIP rather than distance to a line
+  centroid, crossing rectangles are resolved, and the neighbour scan takes
+  the nearest neighbour rather than the first in list order. 266 -> 273
+  zones, crossing pairs 3 -> 0, duplicate IIIF AnnotationPage ids on 89/90
+  canvases fixed. See §5p.

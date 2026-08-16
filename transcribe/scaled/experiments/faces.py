@@ -167,12 +167,9 @@ def confirm(regions):
 
 def detect(conn, page_id, dilate=DILATE_CELLS):
     g = _grid.build(conn, page_id)
-    counts, junction, near, crossing = g[0], g[1], g[2], g[3]
+    counts, junction, crossing = g[0], g[1], g[3]
     n_cols, n_rows = g[6], g[7]
-    row = conn.execute("SELECT display_width_px w, display_height_px h "
-                       "FROM pages WHERE id=?", (page_id,)).fetchone()
-    cw = _grid.CELL_PCT
-    chh = cw / (row["h"] / row["w"])
+    cw, chh = _grid.cell_size(conn, page_id)
 
     pts = _grid.corner_points(junction, crossing, n_cols, n_rows)
     out = []

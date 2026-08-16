@@ -51,10 +51,6 @@ per-box segments invents gaps that were never in the ink. See
 
 from __future__ import annotations
 
-# A vertical this close to a page edge is a scan artefact -- the sheet
-# edge or the binding shadow -- not a printed rule.
-EDGE_MARGIN_PCT = 2.0
-
 # Slack when deciding whether one rule's run sits inside another's.
 CONJOIN_TOL_PCT = 0.3
 

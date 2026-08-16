@@ -34,8 +34,22 @@ from . import detect_grid as _detect_grid
 from . import detect_hlines as _detect_hlines
 from . import detect_content_area as _detect_content_area
 from . import detect_zones as _detect_zones
-from .experiments import separator_grid as _sepgrid
 from . import detect_captions as _detect_captions
+
+
+def _slug(label: str) -> str:
+    """A label as an id fragment: lowercase, alphanumerics, hyphen-joined."""
+    out, word = [], []
+    for ch in label.lower():
+        if ch.isalnum():
+            word.append(ch)
+        elif word:
+            out.append("".join(word))
+            word = []
+    if word:
+        out.append("".join(word))
+    return "-".join(out) or "layer"
+
 
 # The repo root is served here (behind Cloudflare Access -- a browser
 # session can read it, an unauthenticated third-party server cannot).
@@ -172,10 +186,8 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
         boxes = []
         for i, pr in enumerate(res["pairs"]):
             p_, c = pr["photo"], pr["caption"]
-            L, T, R, B = p_["L"], p_["T"], p_["R"], p_["B"]
+            L, T, R, B = _detect_captions.photo_unit(pr)
             if c:
-                L, T = min(L, c["left_pct"]), min(T, c["top_pct"])
-                R, B = max(R, c["right_pct"]), max(B, c["bottom_pct"])
                 legs = f", {c['n_runs']} legs" if c["n_runs"] > 1 else ""
                 detail = (f"photo {p_['L']:.2f}%-{p_['R']:.2f}% x "
                           f"{p_['T']:.2f}%-{p_['B']:.2f}% · caption "
@@ -473,9 +485,20 @@ def build_manifest(conn, date: str, base: str, variant: str = "all") -> dict:
                 "items": items,
             })
 
+        # The id came from the label's FIRST WORD, which is not unique: the
+        # hlines variant emits three tiers all labelled "Horizontal
+        # alignments -- N columns", so 89 of 90 canvases carried three
+        # AnnotationPages sharing the id `.../annopage/horizontal`. IIIF
+        # requires ids to be unique. Slug the whole label, and count off
+        # any remaining collision within the canvas.
+        used: dict[str, int] = {}
         for label, items in _derived_layers(conn, p["id"], cid, W, H, variant):
+            slug = _slug(label)
+            used[slug] = used.get(slug, 0) + 1
+            if used[slug] > 1:
+                slug = f"{slug}-{used[slug]}"
             canvas["annotations"].append({
-                "id": f"{cid}/annopage/{label.split(' ')[0].lower()}",
+                "id": f"{cid}/annopage/{slug}",
                 "type": "AnnotationPage",
                 "label": {"en": [label]},
                 "items": items,

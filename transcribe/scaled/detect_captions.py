@@ -255,6 +255,23 @@ def detect(conn, page_id: str) -> dict:
             "n_captioned": sum(1 for x in pairs if x["caption"])}
 
 
+def photo_unit(pair: dict) -> tuple:
+    """The rectangle a photo occupies WITH its caption, in page percent.
+
+    A photo and its caption are one editorial unit, so this is the box the
+    viewer draws and the box the grid treats as occupied. Defined once
+    here because it had been written out twice -- in `build_iiif` and in
+    `separator_grid._photo_units` -- and two copies of a union is two
+    places for the grid and the IIIF layer to stop agreeing.
+    """
+    p, c = pair["photo"], pair["caption"]
+    L, T, R, B = p["L"], p["T"], p["R"], p["B"]
+    if c:
+        L, T = min(L, c["left_pct"]), min(T, c["top_pct"])
+        R, B = max(R, c["right_pct"]), max(B, c["bottom_pct"])
+    return L, T, R, B
+
+
 def store(conn, page_id: str, res: dict) -> None:
     conn.execute("DELETE FROM page_photo_captions WHERE page_id=?", (page_id,))
     now = _sup.now_iso()

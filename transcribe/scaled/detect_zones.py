@@ -68,7 +68,8 @@ from .experiments import ad_rectangles as _ads
 from .experiments import separator_grid as _sepgrid
 
 
-def _content(conn, page_id: str, zones: list[dict]) -> None:
+def _content(conn, page_id: str, zones: list[dict],
+             cw: float, chh: float) -> None:
     """Fill in what each zone contains, and flag it. Drops nothing."""
     blocks = [dict(x) for x in conn.execute(
         "SELECT block_idx, bbox_left_pct L, bbox_top_pct T, bbox_right_pct R, "
@@ -96,11 +97,15 @@ def _content(conn, page_id: str, zones: list[dict]) -> None:
         if a["blocks"] and any(a["blocks"] == b["blocks"]
                                for j, b in enumerate(zones) if i != j):
             flags.append("duplicate")
+        # One CELL of slack, which is one physical distance on both axes.
+        # This used to be a flat 0.5 page-percent either way -- 1.00 cell
+        # across but 1.41 down, so a zone had to be tucked half again as
+        # far inside vertically to count as contained. See §5z.7.
         inner = [b for j, b in enumerate(zones) if i != j
-                 and b["left_pct"] >= a["left_pct"] - 0.5
-                 and b["right_pct"] <= a["right_pct"] + 0.5
-                 and b["top_pct"] >= a["top_pct"] - 0.5
-                 and b["bottom_pct"] <= a["bottom_pct"] + 0.5]
+                 and b["left_pct"] >= a["left_pct"] - cw
+                 and b["right_pct"] <= a["right_pct"] + cw
+                 and b["top_pct"] >= a["top_pct"] - chh
+                 and b["bottom_pct"] <= a["bottom_pct"] + chh]
         if inner and a["blocks"]:
             covered = set()
             for b in inner:
@@ -116,10 +121,7 @@ def detect(conn, page_id: str) -> dict:
     junction, crossing = g[1], g[3]
     n_cols, n_rows = g[6], g[7]
 
-    row = conn.execute("SELECT display_width_px w, display_height_px h "
-                       "FROM pages WHERE id=?", (page_id,)).fetchone()
-    cw = _sepgrid.CELL_PCT
-    chh = cw / (row["h"] / row["w"])
+    cw, chh = _sepgrid.cell_size(conn, page_id)
 
     # Corners, then rectangles -- both entirely in CELLS. Percent appears
     # only on the way out, because that is what the rest of the schema
@@ -145,7 +147,7 @@ def detect(conn, page_id: str) -> dict:
             "col_lo": span[0] if span else None,
             "col_hi": span[1] if span else None,
         })
-    _content(conn, page_id, zones)
+    _content(conn, page_id, zones, cw, chh)
     return {"zones": zones, "n_corners": len(pts)}
 
 
