@@ -95,17 +95,33 @@ def _edge_cluster(vals: list[float], leftmost: bool) -> float | None:
     for v in vals:
         hist.setdefault(int(v / BIN_PCT), []).append(v)
     total = len(vals)
-    keep = sorted(b for b, xs in hist.items() if len(xs) >= total * MIN_CLUSTER_SHARE)
-    if not keep:
-        return None
-    groups, run = [], [keep[0]]
-    for b in keep[1:]:
+
+    # MERGE FIRST, then apply the share floor to the whole cluster.
+    #
+    # The reverse order threw away real content. Filtering bins
+    # individually favours JUSTIFIED text, where every line ends at the
+    # same x and one bin holds them all, and penalises RAGGED-RIGHT text,
+    # where the same number of lines is spread over dozens of bins and no
+    # single one clears the floor. Ads are set ragged right.
+    #
+    # 1980-04-06 p9: 100 of 297 lines end beyond x=60%, a third of the
+    # page, spread across ~48 bins. Every bin failed, so the content right
+    # edge came back as 61.42% -- the justified editorial column -- and the
+    # whole right-hand run of ads fell outside the content area and was
+    # discarded downstream.
+    bins = sorted(hist)
+    groups, run = [], [bins[0]]
+    for b in bins[1:]:
         if (b - run[-1]) * BIN_PCT <= CLUSTER_MERGE_PCT:
             run.append(b)
         else:
             groups.append(run)
             run = [b]
     groups.append(run)
+    groups = [g for g in groups
+              if sum(len(hist[b]) for b in g) >= total * MIN_CLUSTER_SHARE]
+    if not groups:
+        return None
 
     grp = groups[0] if leftmost else groups[-1]
     xs = [x for b in grp for x in hist[b]]
