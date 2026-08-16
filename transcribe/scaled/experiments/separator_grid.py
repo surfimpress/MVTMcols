@@ -29,7 +29,7 @@ from __future__ import annotations
 import argparse
 import os
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 from .. import _support as _sup
 from .. import detect_boxes as _boxes
@@ -38,10 +38,23 @@ from .. import detect_captions as _captions
 OUT_DIR = os.path.join(_sup.REPO_ROOT, "preview", "scaled", "grids")
 
 CELL_PCT = 0.5        # cell side, as a percentage of PAGE WIDTH
-CELL_PX = 8           # on-screen size of one cell
+CELL_PX = 10          # on-screen size of one cell
 STEP_DARK = 0.25      # each separator in a cell adds this much darkness
-GRID_LINE = (215, 219, 226)
-LABEL = (90, 96, 108)
+
+# Graph-paper ruling: a very faint minor line, a slightly stronger one
+# every MAJOR_EVERY cells. The minor line WAS (215,219,226) on every cell
+# edge, which at 8px cells put ~23% of the image's pixels into grid ink --
+# enough that any downscaling greyed the whole render out. Faint minor
+# lines keep the grid readable while leaving the data to carry the image.
+GRID_LINE = (238, 240, 244)
+GRID_MAJOR = (206, 211, 220)
+MAJOR_EVERY = 10
+LABEL = (60, 66, 78)
+FONT_PATHS = ("/System/Library/Fonts/Supplemental/Arial.ttf",
+              "/Library/Fonts/Arial.ttf",
+              "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
+FONT_AXIS = 15
+FONT_TITLE = 17
 JUNCTION = (200, 30, 40)   # a separator END sharing a cell with another
 NEAR = (255, 45, 200)      # a separator END one cell away from another
 GUTTER = (250, 214, 60)    # column gutter CENTRE line, blended in
@@ -291,13 +304,25 @@ def build(conn, page_id: str, clean: bool = False):
             len(regions), len(swallowed), len(units), n_gut, n_edge)
 
 
+def _font(size: int):
+    """A real TrueType face. PIL's default is a tiny bitmap font, which is
+    what made the axis labels unreadable once the image was scaled."""
+    for path in FONT_PATHS:
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            continue
+    return ImageFont.load_default()
+
+
 def _blend(base: tuple, tint: tuple, amount: float) -> tuple:
     return tuple(int(b * (1 - amount) + t * amount) for b, t in zip(base, tint))
 
 
 def render(counts, junction, near, gutter, photo, n_cols, n_rows,
            title: str, out_path: str) -> str:
-    pad_l, pad_t, pad_b = 34, 26, 8
+    pad_l, pad_t, pad_b = 46, 34, 30
+    f_axis, f_title = _font(FONT_AXIS), _font(FONT_TITLE)
     W = pad_l + n_cols * CELL_PX
     H = pad_t + n_rows * CELL_PX + pad_b
     img = Image.new("RGB", (W, H), (255, 255, 255))
@@ -329,16 +354,29 @@ def render(counts, junction, near, gutter, photo, n_cols, n_rows,
                 fill = JUNCTION
             if fill:
                 d.rectangle([x0, y0, x0 + CELL_PX, y0 + CELL_PX], fill=fill)
-            d.rectangle([x0, y0, x0 + CELL_PX, y0 + CELL_PX],
-                        outline=GRID_LINE)
+
+    # Grid lines LAST, so they sit over the fills without being repainted
+    # per cell, and only one line per edge rather than one per cell.
+    for x in range(n_cols + 1):
+        major = x % MAJOR_EVERY == 0
+        gx = pad_l + x * CELL_PX
+        d.line([(gx, pad_t), (gx, pad_t + n_rows * CELL_PX)],
+               fill=GRID_MAJOR if major else GRID_LINE)
+    for y in range(n_rows + 1):
+        major = y % MAJOR_EVERY == 0
+        gy = pad_t + y * CELL_PX
+        d.line([(pad_l, gy), (pad_l + n_cols * CELL_PX, gy)],
+               fill=GRID_MAJOR if major else GRID_LINE)
 
     step = 20 if n_cols > 120 else 10
     for x in range(0, n_cols + 1, step):
-        d.text((pad_l + x * CELL_PX - 6, 8), str(x), fill=LABEL)
+        d.text((pad_l + x * CELL_PX, pad_t - 20), str(x),
+               fill=LABEL, font=f_axis, anchor="mm")
     for y in range(0, n_rows + 1, step):
-        d.text((4, pad_t + y * CELL_PX - 4), str(y), fill=LABEL)
+        d.text((pad_l - 22, pad_t + y * CELL_PX), str(y),
+               fill=LABEL, font=f_axis, anchor="mm")
 
-    d.text((pad_l, H - pad_b - 2), title, fill=(0, 0, 0))
+    d.text((pad_l, H - pad_b + 6), title, fill=(0, 0, 0), font=f_title)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     img.save(out_path)
     return out_path
