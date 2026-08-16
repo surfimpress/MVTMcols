@@ -1130,42 +1130,131 @@ uses a flat ±0.5 page-percent for its enclosure containment. It is an
 experiment, not in the live path, and is left alone deliberately rather
 than changed as a side effect of an unrelated pass.
 
-## 5o. NEXT — the agreed sequence (set 2026-08-16)
+## 5o. NEXT — the agreed sequence (set 2026-08-16, planned 2026-08-16)
 
-To run after the current rework. Each step is stated with the measurement
-that motivates it, so a future session can tell whether it is still
-warranted.
+Four steps, in order, each depending on the one before. Every step is
+stated with the measurement that motivates it, the guard that stops it
+running away, and — separately — **how it will be checked by something
+that did not produce it.** That last column is the point: the second Opus
+review's sharpest criticism was that every number offered as verification
+so far has been one the pipeline generated about itself.
 
-**1. Columns, pass 2 — with boxed content and photos REMOVED.**
-Re-fit the column grid on what is left once `page_zones` and the photo
-regions are taken out, so the columns describe the ARTICLES rather than
-the ads. This is the fix for a problem already measured and recorded in
-§5f: **30% of all text blocks sit inside a display ad** (100% on a
-full-page-ad page), and an ad's interior is set to its own grid, not the
-page's. That contamination is what halved the grid on 1980-04-06 p2,
-fitting 14 columns at 6.45% pitch where the real measure is ~10.5%. An
-earlier attempt to exclude ad interiors was inconclusive *because the ad
-boxes were LLM-labelled and the test was confounded* — now that
-`detect_zones` supplies them classically, the experiment can be run
-properly.
+### The independent checks available
 
-**2. Which boxed areas are ARTICLES, not ads.** `detect_zones` finds
-ruled rectangles; it does not say what they are. Note the corpus already
-carries evidence for this: zone content (blocks/lines/photos), `x_size`
-per line, Tesseract's own `ocr_header`, and — for the two issues that went
-through the production route — `items.item_type`, which is a non-circular
-label to test against.
+There are four, and they are independent for stated reasons:
 
-**3. Horizontals, re-tracked at that point.** Stage 3 currently draws on
-rules, photo edges and heading tops (§5h). With the boxes known, the
-horizontals that merely bound an ad can be separated from those that
-divide editorial content, which is the distinction that view is for.
+| check | why it is independent |
+|---|---|
+| Horizontal rule endpoints vs column edges | horizontal rules take NO part in the column fit; currently 52% land within 1% of an edge against a 21% control |
+| `items.item_type='display_ad'` | produced by the OCR+LLM route from the page IMAGE; separators and corners contribute nothing to it. Covers **83 of 90 pages, 256 of 273 zones, 359 ad labels** |
+| `experiments/confirm_boxes_ccl.py` | connected-component labelling of the rule raster — a different algorithm on the same ink |
+| Rendering the page | the only one that has ever caught a real regression here (§5z) |
 
-**4. Join non-boxed content into single items.** Assemble the remaining
-blocks into stories, respecting newspaper layout rules — modular layout
-means a story is a rectangle spanning an integer number of columns
-(`typesetting_practice.md`). This is the step that attacks the real prize:
-`items` segmentation is **72%** of the OCR+LLM route's token cost.
+**Known disagreement to resolve BEFORE step 1.** The CCL check currently
+reports 4/38 agreement on 1980-04-06 p8, 3/9 on p2, 0/5 on 1986-01-08 p2.
+Flood regions over-count (dilation closes rounded corners, gutters enclose),
+so 38 is not truth — but this has not been looked at, and step 1 takes
+`page_zones` as an input. Render p8 and p2 first.
+
+### 1. Columns, pass 2 — with boxed content and photos REMOVED
+
+**Why.** Measured and recorded in §5f: **30% of all text blocks sit inside
+a display ad** (100% on a full-page-ad page), and an ad's interior is set
+to its own grid, not the page's. That contamination halved the grid on
+1980-04-06 p2 — 14 columns at 6.45% pitch where the real measure is
+~10.5%. An earlier exclusion attempt was inconclusive *because the ad
+boxes were LLM-labelled and the test was confounded*; `detect_zones` now
+supplies them classically, so the experiment can finally be run clean.
+
+**Method.** Re-fit the lattice on the evidence left after removing blocks
+whose centre falls inside a `page_zones` rectangle, and the `ocr_photo`
+regions. Same fitter, same weighting — this is a change of INPUT, not of
+algorithm. Pass 1 is kept; pass 2 is stored alongside it.
+
+**Guards.** Two, both already established:
+  * **Pass 2 must agree with pass 1 within a margin of error** — the
+    user's rule from the archived refinement pass. Not twice as many
+    columns; a small correction. A pass-2 count outside pass 1 ±1 is a
+    failure to investigate, not a result to store.
+  * **Evidence floor.** Removing ad interiors removes real lines. If what
+    remains falls below the existing `low_evidence` threshold (60 text
+    lines), keep pass 1 and flag it. On an all-ads page there is no
+    editorial grid to find and the honest answer is "pass 1".
+
+**Independent check.** Rule-endpoint alignment should **improve** if the
+grid is truer to the editorial page, because horizontal rules never fed
+the fit. Baseline 52% within 1% against a 21% control; a pass-2 grid that
+scores WORSE on this has not been improved regardless of how much
+prettier its pitch looks. Plus: render 1980-04-06 p2, the known failure.
+
+### 2. Which boxed areas are ARTICLES, not ads
+
+**Why.** `detect_zones` finds ruled rectangles; it does not say what they
+are. Steps 3 and 4 both need to know, because an ad's boundary is not an
+editorial boundary.
+
+**Method.** Classically, from evidence already in the DB: zone content
+(blocks / lines / photos), the `x_size` distribution inside the zone (ad
+copy is display type, body text is uniform — but note §5f measured
+`x_size` does NOT cleanly separate ad interiors, 44 vs 36 overlapping, so
+expect it to be one weak signal among several), Tesseract's own
+`ocr_header`, position on the page, and whether the zone sits on the
+column lattice.
+
+**Guard.** Do not build a confidence score. §5g is an archived dead end
+for exactly this: detectors that discover structure from weak signals and
+then grade their own trustworthiness certify themselves every time. Emit
+the evidence per zone and let the decision be a stated rule.
+
+**Independent check.** `items.item_type='display_ad'`, on the 256 zones
+that have it. This is a real label from a different route reading the
+image. Report precision AND recall — §5c is the record of a metric that
+scored a visibly wrong page 0.853 by measuring only precision.
+
+### 3. Horizontals, re-tracked with the boxes known
+
+**Why.** Stage 3 currently draws on rules, photo edges and heading tops
+(§5h) and cannot tell an ad's top border from a rule dividing two stories.
+That distinction is the whole point of the view.
+
+**Method.** Label each alignment by whether it coincides with a
+`page_zones` edge. What remains — rules and heading tops NOT explained by
+a box — is editorial structure, and is the input to step 4.
+
+**Guard.** Keep storing everything, filtering stays the caller's business
+(§5h). Do not drop ad-boundary alignments; label them.
+
+**Independent check.** Render. An editorial-only horizontal layer should
+visibly follow story breaks on 1997-01-08 p1 and p4, which were chosen
+earlier precisely because they have clear editorial segments.
+
+### 4. Join non-boxed content into single items
+
+**Why.** This is the prize: `items` segmentation is **72%** of the
+OCR+LLM route's token cost — 74,720 tokens/page of the ~104k, which over
+70,063 pages is where the 5.4-7.3 billion-token estimate comes from.
+
+**Method.** Within the editorial region (page content area minus boxed
+zones), group blocks into stories bounded by the step-3 editorial
+horizontals and by the column lattice. Respect modular layout: a story is
+a RECTANGLE spanning an INTEGER number of columns
+(`typesetting_practice.md`). A story that wraps an inset ad is a
+rectilinear region, not a bounding box — the same lesson as
+`project_merge_polygon_union_not_bbox`.
+
+**Guard.** Coverage is the invariant that matters: every text block must
+land in exactly one item, and anything unclaimed must surface as an
+explicit orphan rather than vanish. The production route learned this the
+expensive way — 4 of 188 blocks silently dropped on 2001-01-03 p9 — and
+answered it with `recover_orphaned_blocks()`. Build the equivalent from
+the start, not after the incident.
+
+**Independent check.** Against the production route's own `items` on the
+83 covered pages: how many classically-derived items correspond 1:1 to an
+LLM-derived one, and what the disagreements look like. That comparison is
+the actual deliverable of this whole experiment — it is the number that
+says whether the LLM pass can be reduced to a cheap confirmation, and
+therefore whether the corpus is affordable.
 
 ## 6. What this implies for the plan
 
