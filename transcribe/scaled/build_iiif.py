@@ -354,16 +354,22 @@ def _derived_layers(conn, page_id, cid, W, H, variant):
         if blk.get("left") is not None and blk.get("top") is not None:
             x0, x1 = _sup.pct_to_px(blk["left"], W), _sup.pct_to_px(blk["right"], W)
             y0, y1 = _sup.pct_to_px(blk["top"], H), _sup.pct_to_px(blk["bottom"], H)
-            out.append(("Content area — from text BLOCKS (proposed)", [_anno(
+            ag = blk.get("agree") or {}
+            sanity = blk.get("sanity") or []
+            out.append(("Content area — from AGREEMENT (proposed)", [_anno(
                 f"{cid}/anno/contentblk/box", cid, x0, y0,
-                max(1, x1 - x0), max(1, y1 - y0), "", "content area (blocks)",
-                kind="content area (blocks)",
+                max(1, x1 - x0), max(1, y1 - y0), "", "content area (agreement)",
+                kind="content area (agreement)",
                 detail=f"{blk['left']}%-{blk['right']}% x "
                        f"{blk['top']}%-{blk['bottom']}% "
-                       f"(w {blk['width']}% h {blk['height']}%) "
-                       f"from {blk['n_items']} text blocks · "
-                       f"{blk['n_outside']} of {blk['n_all']} items of all "
-                       f"types fall outside it")]))
+                       f"(w {blk['width']}% h {blk['height']}%) · "
+                       "items agreeing on each edge: "
+                       + ", ".join(f"{k} {ag.get(k, 0)}"
+                                   for k in ("left", "right", "top", "bottom"))
+                       + f" · of {blk['n_items']} items (all types, shadows "
+                         f"removed), {blk['n_outside']} fall outside"
+                       + (f" · SENSE CHECK: {', '.join(sanity)} implausible"
+                          if sanity else ""))]))
     return out
 
 
