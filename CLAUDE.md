@@ -287,6 +287,17 @@ that.
     headline does span columns. IIIF `layout` variant draws the real
     outlines via `SvgSelector` (a `<path>`, not a `<polygon>` — see
     mirador#3875).
+  - **OPEN, not built — SPLIT blocks that wrongly cross columns**
+    (`scaled_pipeline.md` §5w). The user's idea, and NOT part of the
+    vision line closed below: pixel analysis here is a SPLITTER, not a
+    segmenter. Where the ink shows a definite gap inside a block that
+    claims continuous text, that licenses a cut. Stage 1a made the target
+    precise — `PT_FLOWING_TEXT` means "lives inside a column" yet
+    **1,255 of 5,021 such blocks (25%) span >1 column by our lattice**,
+    so Tesseract and our lattice disagree and pixels can adjudicate. If
+    built, use the expired Google patent's tall-narrow-window filter
+    (§5v), run only inside the disagreeing blocks. Falsify first by
+    sampling ink density across known gutters — an hour, not a day.
   - **VISION-ONLY layout analysis is CLOSED** (2026-08-16, four runs,
     `instructions/scaled_pipeline.md` §5u). 38-87k tokens for ONE page,
     the same order as the 77-104k/page the experiment exists to escape.

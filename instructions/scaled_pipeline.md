@@ -1473,6 +1473,74 @@ sweeping across the corpus and, more likely, making adaptive — a rule's
 weight is a property of the printing, and §5j already records opposite
 sides of one box differing 28px vs 48px.
 
+## 5w. OPEN — split Tesseract blocks that wrongly cross columns
+
+**Proposed by the user 2026-08-16, not built.** This is a live direction,
+NOT part of the vision line archived in §5u. Keep them apart: §5u closed
+because paying a model to look at a page costs what we are trying to
+escape. This costs nothing per page.
+
+### The idea, in the user's framing
+
+Pixel analysis here is not a segmenter, it is a SPLITTER. Tesseract
+sometimes runs a block across a column gutter. If we can observe a
+definite break in the ink — a white channel where the block claims there
+is text — that licenses cutting the block into its components. It
+overcomes a Tesseract limitation using evidence Tesseract did not use.
+
+### Stage 1a made the target precise
+
+Before stage 1a the target was vague: "blocks that look too wide". Now
+Tesseract labels its own blocks by their relationship to the column
+lattice (§5v), so the target is a DISAGREEMENT:
+
+    PT_FLOWING_TEXT means "text that lives inside a column"
+    -- yet 1,255 of 5,021 such blocks (25%) span more than one column
+       by our fitted lattice.
+
+Tesseract says one column; our lattice says several. One of them is
+wrong, and pixels can adjudicate. That is a far sharper population than
+"all wide blocks", and it also cuts both ways: where the ink shows no
+gap, OUR lattice is the thing in question.
+
+### Method, if built
+
+Per §5v, build the expired Google patent's filter (US8290268B2), NOT a
+projection profile and NOT full Breuel:
+
+  * centre a tall narrow window on each pixel; mark it a gutter pixel if
+    ~99% of the rows in that window are white;
+  * window dimensions are a constant multiple of the MODE CONNECTED-
+    COMPONENT HEIGHT, so it auto-scales to body type across our
+    1900-2007 range;
+  * inherently local — no full-height assumption, which is what killed
+    the archived projection approach on modular pages.
+
+Run it only inside the bounding boxes of the disagreeing blocks, not over
+the whole page. That keeps the cost trivial and the question narrow.
+
+### What is already known and should not be re-derived
+
+  * **Skew:** the user reports it is NOT a significant issue for 1980+
+    issues, but may matter for earlier ones. `page_hocr_lines.
+    baseline_slope` is already parsed and stored, so it is measurable
+    without new work. The arithmetic that matters: a gutter at 300dpi is
+    ~30-60px, and a 6000px column skewed 0.3 degrees smears ~31px, so a
+    full-height projection closes a gutter at that angle. A 1000px window
+    tolerates ~1.7 degrees.
+  * **Bleed-through** puts faint ink in gutters on thin newsprint; a
+    threshold for solid ink rather than any darkness handles most of it.
+  * **One surviving speck breaks a channel** — despeckle on a separate
+    copy used only for this test, never on the OCR image.
+  * The binding shadow and sheet edge are already located by stage 1b.
+
+### The first experiment, before building anything
+
+Falsify it cheaply: sample the ink profile across a few known gutter
+positions (from the fitted lattice) on a handful of pages. If ink density
+in a real gutter is not clearly separable from ink density in a text
+column, the approach dies there for an hour's work rather than a day's.
+
 ## 5u. CLOSED — vision-only layout analysis (tested 2026-08-16)
 
 **Do not reopen without a reason that is not in this section.** Four
@@ -1879,4 +1947,6 @@ python3 -m transcribe.scaled.render_overlay YYYY-MM-DD [--page N]
   reasoning; only Opus derived the column grid; cost and quality are not
   monotonic) and §5v for the prior-art brief, two of whose findings were
   acted on — hOCR line classes are column-span verdicts, and stage 1a now
-  recovers Tesseract's own layout polygons.
+  recovers Tesseract's own layout polygons. **Only the LLM-vision line is
+  closed.** §5v (prior art) and §5w (splitting cross-column blocks from
+  ink gaps) are LIVE.
